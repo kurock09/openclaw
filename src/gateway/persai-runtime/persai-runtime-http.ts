@@ -18,6 +18,8 @@ export const RUNTIME_CHAT_WEB_PATH = "/api/v1/runtime/chat/web";
 export const RUNTIME_CHAT_WEB_STREAM_PATH = "/api/v1/runtime/chat/web/stream";
 
 const MAX_RUNTIME_JSON_BYTES = 1_000_000;
+const MISSING_APPLIED_SPEC_ERROR =
+  "Applied runtime spec was not found for the requested assistant version.";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -240,10 +242,9 @@ export async function handleRuntimeChatWebHttpRequest(params: {
     return true;
   }
 
-  sendJson(res, 200, {
-    ok: true,
-    assistantMessage: `[openclaw-compat] ${userMessage}`,
-    respondedAt: new Date().toISOString(),
+  sendJson(res, 503, {
+    ok: false,
+    error: MISSING_APPLIED_SPEC_ERROR
   });
   return true;
 }
@@ -331,30 +332,25 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
   res.setHeader("X-Persai-Runtime-Session-Key", sessionKey);
 
   const applied = await store.get(assistantId, publishedVersionId);
-  res.statusCode = 200;
-  res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
-  res.setHeader("Cache-Control", "no-cache");
-
-  if (applied) {
-    const extraSystemPrompt = extractPersonaInstructionsFromWorkspace(applied.workspace) ?? undefined;
-    await runPersaiWebRuntimeAgentTurnStream({
-      req,
-      res,
-      userMessage,
-      sessionKey,
-      extraSystemPrompt,
+  if (!applied) {
+    sendJson(res, 503, {
+      ok: false,
+      error: MISSING_APPLIED_SPEC_ERROR
     });
     return true;
   }
 
-  const prefix = `[openclaw-compat-stream]`;
-  const answer = `${prefix} ${userMessage}`;
-  const chunks = answer.split(" ");
-  for (let index = 0; index < chunks.length; index += 1) {
-    const text = index === chunks.length - 1 ? chunks[index] : `${chunks[index]} `;
-    res.write(`${JSON.stringify({ type: "delta", delta: text })}\n`);
-  }
-  res.write(`${JSON.stringify({ type: "done", respondedAt: new Date().toISOString() })}\n`);
-  res.end();
+  res.statusCode = 200;
+  res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache");
+
+  const extraSystemPrompt = extractPersonaInstructionsFromWorkspace(applied.workspace) ?? undefined;
+  await runPersaiWebRuntimeAgentTurnStream({
+    req,
+    res,
+    userMessage,
+    sessionKey,
+    extraSystemPrompt,
+  });
   return true;
 }
