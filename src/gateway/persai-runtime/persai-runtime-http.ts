@@ -6,6 +6,10 @@ import {
 import { readJsonBody } from "../hooks.js";
 import { sendGatewayAuthFailure } from "../http-common.js";
 import { getBearerToken } from "../http-utils.js";
+import {
+  runPersaiWebRuntimeAgentTurnStream,
+  runPersaiWebRuntimeAgentTurnSync,
+} from "./persai-runtime-agent-turn.js";
 import { derivePersaiWebRuntimeSessionKey } from "./persai-runtime-session.js";
 import type { PersaiRuntimeSpecStore } from "./persai-runtime-spec-store.js";
 
@@ -216,18 +220,29 @@ export async function handleRuntimeChatWebHttpRequest(params: {
   res.setHeader("X-Persai-Runtime-Session-Key", sessionKey);
 
   const applied = await store.get(assistantId, publishedVersionId);
-  // P3: delegate to embedded agent when wired; until then transport-safe echo proves store + persona read path.
-  let assistantMessage: string;
   if (applied) {
-    const personaHint = extractPersonaInstructionsFromWorkspace(applied.workspace);
-    assistantMessage = `[openclaw-persai-runtime]${personaHint ? " [persona_loaded]" : ""} ${userMessage}`;
-  } else {
-    assistantMessage = `[openclaw-compat] ${userMessage}`;
+    const extraSystemPrompt = extractPersonaInstructionsFromWorkspace(applied.workspace) ?? undefined;
+    const agentOut = await runPersaiWebRuntimeAgentTurnSync({
+      userMessage,
+      sessionKey,
+      extraSystemPrompt,
+    });
+    if (!agentOut.ok) {
+      sendJson(res, 500, { ok: false, error: agentOut.error });
+      return true;
+    }
+    const assistantMessage = agentOut.assistantMessage.trim() || "No response from OpenClaw.";
+    sendJson(res, 200, {
+      ok: true,
+      assistantMessage,
+      respondedAt: new Date().toISOString(),
+    });
+    return true;
   }
 
   sendJson(res, 200, {
     ok: true,
-    assistantMessage,
+    assistantMessage: `[openclaw-compat] ${userMessage}`,
     respondedAt: new Date().toISOString(),
   });
   return true;
@@ -316,14 +331,25 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
   res.setHeader("X-Persai-Runtime-Session-Key", sessionKey);
 
   const applied = await store.get(assistantId, publishedVersionId);
-  const prefix = applied
-    ? `[openclaw-persai-runtime-stream]${extractPersonaInstructionsFromWorkspace(applied.workspace) ? "[persona_loaded]" : ""}`
-    : `[openclaw-compat-stream]`;
-  const answer = `${prefix} ${userMessage}`;
-  const chunks = answer.split(" ");
   res.statusCode = 200;
   res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
   res.setHeader("Cache-Control", "no-cache");
+
+  if (applied) {
+    const extraSystemPrompt = extractPersonaInstructionsFromWorkspace(applied.workspace) ?? undefined;
+    await runPersaiWebRuntimeAgentTurnStream({
+      req,
+      res,
+      userMessage,
+      sessionKey,
+      extraSystemPrompt,
+    });
+    return true;
+  }
+
+  const prefix = `[openclaw-compat-stream]`;
+  const answer = `${prefix} ${userMessage}`;
+  const chunks = answer.split(" ");
   for (let index = 0; index < chunks.length; index += 1) {
     const text = index === chunks.length - 1 ? chunks[index] : `${chunks[index]} `;
     res.write(`${JSON.stringify({ type: "delta", delta: text })}\n`);
