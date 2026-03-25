@@ -143,6 +143,9 @@ importers:
       qrcode-terminal:
         specifier: ^0.12.0
         version: 0.12.0
+      redis:
+        specifier: ^5.11.0
+        version: 5.11.0
       sharp:
         specifier: ^0.34.5
         version: 0.34.5
@@ -451,7 +454,7 @@ importers:
     dependencies:
       openclaw:
         specifier: '>=2026.3.11'
-        version: 2026.3.13(@discordjs/opus@0.10.0)(@napi-rs/canvas@0.1.95)(@types/express@5.0.6)(audio-decode@2.2.3)(jimp@1.6.0)(node-llama-cpp@3.16.2(typescript@5.9.3))
+        version: 2026.3.13(@napi-rs/canvas@0.1.95)(@types/express@5.0.6)(audio-decode@2.2.3)(jimp@1.6.0)(node-llama-cpp@3.16.2(typescript@5.9.3))
 
   extensions/memory-lancedb:
     dependencies:
@@ -2677,6 +2680,39 @@ packages:
   '@quansync/fs@1.0.0':
     resolution: {integrity: sha512-4TJ3DFtlf1L5LDMaM6CanJ/0lckGNtJcMjQ1NAV6zDmA0tEHKZtxNKin8EgPaVX1YzljbxckyT2tJrpQKAtngQ==}
 
+  '@redis/bloom@5.11.0':
+    resolution: {integrity: sha512-KYiVilAhAFN3057afUb/tfYJpsEyTkQB+tQcn5gVVA7DgcNOAj8lLxe4j8ov8BF6I9C1Fe/kwlbuAICcTMX8Lw==}
+    engines: {node: '>= 18'}
+    peerDependencies:
+      '@redis/client': ^5.11.0
+
+  '@redis/client@5.11.0':
+    resolution: {integrity: sha512-GHoprlNQD51Xq2Ztd94HHV94MdFZQ3CVrpA04Fz8MVoHM0B7SlbmPEVIjwTbcv58z8QyjnrOuikS0rWF03k5dQ==}
+    engines: {node: '>= 18'}
+    peerDependencies:
+      '@node-rs/xxhash': ^1.1.0
+    peerDependenciesMeta:
+      '@node-rs/xxhash':
+        optional: true
+
+  '@redis/json@5.11.0':
+    resolution: {integrity: sha512-1iAy9kAtcD0quB21RbPTbUqqy+T2Uu2JxucwE+B4A+VaDbIRvpZR6DMqV8Iqaws2YxJYB3GC5JVNzPYio2ErUg==}
+    engines: {node: '>= 18'}
+    peerDependencies:
+      '@redis/client': ^5.11.0
+
+  '@redis/search@5.11.0':
+    resolution: {integrity: sha512-g1l7f3Rnyk/xI99oGHIgWHSKFl45Re5YTIcO8j/JE8olz389yUFyz2+A6nqVy/Zi031VgPDWscbbgOk8hlhZ3g==}
+    engines: {node: '>= 18'}
+    peerDependencies:
+      '@redis/client': ^5.11.0
+
+  '@redis/time-series@5.11.0':
+    resolution: {integrity: sha512-TWFeOcU4xkj0DkndnOyhtxvX1KWD+78UHT3XX3x3XRBUGWeQrKo3jqzDsZwxbggUgf9yLJr/akFHXru66X5UQA==}
+    engines: {node: '>= 18'}
+    peerDependencies:
+      '@redis/client': ^5.11.0
+
   '@reflink/reflink-darwin-arm64@0.1.19':
     resolution: {integrity: sha512-ruy44Lpepdk1FqDz38vExBY/PVUsjxZA+chd9wozjUH9JjuDT/HEaQYA6wYN9mf041l0yLVar6BCZuWABJvHSA==}
     engines: {node: '>= 10'}
@@ -3890,6 +3926,10 @@ packages:
   cliui@8.0.1:
     resolution: {integrity: sha512-BSeNnyus75C4//NQ9gQt1/csTXyo/8Sb+afLAkzAptFuMsod9HFokGNudZpi/oQV73hnVK+sR+5PVRMd+Dr7YQ==}
     engines: {node: '>=12'}
+
+  cluster-key-slot@1.1.2:
+    resolution: {integrity: sha512-RMr0FhtfXemyinomL4hrWcYJxmX6deFdCxpJzhDttxgO1+bcCnkk+9drydLVDmAMG7NE6aN/fl4F7ucU/90gAA==}
+    engines: {node: '>=0.10.0'}
 
   cmake-js@8.0.0:
     resolution: {integrity: sha512-YbUP88RDwCvoQkZhRtGURYm9RIpWdtvZuhT87fKNoLjk8kIFIFeARpKfuZQGdwfH99GZpUmqSfcDrK62X7lTgg==}
@@ -5687,6 +5727,10 @@ packages:
     resolution: {integrity: sha512-57frrGM/OCTLqLOAh0mhVA9VBMHd+9U7Zb2THMGdBUoZVOtGbJzjxsYGDJ3A9AYYCP4hn6y1TVbaOfzWtm5GFg==}
     engines: {node: '>= 12.13.0'}
 
+  redis@5.11.0:
+    resolution: {integrity: sha512-YwXjATVDT+AuxcyfOwZn046aml9jMlQPvU1VXIlLDVAExe0u93aTfPYSeRgG4p9Q/Jlkj+LXJ1XEoFV+j2JKcQ==}
+    engines: {node: '>= 18'}
+
   reflect-metadata@0.2.2:
     resolution: {integrity: sha512-urBwgfrvVP/eAyXx4hluJivBKzuEbSQs9rKWCrCkbSxNv8mxPcUZKeuoF3Uy4mJl3Lwprp6yy5/39VWigZ4K6Q==}
 
@@ -7310,7 +7354,7 @@ snapshots:
     dependencies:
       css-tree: 3.2.1
 
-  '@buape/carbon@0.0.0-beta-20260216184201(@discordjs/opus@0.10.0)(hono@4.12.8)(opusscript@0.1.1)':
+  '@buape/carbon@0.0.0-beta-20260216184201(hono@4.12.8)(opusscript@0.1.1)':
     dependencies:
       '@types/node': 25.5.0
       discord-api-types: 0.38.37
@@ -9138,6 +9182,26 @@ snapshots:
     dependencies:
       quansync: 1.0.0
 
+  '@redis/bloom@5.11.0(@redis/client@5.11.0)':
+    dependencies:
+      '@redis/client': 5.11.0
+
+  '@redis/client@5.11.0':
+    dependencies:
+      cluster-key-slot: 1.1.2
+
+  '@redis/json@5.11.0(@redis/client@5.11.0)':
+    dependencies:
+      '@redis/client': 5.11.0
+
+  '@redis/search@5.11.0(@redis/client@5.11.0)':
+    dependencies:
+      '@redis/client': 5.11.0
+
+  '@redis/time-series@5.11.0(@redis/client@5.11.0)':
+    dependencies:
+      '@redis/client': 5.11.0
+
   '@reflink/reflink-darwin-arm64@0.1.19':
     optional: true
 
@@ -10514,6 +10578,8 @@ snapshots:
       string-width: 4.2.3
       strip-ansi: 6.0.1
       wrap-ansi: 7.0.0
+
+  cluster-key-slot@1.1.2: {}
 
   cmake-js@8.0.0:
     dependencies:
@@ -12116,11 +12182,11 @@ snapshots:
       ws: 8.19.0
       zod: 4.3.6
 
-  openclaw@2026.3.13(@discordjs/opus@0.10.0)(@napi-rs/canvas@0.1.95)(@types/express@5.0.6)(audio-decode@2.2.3)(jimp@1.6.0)(node-llama-cpp@3.16.2(typescript@5.9.3)):
+  openclaw@2026.3.13(@napi-rs/canvas@0.1.95)(@types/express@5.0.6)(audio-decode@2.2.3)(jimp@1.6.0)(node-llama-cpp@3.16.2(typescript@5.9.3)):
     dependencies:
       '@agentclientprotocol/sdk': 0.16.1(zod@4.3.6)
       '@aws-sdk/client-bedrock': 3.1011.0
-      '@buape/carbon': 0.0.0-beta-20260216184201(@discordjs/opus@0.10.0)(hono@4.12.8)(opusscript@0.1.1)
+      '@buape/carbon': 0.0.0-beta-20260216184201(hono@4.12.8)(opusscript@0.1.1)
       '@clack/prompts': 1.1.0
       '@discordjs/voice': 0.19.2(@discordjs/opus@0.10.0)(opusscript@0.1.1)
       '@grammyjs/runner': 2.0.3(grammy@1.41.1)
@@ -12655,6 +12721,16 @@ snapshots:
   readdirp@5.0.0: {}
 
   real-require@0.2.0: {}
+
+  redis@5.11.0:
+    dependencies:
+      '@redis/bloom': 5.11.0(@redis/client@5.11.0)
+      '@redis/client': 5.11.0
+      '@redis/json': 5.11.0(@redis/client@5.11.0)
+      '@redis/search': 5.11.0(@redis/client@5.11.0)
+      '@redis/time-series': 5.11.0(@redis/client@5.11.0)
+    transitivePeerDependencies:
+      - '@node-rs/xxhash'
 
   reflect-metadata@0.2.2: {}
 
