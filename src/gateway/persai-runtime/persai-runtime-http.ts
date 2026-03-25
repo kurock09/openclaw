@@ -10,6 +10,11 @@ import {
   runPersaiWebRuntimeAgentTurnStream,
   runPersaiWebRuntimeAgentTurnSync,
 } from "./persai-runtime-agent-turn.js";
+import {
+  extractPersaiRuntimeModelOverride,
+  PersaiRuntimeProviderProfileValidationError,
+  validatePersaiRuntimeProviderProfileForApply,
+} from "./persai-runtime-provider-profile.js";
 import { derivePersaiWebRuntimeSessionKey } from "./persai-runtime-session.js";
 import type { PersaiRuntimeSpecStore } from "./persai-runtime-spec-store.js";
 
@@ -114,6 +119,21 @@ export async function handleRuntimeSpecApplyHttpRequest(params: {
         "Invalid runtime spec apply payload. Required fields: assistantId, publishedVersionId, contentHash, spec.bootstrap, spec.workspace.",
     });
     return true;
+  }
+
+  try {
+    await validatePersaiRuntimeProviderProfileForApply(
+      (spec as Record<string, unknown>).bootstrap,
+    );
+  } catch (error) {
+    if (error instanceof PersaiRuntimeProviderProfileValidationError) {
+      sendJson(res, 400, {
+        ok: false,
+        error: error.message,
+      });
+      return true;
+    }
+    throw error;
   }
 
   const appliedAt = new Date().toISOString();
@@ -224,10 +244,13 @@ export async function handleRuntimeChatWebHttpRequest(params: {
   const applied = await store.get(assistantId, publishedVersionId);
   if (applied) {
     const extraSystemPrompt = extractPersonaInstructionsFromWorkspace(applied.workspace) ?? undefined;
+    const runtimeOverride = extractPersaiRuntimeModelOverride(applied.bootstrap);
     const agentOut = await runPersaiWebRuntimeAgentTurnSync({
       userMessage,
       sessionKey,
       extraSystemPrompt,
+      providerOverride: runtimeOverride?.provider,
+      modelOverride: runtimeOverride?.model,
     });
     if (!agentOut.ok) {
       sendJson(res, 500, { ok: false, error: agentOut.error });
@@ -345,12 +368,15 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
   res.setHeader("Cache-Control", "no-cache");
 
   const extraSystemPrompt = extractPersonaInstructionsFromWorkspace(applied.workspace) ?? undefined;
+  const runtimeOverride = extractPersaiRuntimeModelOverride(applied.bootstrap);
   await runPersaiWebRuntimeAgentTurnStream({
     req,
     res,
     userMessage,
     sessionKey,
     extraSystemPrompt,
+    providerOverride: runtimeOverride?.provider,
+    modelOverride: runtimeOverride?.model,
   });
   return true;
 }

@@ -22,12 +22,16 @@ function resolveAgentResponseText(result: unknown): string {
 function buildPersaiWebIngressCommandInput(params: {
   userMessage: string;
   extraSystemPrompt?: string;
+  providerOverride?: string;
+  modelOverride?: string;
   sessionKey: string;
   runId: string;
 }) {
   return {
     message: params.userMessage,
     extraSystemPrompt: params.extraSystemPrompt,
+    provider: params.providerOverride,
+    model: params.modelOverride,
     sessionKey: params.sessionKey,
     runId: params.runId,
     deliver: false as const,
@@ -43,12 +47,16 @@ export async function runPersaiWebRuntimeAgentTurnSync(params: {
   userMessage: string;
   sessionKey: string;
   extraSystemPrompt?: string;
+  providerOverride?: string;
+  modelOverride?: string;
 }): Promise<{ ok: true; assistantMessage: string } | { ok: false; error: string }> {
   const runId = randomUUID();
   const deps = createDefaultDeps();
   const commandInput = buildPersaiWebIngressCommandInput({
     userMessage: params.userMessage,
     extraSystemPrompt: params.extraSystemPrompt,
+    providerOverride: params.providerOverride,
+    modelOverride: params.modelOverride,
     sessionKey: params.sessionKey,
     runId,
   });
@@ -72,12 +80,16 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
   userMessage: string;
   sessionKey: string;
   extraSystemPrompt?: string;
+  providerOverride?: string;
+  modelOverride?: string;
 }): Promise<void> {
   const runId = randomUUID();
   const deps = createDefaultDeps();
   const commandInput = buildPersaiWebIngressCommandInput({
     userMessage: params.userMessage,
     extraSystemPrompt: params.extraSystemPrompt,
+    providerOverride: params.providerOverride,
+    modelOverride: params.modelOverride,
     sessionKey: params.sessionKey,
     runId,
   });
