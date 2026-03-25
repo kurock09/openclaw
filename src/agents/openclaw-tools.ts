@@ -250,5 +250,17 @@ export function createOpenClawTools(
     allowGatewaySubagentBinding: options?.allowGatewaySubagentBinding,
   });
 
-  return [...tools, ...pluginTools];
+  const allTools = [...tools, ...pluginTools];
+
+  const denyRaw = process.env.PERSAI_TOOL_DENY;
+  if (denyRaw) {
+    const denySet = new Set(
+      denyRaw.split(",").map((s) => s.trim()).filter(Boolean),
+    );
+    if (denySet.size > 0) {
+      return allTools.filter((tool) => !denySet.has(tool.name));
+    }
+  }
+
+  return allTools;
 }

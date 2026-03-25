@@ -17,6 +17,15 @@ import {
 } from "./persai-runtime-provider-profile.js";
 import { derivePersaiWebRuntimeSessionKey } from "./persai-runtime-session.js";
 import type { PersaiRuntimeSpecStore } from "./persai-runtime-spec-store.js";
+import {
+  buildToolDenyList,
+  extractToolCredentialRefs,
+  extractToolQuotaPolicy,
+  PersaiToolPolicyValidationError,
+  resolveToolCredentials,
+  validateToolPolicyForApply,
+} from "./persai-runtime-tool-policy.js";
+import { loadConfig } from "../../config/config.js";
 
 export const RUNTIME_SPEC_APPLY_PATH = "/api/v1/runtime/spec/apply";
 export const RUNTIME_CHAT_WEB_PATH = "/api/v1/runtime/chat/web";
@@ -136,6 +145,21 @@ export async function handleRuntimeSpecApplyHttpRequest(params: {
     throw error;
   }
 
+  try {
+    await validateToolPolicyForApply(
+      (spec as Record<string, unknown>).bootstrap,
+    );
+  } catch (error) {
+    if (error instanceof PersaiToolPolicyValidationError) {
+      sendJson(res, 400, {
+        ok: false,
+        error: error.message,
+      });
+      return true;
+    }
+    throw error;
+  }
+
   const appliedAt = new Date().toISOString();
   await store.put({
     assistantId,
@@ -245,12 +269,29 @@ export async function handleRuntimeChatWebHttpRequest(params: {
   if (applied) {
     const extraSystemPrompt = extractPersonaInstructionsFromWorkspace(applied.workspace) ?? undefined;
     const runtimeOverride = extractPersaiRuntimeModelOverride(applied.bootstrap);
+
+    const credentialRefs = extractToolCredentialRefs(applied.bootstrap);
+    const quotaPolicy = extractToolQuotaPolicy(applied.bootstrap);
+    const toolDenyList = buildToolDenyList(quotaPolicy);
+
+    let resolvedToolCredentials = new Map<string, string>();
+    if (credentialRefs.size > 0) {
+      try {
+        const cfg = loadConfig();
+        resolvedToolCredentials = await resolveToolCredentials(credentialRefs, cfg);
+      } catch {
+        // Non-fatal: tools will fall back to existing env vars
+      }
+    }
+
     const agentOut = await runPersaiWebRuntimeAgentTurnSync({
       userMessage,
       sessionKey,
       extraSystemPrompt,
       providerOverride: runtimeOverride?.provider,
       modelOverride: runtimeOverride?.model,
+      resolvedToolCredentials,
+      toolDenyList,
     });
     if (!agentOut.ok) {
       sendJson(res, 500, { ok: false, error: agentOut.error });
@@ -369,6 +410,21 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
 
   const extraSystemPrompt = extractPersonaInstructionsFromWorkspace(applied.workspace) ?? undefined;
   const runtimeOverride = extractPersaiRuntimeModelOverride(applied.bootstrap);
+
+  const streamCredentialRefs = extractToolCredentialRefs(applied.bootstrap);
+  const streamQuotaPolicy = extractToolQuotaPolicy(applied.bootstrap);
+  const streamToolDenyList = buildToolDenyList(streamQuotaPolicy);
+
+  let streamResolvedToolCredentials = new Map<string, string>();
+  if (streamCredentialRefs.size > 0) {
+    try {
+      const cfg = loadConfig();
+      streamResolvedToolCredentials = await resolveToolCredentials(streamCredentialRefs, cfg);
+    } catch {
+      // Non-fatal: tools will fall back to existing env vars
+    }
+  }
+
   await runPersaiWebRuntimeAgentTurnStream({
     req,
     res,
@@ -377,6 +433,8 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
     extraSystemPrompt,
     providerOverride: runtimeOverride?.provider,
     modelOverride: runtimeOverride?.model,
+    resolvedToolCredentials: streamResolvedToolCredentials,
+    toolDenyList: streamToolDenyList,
   });
   return true;
 }

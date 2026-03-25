@@ -19,6 +19,8 @@ function resolveAgentResponseText(result: unknown): string {
   return content || "No response from OpenClaw.";
 }
 
+const PERSAI_TOOL_DENY_ENV = "PERSAI_TOOL_DENY";
+
 function buildPersaiWebIngressCommandInput(params: {
   userMessage: string;
   extraSystemPrompt?: string;
@@ -42,6 +44,21 @@ function buildPersaiWebIngressCommandInput(params: {
   };
 }
 
+function injectToolCredentials(credentials: Map<string, string>): string[] {
+  const injectedKeys: string[] = [];
+  for (const [envVar, value] of credentials) {
+    process.env[envVar] = value;
+    injectedKeys.push(envVar);
+  }
+  return injectedKeys;
+}
+
+function cleanupInjectedEnv(keys: string[]): void {
+  for (const key of keys) {
+    delete process.env[key];
+  }
+}
+
 /** P3: one full embedded agent turn for PersAI web runtime (sync). */
 export async function runPersaiWebRuntimeAgentTurnSync(params: {
   userMessage: string;
@@ -49,6 +66,8 @@ export async function runPersaiWebRuntimeAgentTurnSync(params: {
   extraSystemPrompt?: string;
   providerOverride?: string;
   modelOverride?: string;
+  resolvedToolCredentials?: Map<string, string>;
+  toolDenyList?: string[];
 }): Promise<{ ok: true; assistantMessage: string } | { ok: false; error: string }> {
   const runId = randomUUID();
   const deps = createDefaultDeps();
@@ -60,6 +79,15 @@ export async function runPersaiWebRuntimeAgentTurnSync(params: {
     sessionKey: params.sessionKey,
     runId,
   });
+
+  const injectedKeys = params.resolvedToolCredentials
+    ? injectToolCredentials(params.resolvedToolCredentials)
+    : [];
+  const prevDeny = process.env[PERSAI_TOOL_DENY_ENV];
+  if (params.toolDenyList && params.toolDenyList.length > 0) {
+    process.env[PERSAI_TOOL_DENY_ENV] = params.toolDenyList.join(",");
+  }
+
   try {
     const result = await agentCommandFromIngress(commandInput, defaultRuntime, deps);
     return { ok: true, assistantMessage: resolveAgentResponseText(result) };
@@ -67,6 +95,13 @@ export async function runPersaiWebRuntimeAgentTurnSync(params: {
     const message = err instanceof Error ? err.message : String(err);
     logWarn(`persai-runtime: sync agent turn failed: ${message}`);
     return { ok: false, error: message };
+  } finally {
+    cleanupInjectedEnv(injectedKeys);
+    if (prevDeny !== undefined) {
+      process.env[PERSAI_TOOL_DENY_ENV] = prevDeny;
+    } else {
+      delete process.env[PERSAI_TOOL_DENY_ENV];
+    }
   }
 }
 
@@ -82,6 +117,8 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
   extraSystemPrompt?: string;
   providerOverride?: string;
   modelOverride?: string;
+  resolvedToolCredentials?: Map<string, string>;
+  toolDenyList?: string[];
 }): Promise<void> {
   const runId = randomUUID();
   const deps = createDefaultDeps();
@@ -93,6 +130,14 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
     sessionKey: params.sessionKey,
     runId,
   });
+
+  const injectedKeys = params.resolvedToolCredentials
+    ? injectToolCredentials(params.resolvedToolCredentials)
+    : [];
+  const prevDeny = process.env[PERSAI_TOOL_DENY_ENV];
+  if (params.toolDenyList && params.toolDenyList.length > 0) {
+    process.env[PERSAI_TOOL_DENY_ENV] = params.toolDenyList.join(",");
+  }
 
   let closed = false;
   let sawAssistantDelta = false;
@@ -145,6 +190,13 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
           params.res.write(`${JSON.stringify({ type: "delta", delta: `Error: ${message}` })}\n`);
         }
       } finally {
+        cleanupInjectedEnv(injectedKeys);
+        if (prevDeny !== undefined) {
+          process.env[PERSAI_TOOL_DENY_ENV] = prevDeny;
+        } else {
+          delete process.env[PERSAI_TOOL_DENY_ENV];
+        }
+
         if (!closed) {
           closed = true;
           unsubscribe();
