@@ -423,6 +423,64 @@ describe("secret ref resolver", () => {
     }
   });
 
+  it("resolves persai refs via the authenticated PersAI endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          protocolVersion: 1,
+          values: {
+            "openai/api-key": "sk-persai-value",
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+          },
+        },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const value = await resolveSecretRefString(
+        { source: "persai", provider: "persai-runtime", id: "openai/api-key" },
+        {
+          config: {
+            secrets: {
+              providers: {
+                "persai-runtime": {
+                  source: "persai",
+                  baseUrl: "http://api:3001",
+                  path: "/api/v1/internal/runtime/provider-secrets/resolve",
+                  tokenEnvVar: "OPENCLAW_GATEWAY_TOKEN",
+                },
+              },
+            },
+          } satisfies OpenClawConfig,
+          env: {
+            OPENCLAW_GATEWAY_TOKEN: "gateway-token",
+          },
+        },
+      );
+
+      expect(value).toBe("sk-persai-value");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledWith(
+        "http://api:3001/api/v1/internal/runtime/provider-secrets/resolve",
+        expect.objectContaining({
+          method: "POST",
+          headers: expect.objectContaining({
+            Authorization: "Bearer gateway-token",
+            "Content-Type": "application/json",
+          }),
+        }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("rejects misconfigured provider source mismatches", async () => {
     await expect(
       resolveSecretRefValue(

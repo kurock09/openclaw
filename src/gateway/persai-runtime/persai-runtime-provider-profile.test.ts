@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import {
   clearConfigCache,
   clearRuntimeConfigSnapshot,
@@ -65,6 +65,7 @@ function createBootstrap() {
 
 afterEach(() => {
   process.env = { ...ORIGINAL_ENV };
+  vi.unstubAllGlobals();
   clearRuntimeConfigSnapshot();
   clearConfigCache();
 });
@@ -89,6 +90,82 @@ describe("persai runtime provider profile", () => {
     process.env.ANTHROPIC_API_KEY = "sk-anthropic-test";
 
     await expect(validatePersaiRuntimeProviderProfileForApply(createBootstrap())).resolves.toBeUndefined();
+  });
+
+  test("validates allowlisted models and resolvable persai credential refs", async () => {
+    setRuntimeConfigSnapshot({
+      ...createRuntimeConfig(),
+      secrets: {
+        providers: {
+          "persai-runtime": {
+            source: "persai",
+            baseUrl: "http://api:3001",
+            path: "/api/v1/internal/runtime/provider-secrets/resolve",
+            tokenEnvVar: "OPENCLAW_GATEWAY_TOKEN",
+          },
+        },
+      },
+    } as OpenClawConfig);
+    process.env.OPENCLAW_GATEWAY_TOKEN = "gateway-token";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              protocolVersion: 1,
+              values: {
+                "openai/api-key": "sk-openai-test",
+                "anthropic/api-key": "sk-anthropic-test",
+              },
+            }),
+            {
+              status: 200,
+              headers: {
+                "content-type": "application/json",
+              },
+            },
+          ),
+        ),
+      ),
+    );
+
+    const bootstrap = createBootstrap() as {
+      governance: {
+        runtimeProviderProfile: {
+          primary: {
+            credentialRef: {
+              refKey: string;
+              secretRef: { source: string; provider: string; id: string };
+            };
+          };
+          fallback: {
+            credentialRef: {
+              refKey: string;
+              secretRef: { source: string; provider: string; id: string };
+            };
+          };
+        };
+      };
+    };
+    bootstrap.governance.runtimeProviderProfile.primary.credentialRef = {
+      refKey: "persai:persai-runtime:openai/api-key",
+      secretRef: {
+        source: "persai",
+        provider: "persai-runtime",
+        id: "openai/api-key",
+      },
+    };
+    bootstrap.governance.runtimeProviderProfile.fallback.credentialRef = {
+      refKey: "persai:persai-runtime:anthropic/api-key",
+      secretRef: {
+        source: "persai",
+        provider: "persai-runtime",
+        id: "anthropic/api-key",
+      },
+    };
+
+    await expect(validatePersaiRuntimeProviderProfileForApply(bootstrap)).resolves.toBeUndefined();
   });
 
   test("rejects missing provider credential refs in current runtime env", async () => {

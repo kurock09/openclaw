@@ -28,6 +28,7 @@ export type SecretRefDefaultsCarrier = {
       env?: string;
       file?: string;
       exec?: string;
+      persai?: string;
     };
     providers?: Record<string, { source?: string }>;
   };
@@ -47,7 +48,9 @@ export function resolveDefaultSecretProviderAlias(
       ? config.secrets?.defaults?.env
       : source === "file"
         ? config.secrets?.defaults?.file
-        : config.secrets?.defaults?.exec;
+        : source === "exec"
+          ? config.secrets?.defaults?.exec
+          : config.secrets?.defaults?.persai;
   if (configured?.trim()) {
     return configured.trim();
   }

@@ -1,4 +1,4 @@
-export type SecretRefSource = "env" | "file" | "exec"; // pragma: allowlist secret
+export type SecretRefSource = "env" | "file" | "exec" | "persai"; // pragma: allowlist secret
 
 /**
  * Stable identifier for a secret in a configured source.
@@ -6,6 +6,7 @@ export type SecretRefSource = "env" | "file" | "exec"; // pragma: allowlist secr
  * - env source: provider "default", id "OPENAI_API_KEY"
  * - file source: provider "mounted-json", id "/providers/openai/apiKey"
  * - exec source: provider "vault", id "openai/api-key"
+ * - persai source: provider "persai-runtime", id "openai/api-key"
  */
 export type SecretRef = {
   source: SecretRefSource;
@@ -21,6 +22,7 @@ type SecretDefaults = {
   env?: string;
   file?: string;
   exec?: string;
+  persai?: string;
 };
 
 export function isValidEnvSecretRefId(value: string): boolean {
@@ -39,7 +41,10 @@ export function isSecretRef(value: unknown): value is SecretRef {
     return false;
   }
   return (
-    (value.source === "env" || value.source === "file" || value.source === "exec") &&
+    (value.source === "env" ||
+      value.source === "file" ||
+      value.source === "exec" ||
+      value.source === "persai") &&
     typeof value.provider === "string" &&
     value.provider.trim().length > 0 &&
     typeof value.id === "string" &&
@@ -54,7 +59,10 @@ function isLegacySecretRefWithoutProvider(
     return false;
   }
   return (
-    (value.source === "env" || value.source === "file" || value.source === "exec") &&
+    (value.source === "env" ||
+      value.source === "file" ||
+      value.source === "exec" ||
+      value.source === "persai") &&
     typeof value.id === "string" &&
     value.id.trim().length > 0 &&
     value.provider === undefined
@@ -89,7 +97,9 @@ export function coerceSecretRef(value: unknown, defaults?: SecretDefaults): Secr
         ? (defaults?.env ?? DEFAULT_SECRET_PROVIDER_ALIAS)
         : value.source === "file"
           ? (defaults?.file ?? DEFAULT_SECRET_PROVIDER_ALIAS)
-          : (defaults?.exec ?? DEFAULT_SECRET_PROVIDER_ALIAS);
+          : value.source === "exec"
+            ? (defaults?.exec ?? DEFAULT_SECRET_PROVIDER_ALIAS)
+            : (defaults?.persai ?? DEFAULT_SECRET_PROVIDER_ALIAS);
     return {
       source: value.source,
       provider,
@@ -204,10 +214,19 @@ export type ExecSecretProviderConfig = {
   allowSymlinkCommand?: boolean;
 };
 
+export type PersaiSecretProviderConfig = {
+  source: "persai";
+  baseUrl: string;
+  path?: string;
+  timeoutMs?: number;
+  tokenEnvVar?: string;
+};
+
 export type SecretProviderConfig =
   | EnvSecretProviderConfig
   | FileSecretProviderConfig
-  | ExecSecretProviderConfig;
+  | ExecSecretProviderConfig
+  | PersaiSecretProviderConfig;
 
 export type SecretsConfig = {
   providers?: Record<string, SecretProviderConfig>;
@@ -215,6 +234,7 @@ export type SecretsConfig = {
     env?: string;
     file?: string;
     exec?: string;
+    persai?: string;
   };
   resolution?: {
     maxProviderConcurrency?: number;

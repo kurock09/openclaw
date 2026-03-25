@@ -53,6 +53,36 @@ describe("config secret refs schema", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("accepts persai secret providers and model apiKey refs", () => {
+    const result = validateConfigObjectRaw({
+      secrets: {
+        providers: {
+          "persai-runtime": {
+            source: "persai",
+            baseUrl: "http://api:3001",
+            path: "/api/v1/internal/runtime/provider-secrets/resolve",
+            tokenEnvVar: "OPENCLAW_GATEWAY_TOKEN",
+          },
+        },
+      },
+      models: {
+        providers: {
+          openai: {
+            baseUrl: "https://api.openai.com/v1",
+            apiKey: {
+              source: "persai",
+              provider: "persai-runtime",
+              id: "openai/api-key",
+            },
+            models: [{ id: "gpt-5", name: "gpt-5" }],
+          },
+        },
+      },
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
   it("accepts openai-codex-responses as a model api value", () => {
     const result = validateConfigObjectRaw({
       models: {

@@ -5,6 +5,7 @@ import type { OpenClawConfig } from "../config/config.js";
 import type {
   ExecSecretProviderConfig,
   FileSecretProviderConfig,
+  PersaiSecretProviderConfig,
   SecretProviderConfig,
   SecretRef,
   SecretRefSource,
@@ -34,7 +35,9 @@ const DEFAULT_MAX_BATCH_BYTES = 256 * 1024;
 const DEFAULT_FILE_MAX_BYTES = 1024 * 1024;
 const DEFAULT_FILE_TIMEOUT_MS = 5_000;
 const DEFAULT_EXEC_TIMEOUT_MS = 5_000;
+const DEFAULT_PERSAI_TIMEOUT_MS = 5_000;
 const DEFAULT_EXEC_MAX_OUTPUT_BYTES = 1024 * 1024;
+const DEFAULT_PERSAI_RESOLVE_PATH = "/api/v1/internal/runtime/provider-secrets/resolve";
 const WINDOWS_ABS_PATH_PATTERN = /^[A-Za-z]:[\\/]/;
 const WINDOWS_UNC_PATH_PATTERN = /^\\\\[^\\]+\\[^\\]+/;
 
@@ -783,6 +786,186 @@ async function resolveExecRefs(params: {
   return resolved;
 }
 
+function parsePersaiResponseValues(params: {
+  providerName: string;
+  ids: string[];
+  payload: unknown;
+}): Record<string, unknown> {
+  if (!isRecord(params.payload)) {
+    throw providerResolutionError({
+      source: "persai",
+      provider: params.providerName,
+      message: `PersAI provider "${params.providerName}" response must be an object.`,
+    });
+  }
+  if (params.payload.protocolVersion !== 1) {
+    throw providerResolutionError({
+      source: "persai",
+      provider: params.providerName,
+      message: `PersAI provider "${params.providerName}" protocolVersion must be 1.`,
+    });
+  }
+  const responseValues = params.payload.values;
+  if (!isRecord(responseValues)) {
+    throw providerResolutionError({
+      source: "persai",
+      provider: params.providerName,
+      message: `PersAI provider "${params.providerName}" response missing "values".`,
+    });
+  }
+  const responseErrors = isRecord(params.payload.errors) ? params.payload.errors : null;
+  const out: Record<string, unknown> = {};
+  for (const id of params.ids) {
+    if (responseErrors && id in responseErrors) {
+      const entry = responseErrors[id];
+      if (isRecord(entry) && typeof entry.message === "string" && entry.message.trim()) {
+        throw refResolutionError({
+          source: "persai",
+          provider: params.providerName,
+          refId: id,
+          message: `PersAI provider "${params.providerName}" failed for id "${id}" (${entry.message.trim()}).`,
+        });
+      }
+      throw refResolutionError({
+        source: "persai",
+        provider: params.providerName,
+        refId: id,
+        message: `PersAI provider "${params.providerName}" failed for id "${id}".`,
+      });
+    }
+    if (!(id in responseValues)) {
+      throw refResolutionError({
+        source: "persai",
+        provider: params.providerName,
+        refId: id,
+        message: `PersAI provider "${params.providerName}" response missing id "${id}".`,
+      });
+    }
+    out[id] = responseValues[id];
+  }
+  return out;
+}
+
+async function resolvePersaiRefs(params: {
+  refs: SecretRef[];
+  providerName: string;
+  providerConfig: PersaiSecretProviderConfig;
+  env: NodeJS.ProcessEnv;
+  limits: ResolutionLimits;
+}): Promise<ProviderResolutionOutput> {
+  const ids = [...new Set(params.refs.map((ref) => ref.id))];
+  if (ids.length > params.limits.maxRefsPerProvider) {
+    throw providerResolutionError({
+      source: "persai",
+      provider: params.providerName,
+      message: `PersAI provider "${params.providerName}" exceeded maxRefsPerProvider (${params.limits.maxRefsPerProvider}).`,
+    });
+  }
+
+  const requestPayload = {
+    protocolVersion: 1,
+    ids,
+  };
+  const input = JSON.stringify(requestPayload);
+  if (Buffer.byteLength(input, "utf8") > params.limits.maxBatchBytes) {
+    throw providerResolutionError({
+      source: "persai",
+      provider: params.providerName,
+      message: `PersAI provider "${params.providerName}" request exceeded maxBatchBytes (${params.limits.maxBatchBytes}).`,
+    });
+  }
+
+  const tokenEnvVar = params.providerConfig.tokenEnvVar ?? "OPENCLAW_GATEWAY_TOKEN";
+  const token = params.env[tokenEnvVar]?.trim();
+  if (!token) {
+    throw providerResolutionError({
+      source: "persai",
+      provider: params.providerName,
+      message: `PersAI provider "${params.providerName}" requires env "${tokenEnvVar}" for authorization.`,
+    });
+  }
+
+  const timeoutMs = normalizePositiveInt(params.providerConfig.timeoutMs, DEFAULT_PERSAI_TIMEOUT_MS);
+  const controller = new AbortController();
+  const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
+
+  let response: Response;
+  try {
+    const url = new URL(
+      params.providerConfig.path ?? DEFAULT_PERSAI_RESOLVE_PATH,
+      params.providerConfig.baseUrl,
+    );
+    response = await fetch(url.toString(), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: input,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    throwUnknownProviderResolutionError({
+      source: "persai",
+      provider: params.providerName,
+      err,
+    });
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
+
+  if (!response.ok) {
+    let body = "";
+    try {
+      body = (await response.text()).trim();
+    } catch {
+      body = "";
+    }
+    throw providerResolutionError({
+      source: "persai",
+      provider: params.providerName,
+      message:
+        body.length > 0
+          ? `PersAI provider "${params.providerName}" returned HTTP ${response.status} (${body}).`
+          : `PersAI provider "${params.providerName}" returned HTTP ${response.status}.`,
+    });
+  }
+
+  let payload: unknown;
+  try {
+    payload = (await response.json()) as unknown;
+  } catch (err) {
+    throw providerResolutionError({
+      source: "persai",
+      provider: params.providerName,
+      message: `PersAI provider "${params.providerName}" returned invalid JSON.`,
+      cause: err,
+    });
+  }
+
+  let values: Record<string, unknown>;
+  try {
+    values = parsePersaiResponseValues({
+      providerName: params.providerName,
+      ids,
+      payload,
+    });
+  } catch (err) {
+    throwUnknownProviderResolutionError({
+      source: "persai",
+      provider: params.providerName,
+      err,
+    });
+  }
+
+  const resolved = new Map<string, unknown>();
+  for (const id of ids) {
+    resolved.set(id, values[id]);
+  }
+  return resolved;
+}
+
 async function resolveProviderRefs(params: {
   refs: SecretRef[];
   source: SecretRefSource;
@@ -810,6 +993,15 @@ async function resolveProviderRefs(params: {
     }
     if (params.providerConfig.source === "exec") {
       return await resolveExecRefs({
+        refs: params.refs,
+        providerName: params.providerName,
+        providerConfig: params.providerConfig,
+        env: params.options.env ?? process.env,
+        limits: params.limits,
+      });
+    }
+    if (params.providerConfig.source === "persai") {
+      return await resolvePersaiRefs({
         refs: params.refs,
         providerName: params.providerName,
         providerConfig: params.providerConfig,
@@ -845,7 +1037,7 @@ export async function resolveSecretRefValues(
     if (!id) {
       throw new Error("Secret reference id is empty.");
     }
-    if (ref.source === "exec" && !isValidExecSecretRefId(id)) {
+    if ((ref.source === "exec" || ref.source === "persai") && !isValidExecSecretRefId(id)) {
       throw new Error(
         `${formatExecSecretRefIdValidationMessage()} (ref: ${ref.source}:${ref.provider}:${id}).`,
       );

@@ -73,10 +73,24 @@ const ExecSecretRefSchema = z
   })
   .strict();
 
+const PersaiSecretRefSchema = z
+  .object({
+    source: z.literal("persai"),
+    provider: z
+      .string()
+      .regex(
+        SECRET_PROVIDER_ALIAS_PATTERN,
+        'Secret reference provider must match /^[a-z][a-z0-9_-]{0,63}$/ (example: "persai-runtime").',
+      ),
+    id: z.string().refine(isValidExecSecretRefId, formatExecSecretRefIdValidationMessage()),
+  })
+  .strict();
+
 export const SecretRefSchema = z.discriminatedUnion("source", [
   EnvSecretRefSchema,
   FileSecretRefSchema,
   ExecSecretRefSchema,
+  PersaiSecretRefSchema,
 ]);
 
 export const SecretInputSchema = z.union([z.string(), SecretRefSchema]);
@@ -140,10 +154,21 @@ const SecretsExecProviderSchema = z
   })
   .strict();
 
+const SecretsPersaiProviderSchema = z
+  .object({
+    source: z.literal("persai"),
+    baseUrl: z.string().url(),
+    path: z.string().min(1).optional(),
+    timeoutMs: z.number().int().positive().max(120000).optional(),
+    tokenEnvVar: z.string().regex(ENV_SECRET_REF_ID_PATTERN).optional(),
+  })
+  .strict();
+
 export const SecretProviderSchema = z.discriminatedUnion("source", [
   SecretsEnvProviderSchema,
   SecretsFileProviderSchema,
   SecretsExecProviderSchema,
+  SecretsPersaiProviderSchema,
 ]);
 
 export const SecretsConfigSchema = z
@@ -159,6 +184,7 @@ export const SecretsConfigSchema = z
         env: z.string().regex(SECRET_PROVIDER_ALIAS_PATTERN).optional(),
         file: z.string().regex(SECRET_PROVIDER_ALIAS_PATTERN).optional(),
         exec: z.string().regex(SECRET_PROVIDER_ALIAS_PATTERN).optional(),
+        persai: z.string().regex(SECRET_PROVIDER_ALIAS_PATTERN).optional(),
       })
       .strict()
       .optional(),

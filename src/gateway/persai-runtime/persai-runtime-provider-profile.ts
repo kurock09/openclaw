@@ -105,7 +105,12 @@ function parseSecretRef(value: unknown, path: string): SecretRef {
     throw new PersaiRuntimeProviderProfileValidationError(`${path} must be an object.`);
   }
   const source =
-    row.source === "env" || row.source === "file" || row.source === "exec" ? row.source : null;
+    row.source === "env" ||
+    row.source === "file" ||
+    row.source === "exec" ||
+    row.source === "persai"
+      ? row.source
+      : null;
   const provider = asNonEmptyString(row.provider);
   const id = asNonEmptyString(row.id);
   if (source === null || provider === null || id === null) {
