@@ -28,6 +28,7 @@ import {
   createToolEventRecipientRegistry,
 } from "./server-chat.js";
 import { MAX_PREAUTH_PAYLOAD_BYTES } from "./server-constants.js";
+import { createPersaiRuntimeSpecStoreFromEnv } from "./persai-runtime/persai-runtime-spec-store.js";
 import {
   attachGatewayUpgradeHandler,
   createGatewayHttpServer,
@@ -158,6 +159,7 @@ export async function createGatewayRuntimeState(params: {
     }
     const httpServers: HttpServer[] = [];
     const httpBindHosts: string[] = [];
+    const persaiRuntimeSpecStore = createPersaiRuntimeSpecStoreFromEnv();
     for (const host of bindHosts) {
       const httpServer = createGatewayHttpServer({
         canvasHost,
@@ -177,6 +179,7 @@ export async function createGatewayRuntimeState(params: {
         rateLimiter: params.rateLimiter,
         getReadiness: params.getReadiness,
         tlsOptions: params.gatewayTls?.enabled ? params.gatewayTls.tlsOptions : undefined,
+        persaiRuntimeSpecStore,
       });
       try {
         await listenGatewayHttpServer({

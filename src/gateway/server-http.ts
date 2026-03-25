@@ -71,11 +71,34 @@ import {
 } from "./server/plugins-http.js";
 import type { ReadinessChecker } from "./server/readiness.js";
 import type { GatewayWsClient } from "./server/ws-types.js";
+import {
+  handleRuntimeChatWebHttpRequest,
+  handleRuntimeChatWebStreamHttpRequest,
+  handleRuntimeSpecApplyHttpRequest,
+} from "./persai-runtime/persai-runtime-http.js";
+import {
+  createPersaiRuntimeSpecStoreFromEnv,
+  type PersaiRuntimeSpecStore,
+} from "./persai-runtime/persai-runtime-spec-store.js";
 import { handleSessionKillHttpRequest } from "./session-kill-http.js";
 import { handleSessionHistoryHttpRequest } from "./sessions-history-http.js";
 import { handleToolsInvokeHttpRequest } from "./tools-invoke-http.js";
 
 type SubsystemLogger = ReturnType<typeof createSubsystemLogger>;
+
+let persaiRuntimeSpecStoreSingleton: PersaiRuntimeSpecStore | undefined;
+
+function resolvePersaiRuntimeSpecStore(
+  explicit?: PersaiRuntimeSpecStore,
+): PersaiRuntimeSpecStore {
+  if (explicit) {
+    return explicit;
+  }
+  if (!persaiRuntimeSpecStoreSingleton) {
+    persaiRuntimeSpecStoreSingleton = createPersaiRuntimeSpecStoreFromEnv();
+  }
+  return persaiRuntimeSpecStoreSingleton;
+}
 
 const HOOK_AUTH_FAILURE_LIMIT = 20;
 const HOOK_AUTH_FAILURE_WINDOW_MS = 60_000;
@@ -733,6 +756,8 @@ export function createGatewayHttpServer(opts: {
   rateLimiter?: AuthRateLimiter;
   getReadiness?: ReadinessChecker;
   tlsOptions?: TlsOptions;
+  /** Shared across HTTP listeners; if omitted, a process-wide singleton is used (see ADR-048). */
+  persaiRuntimeSpecStore?: PersaiRuntimeSpecStore;
 }): HttpServer {
   const {
     canvasHost,
@@ -751,7 +776,9 @@ export function createGatewayHttpServer(opts: {
     resolvedAuth,
     rateLimiter,
     getReadiness,
+    persaiRuntimeSpecStore: persaiRuntimeSpecStoreOpt,
   } = opts;
+  const persaiRuntimeSpecStore = resolvePersaiRuntimeSpecStore(persaiRuntimeSpecStoreOpt);
   const httpServer: HttpServer = opts.tlsOptions
     ? createHttpsServer(opts.tlsOptions, (req, res) => {
         void handleRequest(req, res);
@@ -853,6 +880,45 @@ export function createGatewayHttpServer(opts: {
             }),
         });
       }
+      requestStages.push({
+        name: "persai-runtime-spec-apply",
+        run: () =>
+          handleRuntimeSpecApplyHttpRequest({
+            req,
+            res,
+            requestPath,
+            resolvedAuth,
+            trustedProxies,
+            allowRealIpFallback,
+            store: persaiRuntimeSpecStore,
+          }),
+      });
+      requestStages.push({
+        name: "persai-runtime-chat-web",
+        run: () =>
+          handleRuntimeChatWebHttpRequest({
+            req,
+            res,
+            requestPath,
+            resolvedAuth,
+            trustedProxies,
+            allowRealIpFallback,
+            store: persaiRuntimeSpecStore,
+          }),
+      });
+      requestStages.push({
+        name: "persai-runtime-chat-web-stream",
+        run: () =>
+          handleRuntimeChatWebStreamHttpRequest({
+            req,
+            res,
+            requestPath,
+            resolvedAuth,
+            trustedProxies,
+            allowRealIpFallback,
+            store: persaiRuntimeSpecStore,
+          }),
+      });
       if (canvasHost) {
         requestStages.push({
           name: "canvas-auth",
