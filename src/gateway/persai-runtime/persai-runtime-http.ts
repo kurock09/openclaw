@@ -194,6 +194,7 @@ export async function handleRuntimeSpecApplyHttpRequest(params: {
     bootstrap: bootstrapPayload,
     workspace: workspacePayload,
     store,
+    workspaceDir,
   }).catch((err) => {
     console.error(`[persai-runtime] Telegram bot sync failed for ${assistantId}:`, err);
   });

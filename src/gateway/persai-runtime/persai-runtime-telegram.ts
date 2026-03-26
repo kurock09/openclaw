@@ -63,6 +63,7 @@ export async function syncTelegramBotForAssistant(params: {
   workspace: unknown;
   store: PersaiRuntimeSpecStore;
   persaiCallbackBaseUrl?: string;
+  workspaceDir?: string;
 }): Promise<void> {
   const { assistantId, bootstrap, workspace } = params;
   const tgConfig = extractTelegramChannel(bootstrap);
@@ -120,6 +121,7 @@ export async function syncTelegramBotForAssistant(params: {
         chatId: String(ctx.chat.id),
         bootstrap,
         workspace,
+        workspaceDir: params.workspaceDir,
       });
       const parseMode = tgConfig.parseMode === "markdown" ? "MarkdownV2" : undefined;
       await ctx.reply(reply, { parse_mode: parseMode });
@@ -197,6 +199,7 @@ async function runTelegramAgentTurn(params: {
   chatId: string;
   bootstrap: unknown;
   workspace: unknown;
+  workspaceDir?: string;
 }): Promise<string> {
   const { assistantId, userMessage, bootstrap, workspace, chatId } = params;
   const extraSystemPrompt = extractPersonaInstructionsFromWorkspace(workspace) ?? undefined;
@@ -217,9 +220,6 @@ async function runTelegramAgentTurn(params: {
 
   const sessionKey = `agent:persai:${assistantId}:telegram:${chatId}`;
 
-  const applied = activeBots.get(assistantId);
-  const workspaceDir = applied ? undefined : undefined;
-
   const result = await runPersaiTelegramAgentTurn({
     userMessage,
     sessionKey,
@@ -228,7 +228,7 @@ async function runTelegramAgentTurn(params: {
     modelOverride: runtimeOverride?.model,
     resolvedToolCredentials,
     toolDenyList,
-    workspaceDir: undefined,
+    workspaceDir: params.workspaceDir,
   });
 
   return result.ok
@@ -322,6 +322,7 @@ export async function reinitializeTelegramBotsFromStore(
           bootstrap: spec.bootstrap,
           workspace: spec.workspace,
           store,
+          workspaceDir: spec.workspaceDir,
         });
         started++;
       } catch (err) {
