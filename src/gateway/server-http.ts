@@ -77,6 +77,13 @@ import {
   handleRuntimeSpecApplyHttpRequest,
 } from "./persai-runtime/persai-runtime-http.js";
 import {
+  handleRuntimeMemoryItemsHttpRequest,
+  handleRuntimeMemoryAddHttpRequest,
+  handleRuntimeMemoryEditHttpRequest,
+  handleRuntimeMemoryForgetHttpRequest,
+  handleRuntimeMemorySearchHttpRequest,
+} from "./persai-runtime/persai-runtime-memory.js";
+import {
   createPersaiRuntimeSpecStoreFromEnv,
   type PersaiRuntimeSpecStore,
 } from "./persai-runtime/persai-runtime-spec-store.js";
@@ -919,6 +926,22 @@ export function createGatewayHttpServer(opts: {
             store: persaiRuntimeSpecStore,
           }),
       });
+      const memoryParams = {
+        req,
+        res,
+        requestPath,
+        resolvedAuth,
+        trustedProxies,
+        allowRealIpFallback,
+        store: persaiRuntimeSpecStore,
+      };
+      requestStages.push(
+        { name: "persai-runtime-memory-items", run: () => handleRuntimeMemoryItemsHttpRequest(memoryParams) },
+        { name: "persai-runtime-memory-add", run: () => handleRuntimeMemoryAddHttpRequest(memoryParams) },
+        { name: "persai-runtime-memory-edit", run: () => handleRuntimeMemoryEditHttpRequest(memoryParams) },
+        { name: "persai-runtime-memory-forget", run: () => handleRuntimeMemoryForgetHttpRequest(memoryParams) },
+        { name: "persai-runtime-memory-search", run: () => handleRuntimeMemorySearchHttpRequest(memoryParams) },
+      );
       if (canvasHost) {
         requestStages.push({
           name: "canvas-auth",

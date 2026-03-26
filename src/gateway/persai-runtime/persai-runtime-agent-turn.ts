@@ -20,6 +20,7 @@ function resolveAgentResponseText(result: unknown): string {
 }
 
 const PERSAI_TOOL_DENY_ENV = "PERSAI_TOOL_DENY";
+const PERSAI_WORKSPACE_ENV = "PERSAI_AGENT_WORKSPACE_DIR";
 
 function buildPersaiWebIngressCommandInput(params: {
   userMessage: string;
@@ -68,6 +69,7 @@ export async function runPersaiWebRuntimeAgentTurnSync(params: {
   modelOverride?: string;
   resolvedToolCredentials?: Map<string, string>;
   toolDenyList?: string[];
+  workspaceDir?: string;
 }): Promise<{ ok: true; assistantMessage: string } | { ok: false; error: string }> {
   const runId = randomUUID();
   const deps = createDefaultDeps();
@@ -87,6 +89,10 @@ export async function runPersaiWebRuntimeAgentTurnSync(params: {
   if (params.toolDenyList && params.toolDenyList.length > 0) {
     process.env[PERSAI_TOOL_DENY_ENV] = params.toolDenyList.join(",");
   }
+  const prevWorkspace = process.env[PERSAI_WORKSPACE_ENV];
+  if (params.workspaceDir) {
+    process.env[PERSAI_WORKSPACE_ENV] = params.workspaceDir;
+  }
 
   try {
     const result = await agentCommandFromIngress(commandInput, defaultRuntime, deps);
@@ -101,6 +107,11 @@ export async function runPersaiWebRuntimeAgentTurnSync(params: {
       process.env[PERSAI_TOOL_DENY_ENV] = prevDeny;
     } else {
       delete process.env[PERSAI_TOOL_DENY_ENV];
+    }
+    if (prevWorkspace !== undefined) {
+      process.env[PERSAI_WORKSPACE_ENV] = prevWorkspace;
+    } else {
+      delete process.env[PERSAI_WORKSPACE_ENV];
     }
   }
 }
@@ -119,6 +130,7 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
   modelOverride?: string;
   resolvedToolCredentials?: Map<string, string>;
   toolDenyList?: string[];
+  workspaceDir?: string;
 }): Promise<void> {
   const runId = randomUUID();
   const deps = createDefaultDeps();
@@ -137,6 +149,10 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
   const prevDeny = process.env[PERSAI_TOOL_DENY_ENV];
   if (params.toolDenyList && params.toolDenyList.length > 0) {
     process.env[PERSAI_TOOL_DENY_ENV] = params.toolDenyList.join(",");
+  }
+  const prevWorkspace = process.env[PERSAI_WORKSPACE_ENV];
+  if (params.workspaceDir) {
+    process.env[PERSAI_WORKSPACE_ENV] = params.workspaceDir;
   }
 
   let closed = false;
@@ -195,6 +211,11 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
           process.env[PERSAI_TOOL_DENY_ENV] = prevDeny;
         } else {
           delete process.env[PERSAI_TOOL_DENY_ENV];
+        }
+        if (prevWorkspace !== undefined) {
+          process.env[PERSAI_WORKSPACE_ENV] = prevWorkspace;
+        } else {
+          delete process.env[PERSAI_WORKSPACE_ENV];
         }
 
         if (!closed) {

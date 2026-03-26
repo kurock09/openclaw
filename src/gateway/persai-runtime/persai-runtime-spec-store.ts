@@ -13,6 +13,7 @@ export type PersaiAppliedRuntimeSpec = {
   bootstrap: unknown;
   workspace: unknown;
   appliedAt: string;
+  workspaceDir?: string;
 };
 
 export interface PersaiRuntimeSpecStore {

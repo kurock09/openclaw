@@ -25,6 +25,10 @@ import {
   resolveToolCredentials,
   validateToolPolicyForApply,
 } from "./persai-runtime-tool-policy.js";
+import {
+  resolvePersaiAssistantWorkspaceDir,
+  writeBootstrapFilesToWorkspace,
+} from "./persai-runtime-workspace.js";
 import { loadConfig } from "../../config/config.js";
 
 export const RUNTIME_SPEC_APPLY_PATH = "/api/v1/runtime/spec/apply";
@@ -161,14 +165,23 @@ export async function handleRuntimeSpecApplyHttpRequest(params: {
   }
 
   const appliedAt = new Date().toISOString();
+  const workspacePayload = (spec as Record<string, unknown>).workspace;
+
+  const { workspaceDir, written, skipped } = await writeBootstrapFilesToWorkspace({
+    assistantId,
+    workspace: workspacePayload,
+    reapply,
+  });
+
   await store.put({
     assistantId,
     publishedVersionId,
     contentHash,
     reapply,
     bootstrap: (spec as Record<string, unknown>).bootstrap,
-    workspace: (spec as Record<string, unknown>).workspace,
+    workspace: workspacePayload,
     appliedAt,
+    workspaceDir,
   });
 
   sendJson(res, 200, {
@@ -179,6 +192,8 @@ export async function handleRuntimeSpecApplyHttpRequest(params: {
     contentHash,
     reapply,
     appliedAt,
+    workspaceDir,
+    bootstrapFiles: { written, skipped },
   });
   return true;
 }
@@ -292,6 +307,7 @@ export async function handleRuntimeChatWebHttpRequest(params: {
       modelOverride: runtimeOverride?.model,
       resolvedToolCredentials,
       toolDenyList,
+      workspaceDir: applied.workspaceDir,
     });
     if (!agentOut.ok) {
       sendJson(res, 500, { ok: false, error: agentOut.error });
@@ -435,6 +451,7 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
     modelOverride: runtimeOverride?.model,
     resolvedToolCredentials: streamResolvedToolCredentials,
     toolDenyList: streamToolDenyList,
+    workspaceDir: applied.workspaceDir,
   });
   return true;
 }

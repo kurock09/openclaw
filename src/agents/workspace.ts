@@ -13,6 +13,10 @@ export function resolveDefaultAgentWorkspaceDir(
   env: NodeJS.ProcessEnv = process.env,
   homedir: () => string = os.homedir,
 ): string {
+  const persaiOverride = env.PERSAI_AGENT_WORKSPACE_DIR?.trim();
+  if (persaiOverride) {
+    return persaiOverride;
+  }
   const home = resolveRequiredHomeDir(env, homedir);
   const profile = env.OPENCLAW_PROFILE?.trim();
   if (profile && profile.toLowerCase() !== "default") {
