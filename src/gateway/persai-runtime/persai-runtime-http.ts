@@ -27,10 +27,10 @@ import {
 } from "./persai-runtime-tool-policy.js";
 import {
   cleanupPersaiAssistantWorkspace,
-  resolvePersaiAssistantWorkspaceDir,
   writeBootstrapFilesToWorkspace,
 } from "./persai-runtime-workspace.js";
 import { loadConfig } from "../../config/config.js";
+import { ensureSpecFreshness } from "./persai-runtime-freshness.js";
 
 export const RUNTIME_SPEC_APPLY_PATH = "/api/v1/runtime/spec/apply";
 export const RUNTIME_WORKSPACE_CLEANUP_PATH = "/api/v1/runtime/workspace/cleanup";
@@ -339,8 +339,16 @@ export async function handleRuntimeChatWebHttpRequest(params: {
   });
   res.setHeader("X-Persai-Runtime-Session-Key", sessionKey);
 
-  const applied = await store.get(assistantId, publishedVersionId);
+  let applied = await store.get(assistantId, publishedVersionId);
   if (applied) {
+    const freshness = await ensureSpecFreshness({
+      assistantId,
+      bootstrap: applied.bootstrap,
+    });
+    if (freshness.rematerialized) {
+      applied = (await store.get(assistantId, publishedVersionId)) ?? applied;
+    }
+
     const extraSystemPrompt = extractPersonaInstructionsFromWorkspace(applied.workspace) ?? undefined;
     const runtimeOverride = extractPersaiRuntimeModelOverride(applied.bootstrap);
 
@@ -470,13 +478,21 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
   });
   res.setHeader("X-Persai-Runtime-Session-Key", sessionKey);
 
-  const applied = await store.get(assistantId, publishedVersionId);
+  let applied = await store.get(assistantId, publishedVersionId);
   if (!applied) {
     sendJson(res, 503, {
       ok: false,
       error: MISSING_APPLIED_SPEC_ERROR
     });
     return true;
+  }
+
+  const streamFreshness = await ensureSpecFreshness({
+    assistantId,
+    bootstrap: applied.bootstrap,
+  });
+  if (streamFreshness.rematerialized) {
+    applied = (await store.get(assistantId, publishedVersionId)) ?? applied;
   }
 
   res.statusCode = 200;
