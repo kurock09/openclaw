@@ -31,6 +31,7 @@ import {
 } from "./persai-runtime-workspace.js";
 import { loadConfig } from "../../config/config.js";
 import { ensureSpecFreshness } from "./persai-runtime-freshness.js";
+import { syncTelegramBotForAssistant } from "./persai-runtime-telegram.js";
 
 export const RUNTIME_SPEC_APPLY_PATH = "/api/v1/runtime/spec/apply";
 export const RUNTIME_WORKSPACE_CLEANUP_PATH = "/api/v1/runtime/workspace/cleanup";
@@ -175,15 +176,26 @@ export async function handleRuntimeSpecApplyHttpRequest(params: {
     reapply,
   });
 
+  const bootstrapPayload = (spec as Record<string, unknown>).bootstrap;
+
   await store.put({
     assistantId,
     publishedVersionId,
     contentHash,
     reapply,
-    bootstrap: (spec as Record<string, unknown>).bootstrap,
+    bootstrap: bootstrapPayload,
     workspace: workspacePayload,
     appliedAt,
     workspaceDir,
+  });
+
+  void syncTelegramBotForAssistant({
+    assistantId,
+    bootstrap: bootstrapPayload,
+    workspace: workspacePayload,
+    store,
+  }).catch((err) => {
+    console.error(`[persai-runtime] Telegram bot sync failed for ${assistantId}:`, err);
   });
 
   sendJson(res, 200, {

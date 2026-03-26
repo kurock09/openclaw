@@ -20,6 +20,7 @@ export interface PersaiRuntimeSpecStore {
   put(record: PersaiAppliedRuntimeSpec): Promise<void>;
   get(assistantId: string, publishedVersionId: string): Promise<PersaiAppliedRuntimeSpec | null>;
   remove(assistantId: string): Promise<void>;
+  getAll(): Promise<PersaiAppliedRuntimeSpec[]>;
 }
 
 function storeKey(assistantId: string, publishedVersionId: string): string {
@@ -70,6 +71,10 @@ export class InMemoryPersaiRuntimeSpecStore implements PersaiRuntimeSpecStore {
         this.map.delete(key);
       }
     }
+  }
+
+  async getAll(): Promise<PersaiAppliedRuntimeSpec[]> {
+    return [...this.map.values()];
   }
 }
 
@@ -129,6 +134,24 @@ export class RedisPersaiRuntimeSpecStore implements PersaiRuntimeSpecStore {
     if (keys.length > 0) {
       await this.client.del(keys);
     }
+  }
+
+  async getAll(): Promise<PersaiAppliedRuntimeSpec[]> {
+    await this.ensureConnected();
+    const pattern = `${this.options.keyPrefix}:*`;
+    const keys = await this.client.keys(pattern);
+    const results: PersaiAppliedRuntimeSpec[] = [];
+    for (const key of keys) {
+      const payload = await this.client.get(key);
+      if (payload) {
+        try {
+          results.push(JSON.parse(payload) as PersaiAppliedRuntimeSpec);
+        } catch {
+          // Skip malformed entries
+        }
+      }
+    }
+    return results;
   }
 }
 

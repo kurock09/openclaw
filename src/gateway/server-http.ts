@@ -88,6 +88,11 @@ import {
   createPersaiRuntimeSpecStoreFromEnv,
   type PersaiRuntimeSpecStore,
 } from "./persai-runtime/persai-runtime-spec-store.js";
+import {
+  handleTelegramWebhookRequest,
+  syncTelegramBotForAssistant,
+  reinitializeTelegramBotsFromStore,
+} from "./persai-runtime/persai-runtime-telegram.js";
 import { handleSessionKillHttpRequest } from "./session-kill-http.js";
 import { handleSessionHistoryHttpRequest } from "./sessions-history-http.js";
 import { handleToolsInvokeHttpRequest } from "./tools-invoke-http.js";
@@ -787,6 +792,11 @@ export function createGatewayHttpServer(opts: {
     persaiRuntimeSpecStore: persaiRuntimeSpecStoreOpt,
   } = opts;
   const persaiRuntimeSpecStore = resolvePersaiRuntimeSpecStore(persaiRuntimeSpecStoreOpt);
+
+  void reinitializeTelegramBotsFromStore(persaiRuntimeSpecStore).catch((err) => {
+    console.error("[persai-telegram] Failed to reinitialize bots from store:", err);
+  });
+
   const httpServer: HttpServer = opts.tlsOptions
     ? createHttpsServer(opts.tlsOptions, (req, res) => {
         void handleRequest(req, res);
@@ -956,6 +966,10 @@ export function createGatewayHttpServer(opts: {
         { name: "persai-runtime-memory-forget", run: () => handleRuntimeMemoryForgetHttpRequest(memoryParams) },
         { name: "persai-runtime-memory-search", run: () => handleRuntimeMemorySearchHttpRequest(memoryParams) },
       );
+      requestStages.push({
+        name: "persai-telegram-webhook",
+        run: () => handleTelegramWebhookRequest({ req, res, requestPath }),
+      });
       if (canvasHost) {
         requestStages.push({
           name: "canvas-auth",

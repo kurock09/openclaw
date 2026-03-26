@@ -114,6 +114,65 @@ export async function runPersaiWebRuntimeAgentTurnSync(params: {
   }
 }
 
+/** Telegram agent turn (sync, non-streaming). */
+export async function runPersaiTelegramAgentTurn(params: {
+  userMessage: string;
+  sessionKey: string;
+  extraSystemPrompt?: string;
+  providerOverride?: string;
+  modelOverride?: string;
+  resolvedToolCredentials?: Map<string, string>;
+  toolDenyList?: string[];
+  workspaceDir?: string;
+}): Promise<{ ok: true; assistantMessage: string } | { ok: false; error: string }> {
+  const runId = randomUUID();
+  const deps = createDefaultDeps();
+  const commandInput = {
+    message: params.userMessage,
+    extraSystemPrompt: params.extraSystemPrompt,
+    provider: params.providerOverride,
+    model: params.modelOverride,
+    sessionKey: params.sessionKey,
+    runId,
+    deliver: false as const,
+    messageChannel: "telegram" as const,
+    bestEffortDeliver: false as const,
+    senderIsOwner: true as const,
+    allowModelOverride: true as const,
+  };
+
+  const injectedKeys = params.resolvedToolCredentials
+    ? injectToolCredentials(params.resolvedToolCredentials)
+    : [];
+  const prevWorkspace = process.env[PERSAI_WORKSPACE_ENV];
+  if (params.workspaceDir) {
+    process.env[PERSAI_WORKSPACE_ENV] = params.workspaceDir;
+  }
+
+  const runtimeCtx = {
+    toolDenyList: params.toolDenyList,
+    workspaceDir: params.workspaceDir,
+  };
+
+  try {
+    const result = await persaiRuntimeRequestContext.run(runtimeCtx, () =>
+      agentCommandFromIngress(commandInput, defaultRuntime, deps),
+    );
+    return { ok: true, assistantMessage: resolveAgentResponseText(result) };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logWarn(`persai-runtime: telegram agent turn failed: ${message}`);
+    return { ok: false, error: message };
+  } finally {
+    cleanupInjectedEnv(injectedKeys);
+    if (prevWorkspace !== undefined) {
+      process.env[PERSAI_WORKSPACE_ENV] = prevWorkspace;
+    } else {
+      delete process.env[PERSAI_WORKSPACE_ENV];
+    }
+  }
+}
+
 /**
  * P3: stream assistant text as PersAI NDJSON (`delta` / `done`).
  * Mirrors openai-http streaming lifecycle handling.
