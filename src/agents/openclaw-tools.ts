@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { OpenClawConfig } from "../config/config.js";
 import { resolvePluginTools } from "../plugins/tools.js";
 import { getActiveRuntimeWebToolsMetadata } from "../secrets/runtime.js";
@@ -27,6 +28,15 @@ import { createSubagentsTool } from "./tools/subagents-tool.js";
 import { createTtsTool } from "./tools/tts-tool.js";
 import { createWebFetchTool, createWebSearchTool } from "./tools/web-tools.js";
 import { resolveWorkspaceRoot } from "./workspace-dir.js";
+
+/**
+ * Per-request context for PersAI runtime. Allows concurrent requests to carry
+ * their own toolDenyList and workspaceDir without sharing process.env.
+ */
+export const persaiRuntimeRequestContext = new AsyncLocalStorage<{
+  toolDenyList?: string[];
+  workspaceDir?: string;
+}>();
 
 export function createOpenClawTools(
   options?: {
@@ -251,6 +261,13 @@ export function createOpenClawTools(
   });
 
   const allTools = [...tools, ...pluginTools];
+
+  const runtimeCtx = persaiRuntimeRequestContext.getStore();
+  const denyList = runtimeCtx?.toolDenyList;
+  if (denyList && denyList.length > 0) {
+    const denySet = new Set(denyList);
+    return allTools.filter((tool) => !denySet.has(tool.name));
+  }
 
   const denyRaw = process.env.PERSAI_TOOL_DENY;
   if (denyRaw) {

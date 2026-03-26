@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { persaiRuntimeRequestContext } from "../../agents/openclaw-tools.js";
 import { createDefaultDeps } from "../../cli/deps.js";
 import { agentCommandFromIngress } from "../../commands/agent.js";
 import { onAgentEvent } from "../../infra/agent-events.js";
@@ -19,7 +20,6 @@ function resolveAgentResponseText(result: unknown): string {
   return content || "No response from OpenClaw.";
 }
 
-const PERSAI_TOOL_DENY_ENV = "PERSAI_TOOL_DENY";
 const PERSAI_WORKSPACE_ENV = "PERSAI_AGENT_WORKSPACE_DIR";
 
 function buildPersaiWebIngressCommandInput(params: {
@@ -85,17 +85,20 @@ export async function runPersaiWebRuntimeAgentTurnSync(params: {
   const injectedKeys = params.resolvedToolCredentials
     ? injectToolCredentials(params.resolvedToolCredentials)
     : [];
-  const prevDeny = process.env[PERSAI_TOOL_DENY_ENV];
-  if (params.toolDenyList && params.toolDenyList.length > 0) {
-    process.env[PERSAI_TOOL_DENY_ENV] = params.toolDenyList.join(",");
-  }
   const prevWorkspace = process.env[PERSAI_WORKSPACE_ENV];
   if (params.workspaceDir) {
     process.env[PERSAI_WORKSPACE_ENV] = params.workspaceDir;
   }
 
+  const runtimeCtx = {
+    toolDenyList: params.toolDenyList,
+    workspaceDir: params.workspaceDir,
+  };
+
   try {
-    const result = await agentCommandFromIngress(commandInput, defaultRuntime, deps);
+    const result = await persaiRuntimeRequestContext.run(runtimeCtx, () =>
+      agentCommandFromIngress(commandInput, defaultRuntime, deps),
+    );
     return { ok: true, assistantMessage: resolveAgentResponseText(result) };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -103,11 +106,6 @@ export async function runPersaiWebRuntimeAgentTurnSync(params: {
     return { ok: false, error: message };
   } finally {
     cleanupInjectedEnv(injectedKeys);
-    if (prevDeny !== undefined) {
-      process.env[PERSAI_TOOL_DENY_ENV] = prevDeny;
-    } else {
-      delete process.env[PERSAI_TOOL_DENY_ENV];
-    }
     if (prevWorkspace !== undefined) {
       process.env[PERSAI_WORKSPACE_ENV] = prevWorkspace;
     } else {
@@ -146,14 +144,15 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
   const injectedKeys = params.resolvedToolCredentials
     ? injectToolCredentials(params.resolvedToolCredentials)
     : [];
-  const prevDeny = process.env[PERSAI_TOOL_DENY_ENV];
-  if (params.toolDenyList && params.toolDenyList.length > 0) {
-    process.env[PERSAI_TOOL_DENY_ENV] = params.toolDenyList.join(",");
-  }
   const prevWorkspace = process.env[PERSAI_WORKSPACE_ENV];
   if (params.workspaceDir) {
     process.env[PERSAI_WORKSPACE_ENV] = params.workspaceDir;
   }
+
+  const runtimeCtx = {
+    toolDenyList: params.toolDenyList,
+    workspaceDir: params.workspaceDir,
+  };
 
   let closed = false;
   let sawAssistantDelta = false;
@@ -191,7 +190,9 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
   return new Promise((resolve) => {
     void (async () => {
       try {
-        const result = await agentCommandFromIngress(commandInput, defaultRuntime, deps);
+        const result = await persaiRuntimeRequestContext.run(runtimeCtx, () =>
+          agentCommandFromIngress(commandInput, defaultRuntime, deps),
+        );
         if (closed) {
           return;
         }
@@ -207,11 +208,6 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
         }
       } finally {
         cleanupInjectedEnv(injectedKeys);
-        if (prevDeny !== undefined) {
-          process.env[PERSAI_TOOL_DENY_ENV] = prevDeny;
-        } else {
-          delete process.env[PERSAI_TOOL_DENY_ENV];
-        }
         if (prevWorkspace !== undefined) {
           process.env[PERSAI_WORKSPACE_ENV] = prevWorkspace;
         } else {

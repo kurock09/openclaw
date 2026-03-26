@@ -46,6 +46,28 @@ export class PersaiToolPolicyValidationError extends Error {
   }
 }
 
+function parseCredentialRefRow(
+  toolCode: string,
+  row: Record<string, unknown>,
+): PersaiToolCredentialRef | null {
+  const configured = row.configured === true;
+  const secretRefObj = asRecord(row.secretRef);
+  if (!secretRefObj) return null;
+
+  const source = secretRefObj.source;
+  const provider = asNonEmptyString(secretRefObj.provider);
+  const id = asNonEmptyString(secretRefObj.id);
+  if (
+    (source !== "env" && source !== "file" && source !== "exec" && source !== "persai") ||
+    !provider ||
+    !id
+  ) {
+    return null;
+  }
+
+  return { toolCode, secretRef: { source, provider, id }, configured };
+}
+
 export function extractToolCredentialRefs(
   bootstrap: unknown,
 ): Map<string, PersaiToolCredentialRef> {
@@ -55,37 +77,25 @@ export function extractToolCredentialRefs(
     return result;
   }
   const refs = governance.toolCredentialRefs;
-  if (!Array.isArray(refs)) {
-    return result;
-  }
 
-  for (const entry of refs) {
-    const row = asRecord(entry);
-    if (!row) continue;
-
-    const toolCode = asNonEmptyString(row.toolCode);
-    if (!toolCode) continue;
-
-    const configured = row.configured === true;
-    const secretRefObj = asRecord(row.secretRef);
-    if (!secretRefObj) continue;
-
-    const source = secretRefObj.source;
-    const provider = asNonEmptyString(secretRefObj.provider);
-    const id = asNonEmptyString(secretRefObj.id);
-    if (
-      (source !== "env" && source !== "file" && source !== "exec" && source !== "persai") ||
-      !provider ||
-      !id
-    ) {
-      continue;
+  if (Array.isArray(refs)) {
+    for (const entry of refs) {
+      const row = asRecord(entry);
+      if (!row) continue;
+      const toolCode = asNonEmptyString(row.toolCode);
+      if (!toolCode) continue;
+      const parsed = parseCredentialRefRow(toolCode, row);
+      if (parsed) result.set(toolCode, parsed);
     }
-
-    result.set(toolCode, {
-      toolCode,
-      secretRef: { source, provider, id },
-      configured,
-    });
+  } else if (isRecord(refs)) {
+    for (const [key, value] of Object.entries(refs)) {
+      const toolCode = asNonEmptyString(key);
+      if (!toolCode) continue;
+      const row = asRecord(value);
+      if (!row) continue;
+      const parsed = parseCredentialRefRow(toolCode, row);
+      if (parsed) result.set(toolCode, parsed);
+    }
   }
 
   return result;
