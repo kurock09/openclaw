@@ -21,6 +21,7 @@ interface ManagedTelegramBot {
   assistantId: string;
   webhookSecret: string;
   handleWebhook: WebhookHandler;
+  mode: "webhook" | "polling";
 }
 
 const activeBots = new Map<string, ManagedTelegramBot>();
@@ -128,18 +129,19 @@ export async function syncTelegramBotForAssistant(params: {
     }
   });
 
-  const handler = webhookCallback(bot, "http", {
-    secretToken: tgConfig.webhookSecret ?? undefined,
-  }) as unknown as WebhookHandler;
-
-  activeBots.set(assistantId, {
-    bot,
-    assistantId,
-    webhookSecret: tgConfig.webhookSecret ?? "",
-    handleWebhook: handler,
-  });
-
   if (tgConfig.webhookUrl) {
+    const handler = webhookCallback(bot, "http", {
+      secretToken: tgConfig.webhookSecret ?? undefined,
+    }) as unknown as WebhookHandler;
+
+    activeBots.set(assistantId, {
+      bot,
+      assistantId,
+      webhookSecret: tgConfig.webhookSecret ?? "",
+      handleWebhook: handler,
+      mode: "webhook",
+    });
+
     try {
       await bot.api.setWebhook(tgConfig.webhookUrl, {
         secret_token: tgConfig.webhookSecret ?? undefined,
@@ -150,6 +152,26 @@ export async function syncTelegramBotForAssistant(params: {
     } catch (err) {
       console.error(`[persai-telegram] Failed to set webhook for ${assistantId}:`, err);
     }
+  } else {
+    activeBots.set(assistantId, {
+      bot,
+      assistantId,
+      webhookSecret: "",
+      handleWebhook: async (_req, res) => { res.statusCode = 404; res.end("Polling mode"); },
+      mode: "polling",
+    });
+
+    try {
+      await bot.api.deleteWebhook({ drop_pending_updates: false });
+    } catch {
+      // best effort — ensure no stale webhook blocks polling
+    }
+
+    bot.start({
+      allowed_updates: ["message", "my_chat_member"],
+      drop_pending_updates: false,
+      onStart: () => console.log(`[persai-telegram] Polling started for ${assistantId}`),
+    });
   }
 }
 
@@ -157,12 +179,16 @@ async function stopTelegramBot(assistantId: string): Promise<void> {
   const existing = activeBots.get(assistantId);
   if (!existing) return;
   try {
-    await existing.bot.api.deleteWebhook({ drop_pending_updates: false });
+    if (existing.mode === "polling") {
+      await existing.bot.stop();
+    } else {
+      await existing.bot.api.deleteWebhook({ drop_pending_updates: false });
+    }
   } catch {
     // Best effort
   }
   activeBots.delete(assistantId);
-  console.log(`[persai-telegram] Bot stopped for ${assistantId}`);
+  console.log(`[persai-telegram] Bot stopped for ${assistantId} (${existing.mode})`);
 }
 
 async function runTelegramAgentTurn(params: {
