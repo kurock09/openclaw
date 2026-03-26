@@ -19,6 +19,7 @@ export type PersaiAppliedRuntimeSpec = {
 export interface PersaiRuntimeSpecStore {
   put(record: PersaiAppliedRuntimeSpec): Promise<void>;
   get(assistantId: string, publishedVersionId: string): Promise<PersaiAppliedRuntimeSpec | null>;
+  remove(assistantId: string): Promise<void>;
 }
 
 function storeKey(assistantId: string, publishedVersionId: string): string {
@@ -46,6 +47,8 @@ type PersaiRuntimeRedisClient = {
   get(key: string): Promise<string | null>;
   set(key: string, value: string): Promise<unknown>;
   expire(key: string, ttl: number): Promise<unknown>;
+  del(key: string | string[]): Promise<unknown>;
+  keys(pattern: string): Promise<string[]>;
 };
 
 /** Process-local store. Safe only for a single gateway replica (dev / smoke). */
@@ -58,6 +61,15 @@ export class InMemoryPersaiRuntimeSpecStore implements PersaiRuntimeSpecStore {
 
   async get(assistantId: string, publishedVersionId: string): Promise<PersaiAppliedRuntimeSpec | null> {
     return this.map.get(storeKey(assistantId, publishedVersionId)) ?? null;
+  }
+
+  async remove(assistantId: string): Promise<void> {
+    const prefix = `${assistantId}\u001f`;
+    for (const key of this.map.keys()) {
+      if (key.startsWith(prefix)) {
+        this.map.delete(key);
+      }
+    }
   }
 }
 
@@ -108,6 +120,15 @@ export class RedisPersaiRuntimeSpecStore implements PersaiRuntimeSpecStore {
       throw new Error(`Invalid PersAI runtime spec payload stored at Redis key "${key}".`);
     }
     return parsed as PersaiAppliedRuntimeSpec;
+  }
+
+  async remove(assistantId: string): Promise<void> {
+    await this.ensureConnected();
+    const pattern = `${this.options.keyPrefix}:${assistantId}\u001f*`;
+    const keys = await this.client.keys(pattern);
+    if (keys.length > 0) {
+      await this.client.del(keys);
+    }
   }
 }
 

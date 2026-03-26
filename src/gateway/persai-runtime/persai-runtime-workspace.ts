@@ -56,6 +56,23 @@ export function extractBootstrapDocuments(
   return Object.keys(result).length > 0 ? result : null;
 }
 
+export async function cleanupPersaiAssistantWorkspace(
+  assistantId: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<{ workspaceDir: string; deleted: boolean }> {
+  const dir = resolvePersaiAssistantWorkspaceDir(assistantId, env);
+
+  try {
+    await fs.rm(dir, { recursive: true, force: true });
+    log.debug("assistant workspace directory deleted", { assistantId, dir });
+    return { workspaceDir: dir, deleted: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.debug("workspace cleanup skipped (may not exist)", { assistantId, dir, error: message });
+    return { workspaceDir: dir, deleted: false };
+  }
+}
+
 export async function writeBootstrapFilesToWorkspace(params: {
   assistantId: string;
   workspace: unknown;

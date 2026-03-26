@@ -26,12 +26,14 @@ import {
   validateToolPolicyForApply,
 } from "./persai-runtime-tool-policy.js";
 import {
+  cleanupPersaiAssistantWorkspace,
   resolvePersaiAssistantWorkspaceDir,
   writeBootstrapFilesToWorkspace,
 } from "./persai-runtime-workspace.js";
 import { loadConfig } from "../../config/config.js";
 
 export const RUNTIME_SPEC_APPLY_PATH = "/api/v1/runtime/spec/apply";
+export const RUNTIME_WORKSPACE_CLEANUP_PATH = "/api/v1/runtime/workspace/cleanup";
 export const RUNTIME_CHAT_WEB_PATH = "/api/v1/runtime/chat/web";
 export const RUNTIME_CHAT_WEB_STREAM_PATH = "/api/v1/runtime/chat/web/stream";
 
@@ -195,6 +197,63 @@ export async function handleRuntimeSpecApplyHttpRequest(params: {
     workspaceDir,
     bootstrapFiles: { written, skipped },
   });
+  return true;
+}
+
+export async function handleRuntimeWorkspaceCleanupHttpRequest(params: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  requestPath: string;
+  resolvedAuth: ResolvedGatewayAuth;
+  trustedProxies: string[];
+  allowRealIpFallback: boolean;
+  store: PersaiRuntimeSpecStore;
+}): Promise<boolean> {
+  const { req, res, requestPath, resolvedAuth, trustedProxies, allowRealIpFallback, store } = params;
+  if (requestPath !== RUNTIME_WORKSPACE_CLEANUP_PATH) {
+    return false;
+  }
+
+  const method = (req.method ?? "GET").toUpperCase();
+  if (method !== "POST") {
+    res.statusCode = 405;
+    res.setHeader("Allow", "POST");
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.end("Method Not Allowed");
+    return true;
+  }
+
+  const bearerToken = getBearerToken(req);
+  const auth = await authorizeHttpGatewayConnect({
+    auth: resolvedAuth,
+    connectAuth: bearerToken ? { token: bearerToken, password: bearerToken } : null,
+    req,
+    trustedProxies,
+    allowRealIpFallback,
+  });
+  if (!auth.ok) {
+    sendGatewayAuthFailure(res, auth);
+    return true;
+  }
+
+  const parsed = await readJsonBody(req, MAX_RUNTIME_JSON_BYTES);
+  if (!parsed.ok) {
+    sendJson(res, 400, { ok: false, error: parsed.error });
+    return true;
+  }
+
+  const payload = isRecord(parsed.value) ? parsed.value : {};
+  const assistantId = typeof payload.assistantId === "string" ? payload.assistantId.trim() : "";
+
+  if (!assistantId) {
+    sendJson(res, 400, { ok: false, error: "assistantId is required." });
+    return true;
+  }
+
+  const { workspaceDir, deleted } = await cleanupPersaiAssistantWorkspace(assistantId);
+  await store.remove(assistantId);
+
+  sendJson(res, 200, { ok: true, assistantId, workspaceDir, deleted });
   return true;
 }
 

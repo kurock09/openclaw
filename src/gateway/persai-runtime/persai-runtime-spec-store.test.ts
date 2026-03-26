@@ -58,6 +58,15 @@ describe("RedisPersaiRuntimeSpecStore", () => {
         calls.expire.push({ key, ttl });
         return 1;
       },
+      async del(key: string | string[]) {
+        const keys = Array.isArray(key) ? key : [key];
+        for (const k of keys) state.delete(k);
+        return keys.length;
+      },
+      async keys(pattern: string) {
+        const prefix = pattern.replace("*", "");
+        return [...state.keys()].filter((k) => k.startsWith(prefix));
+      },
     };
     const store = new RedisPersaiRuntimeSpecStore(client, {
       keyPrefix: "persai:test",
@@ -103,6 +112,12 @@ describe("createPersaiRuntimeSpecStoreFromEnv", () => {
         async set() {},
         async expire() {
           return 1;
+        },
+        async del() {
+          return 0;
+        },
+        async keys() {
+          return [];
         },
       }),
     });

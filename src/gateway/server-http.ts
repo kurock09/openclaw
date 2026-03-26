@@ -75,6 +75,7 @@ import {
   handleRuntimeChatWebHttpRequest,
   handleRuntimeChatWebStreamHttpRequest,
   handleRuntimeSpecApplyHttpRequest,
+  handleRuntimeWorkspaceCleanupHttpRequest,
 } from "./persai-runtime/persai-runtime-http.js";
 import {
   handleRuntimeMemoryItemsHttpRequest,
@@ -891,6 +892,19 @@ export function createGatewayHttpServer(opts: {
         name: "persai-runtime-spec-apply",
         run: () =>
           handleRuntimeSpecApplyHttpRequest({
+            req,
+            res,
+            requestPath,
+            resolvedAuth,
+            trustedProxies,
+            allowRealIpFallback,
+            store: persaiRuntimeSpecStore,
+          }),
+      });
+      requestStages.push({
+        name: "persai-runtime-workspace-cleanup",
+        run: () =>
+          handleRuntimeWorkspaceCleanupHttpRequest({
             req,
             res,
             requestPath,
