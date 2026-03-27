@@ -226,6 +226,8 @@ export async function syncTelegramBotForAssistant(params: {
       allowed_updates: ["message", "my_chat_member"],
       drop_pending_updates: false,
       onStart: () => console.log(`[persai-telegram] Polling started for ${assistantId}`),
+    }).catch((err) => {
+      console.warn(`[persai-telegram] Polling error for ${assistantId} (non-fatal):`, err);
     });
   }
 
