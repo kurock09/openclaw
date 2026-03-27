@@ -29,6 +29,7 @@ function buildPersaiWebIngressCommandInput(params: {
   modelOverride?: string;
   sessionKey: string;
   runId: string;
+  workspaceDir?: string;
 }) {
   return {
     message: params.userMessage,
@@ -42,6 +43,7 @@ function buildPersaiWebIngressCommandInput(params: {
     bestEffortDeliver: false as const,
     senderIsOwner: true as const,
     allowModelOverride: true as const,
+    workspaceDir: params.workspaceDir,
   };
 }
 
@@ -80,6 +82,7 @@ export async function runPersaiWebRuntimeAgentTurnSync(params: {
     modelOverride: params.modelOverride,
     sessionKey: params.sessionKey,
     runId,
+    workspaceDir: params.workspaceDir,
   });
 
   const injectedKeys = params.resolvedToolCredentials
@@ -139,6 +142,7 @@ export async function runPersaiTelegramAgentTurn(params: {
     bestEffortDeliver: false as const,
     senderIsOwner: true as const,
     allowModelOverride: true as const,
+    workspaceDir: params.workspaceDir,
   };
 
   const injectedKeys = params.resolvedToolCredentials
@@ -198,6 +202,7 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
     modelOverride: params.modelOverride,
     sessionKey: params.sessionKey,
     runId,
+    workspaceDir: params.workspaceDir,
   });
 
   const injectedKeys = params.resolvedToolCredentials
