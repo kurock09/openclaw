@@ -1,5 +1,7 @@
-import { Bot, webhookCallback } from "grammy";
+import { Bot, InputFile, webhookCallback } from "grammy";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import type { PersaiRuntimeSpecStore } from "./persai-runtime-spec-store.js";
 import {
   extractPersaiRuntimeModelOverride,
@@ -11,6 +13,7 @@ import {
   resolveToolCredentials,
 } from "./persai-runtime-tool-policy.js";
 import { extractPersonaInstructionsFromWorkspace } from "./persai-runtime-http.js";
+import { resolvePersaiAssistantWorkspaceDir } from "./persai-runtime-workspace.js";
 import { loadConfig } from "../../config/config.js";
 import { runPersaiTelegramAgentTurn } from "./persai-runtime-agent-turn.js";
 
@@ -55,6 +58,56 @@ function extractTelegramChannel(bootstrap: unknown): {
     inbound: tg.inbound !== false,
     outbound: tg.outbound !== false,
   };
+}
+
+function extractPersonaFromWorkspace(workspace: unknown): {
+  displayName: string | null;
+  instructions: string | null;
+  avatarUrl: string | null;
+} {
+  if (!isRecord(workspace)) return { displayName: null, instructions: null, avatarUrl: null };
+  const persona = workspace.persona;
+  if (!isRecord(persona)) return { displayName: null, instructions: null, avatarUrl: null };
+  return {
+    displayName: typeof persona.displayName === "string" ? persona.displayName : null,
+    instructions: typeof persona.instructions === "string" ? persona.instructions : null,
+    avatarUrl: typeof persona.avatarUrl === "string" ? persona.avatarUrl : null,
+  };
+}
+
+async function syncBotProfile(bot: Bot, workspace: unknown, assistantId: string): Promise<void> {
+  const persona = extractPersonaFromWorkspace(workspace);
+
+  if (persona.displayName) {
+    try {
+      await bot.api.setMyName(persona.displayName.slice(0, 64));
+    } catch (err) {
+      console.warn(`[persai-telegram] setMyName failed for ${assistantId}:`, err);
+    }
+  }
+
+  if (persona.instructions) {
+    try {
+      await bot.api.setMyDescription(persona.instructions.slice(0, 512));
+    } catch (err) {
+      console.warn(`[persai-telegram] setMyDescription failed for ${assistantId}:`, err);
+    }
+  }
+
+  try {
+    const workspaceDir = resolvePersaiAssistantWorkspaceDir(assistantId);
+    if (fs.existsSync(workspaceDir)) {
+      const avatarFiles = fs.readdirSync(workspaceDir).filter((f) => f.startsWith("avatar."));
+      if (avatarFiles.length > 0) {
+        const avatarPath = path.join(workspaceDir, avatarFiles[0]!);
+        const buffer = fs.readFileSync(avatarPath);
+        await bot.api.setMyProfilePhoto({ type: "static", photo: new InputFile(buffer, avatarFiles[0]!) });
+        console.log(`[persai-telegram] Profile photo set for ${assistantId}`);
+      }
+    }
+  } catch (err) {
+    console.warn(`[persai-telegram] setMyProfilePhoto failed for ${assistantId}:`, err);
+  }
 }
 
 export async function syncTelegramBotForAssistant(params: {
@@ -175,6 +228,10 @@ export async function syncTelegramBotForAssistant(params: {
       onStart: () => console.log(`[persai-telegram] Polling started for ${assistantId}`),
     });
   }
+
+  void syncBotProfile(bot, workspace, assistantId).catch((err) => {
+    console.warn(`[persai-telegram] syncBotProfile failed for ${assistantId}:`, err);
+  });
 }
 
 async function stopTelegramBot(assistantId: string): Promise<void> {

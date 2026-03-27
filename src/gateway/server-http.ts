@@ -76,6 +76,7 @@ import {
   handleRuntimeChatWebStreamHttpRequest,
   handleRuntimeSpecApplyHttpRequest,
   handleRuntimeWorkspaceCleanupHttpRequest,
+  handleRuntimeWorkspaceAvatarHttpRequest,
 } from "./persai-runtime/persai-runtime-http.js";
 import {
   handleRuntimeMemoryItemsHttpRequest,
@@ -966,6 +967,18 @@ export function createGatewayHttpServer(opts: {
         { name: "persai-runtime-memory-forget", run: () => handleRuntimeMemoryForgetHttpRequest(memoryParams) },
         { name: "persai-runtime-memory-search", run: () => handleRuntimeMemorySearchHttpRequest(memoryParams) },
       );
+      requestStages.push({
+        name: "persai-runtime-workspace-avatar",
+        run: () =>
+          handleRuntimeWorkspaceAvatarHttpRequest({
+            req,
+            res,
+            requestPath,
+            resolvedAuth,
+            trustedProxies,
+            allowRealIpFallback,
+          }),
+      });
       requestStages.push({
         name: "persai-telegram-webhook",
         run: () => handleTelegramWebhookRequest({ req, res, requestPath }),

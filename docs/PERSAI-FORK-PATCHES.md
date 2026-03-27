@@ -3,6 +3,19 @@
 This document tracks every PersAI-specific modification to native OpenClaw files.
 After merging upstream, walk this checklist to verify all patches survived.
 
+## Safety note
+
+Not all fork patches have the same risk.
+
+- **Lower-risk patches:** PersAI-specific bridge files and verification/docs changes
+- **Higher-risk patches:** edits inside native OpenClaw execution/config/runtime files
+
+Before preserving or adding a higher-risk patch, confirm:
+
+1. a PersAI-only fix is not enough
+2. the behavior must change inside OpenClaw runtime
+3. the patch has a concrete merge-time verification check
+
 ## Fork metadata
 
 - **Upstream**: `https://github.com/openclaw/openclaw.git`
@@ -64,6 +77,8 @@ After merging upstream, walk this checklist to verify all patches survived.
 
 ### 6. Thinking/reasoning stream for PersAI web chat (H10)
 
+**Risk:** Higher-risk native OpenClaw patch
+
 **Files:**
 - `src/agents/command/types.ts` — adds per-run `reasoning` ingress option
 - `src/agents/agent-command.ts` — normalizes/passes `resolvedReasoningLevel` into `runEmbeddedPiAgent()`
@@ -80,6 +95,27 @@ After merging upstream, walk this checklist to verify all patches survived.
 
 **Introduced by:** `8e61e0ba5` (feat: native PersAI runtime HTTP) through `88c47b1ed` (feat: H8 Telegram bridge)
 **Verify:** `grep -c 'persai-runtime' src/gateway/server-http.ts` should return >= 5
+
+### 8. Workspace avatar file endpoints
+
+**Risk:** Lower-risk PersAI-specific bridge file
+
+**Files:**
+- `src/gateway/persai-runtime/persai-runtime-http.ts` — `POST/GET /api/v1/runtime/workspace/avatar` handler (file write/read to workspace dir)
+- `src/gateway/server-http.ts` — registers the `persai-runtime-workspace-avatar` request stage
+
+**Introduced by:** UI polish (avatar upload to workspace)
+**Verify:** `grep -c 'RUNTIME_WORKSPACE_AVATAR_PATH' src/gateway/persai-runtime/persai-runtime-http.ts` should return >= 2
+
+### 9. Telegram bot profile sync on apply
+
+**Risk:** Lower-risk PersAI-specific bridge file
+
+**Files:**
+- `src/gateway/persai-runtime/persai-runtime-telegram.ts` — `syncBotProfile()` helper: sets bot name, description, and profile photo from workspace persona on every `syncTelegramBotForAssistant` call
+
+**Introduced by:** UI polish (Telegram sync)
+**Verify:** `grep -c 'syncBotProfile' src/gateway/persai-runtime/persai-runtime-telegram.ts` should return >= 2
 
 ## Quick full verification
 

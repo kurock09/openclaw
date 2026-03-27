@@ -1,4 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import {
   authorizeHttpGatewayConnect,
   type ResolvedGatewayAuth,
@@ -28,6 +30,7 @@ import {
 import {
   cleanupPersaiAssistantWorkspace,
   writeBootstrapFilesToWorkspace,
+  resolvePersaiAssistantWorkspaceDir,
 } from "./persai-runtime-workspace.js";
 import { loadConfig } from "../../config/config.js";
 import { ensureSpecFreshness } from "./persai-runtime-freshness.js";
@@ -37,6 +40,7 @@ export const RUNTIME_SPEC_APPLY_PATH = "/api/v1/runtime/spec/apply";
 export const RUNTIME_WORKSPACE_CLEANUP_PATH = "/api/v1/runtime/workspace/cleanup";
 export const RUNTIME_CHAT_WEB_PATH = "/api/v1/runtime/chat/web";
 export const RUNTIME_CHAT_WEB_STREAM_PATH = "/api/v1/runtime/chat/web/stream";
+export const RUNTIME_WORKSPACE_AVATAR_PATH = "/api/v1/runtime/workspace/avatar";
 
 const MAX_RUNTIME_JSON_BYTES = 1_000_000;
 const MISSING_APPLIED_SPEC_ERROR =
@@ -541,5 +545,130 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
     toolDenyList: streamToolDenyList,
     workspaceDir: applied.workspaceDir,
   });
+  return true;
+}
+
+const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
+const AVATAR_ALLOWED_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp"]);
+
+function readRawBody(req: IncomingMessage, limit: number): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let total = 0;
+    req.on("data", (chunk: Buffer) => {
+      total += chunk.length;
+      if (total > limit) {
+        reject(new Error("Payload too large"));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => resolve(Buffer.concat(chunks)));
+    req.on("error", reject);
+  });
+}
+
+export async function handleRuntimeWorkspaceAvatarHttpRequest(params: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  requestPath: string;
+  resolvedAuth: ResolvedGatewayAuth;
+  trustedProxies: string[];
+  allowRealIpFallback: boolean;
+}): Promise<boolean> {
+  const { req, res, requestPath, resolvedAuth, trustedProxies, allowRealIpFallback } = params;
+  if (!requestPath.startsWith(RUNTIME_WORKSPACE_AVATAR_PATH)) {
+    return false;
+  }
+
+  const bearerToken = getBearerToken(req);
+  const auth = await authorizeHttpGatewayConnect({
+    auth: resolvedAuth,
+    connectAuth: bearerToken ? { token: bearerToken, password: bearerToken } : null,
+    req,
+    trustedProxies,
+    allowRealIpFallback,
+  });
+  if (!auth.ok) {
+    sendGatewayAuthFailure(res, auth);
+    return true;
+  }
+
+  const url = new URL(req.url ?? "/", "http://localhost");
+  const assistantId = url.searchParams.get("assistantId");
+  if (!assistantId) {
+    sendJson(res, 400, { error: "assistantId query parameter is required." });
+    return true;
+  }
+
+  const workspaceDir = resolvePersaiAssistantWorkspaceDir(assistantId);
+
+  if (req.method === "POST") {
+    const ext = (url.searchParams.get("ext") ?? "png").toLowerCase();
+    if (!AVATAR_ALLOWED_EXTENSIONS.has(ext)) {
+      sendJson(res, 400, { error: `Extension "${ext}" is not allowed.` });
+      return true;
+    }
+
+    let body: Buffer;
+    try {
+      body = await readRawBody(req, MAX_AVATAR_BYTES);
+    } catch {
+      sendJson(res, 413, { error: "Avatar file too large (max 2MB)." });
+      return true;
+    }
+
+    fs.mkdirSync(workspaceDir, { recursive: true });
+
+    // Remove any existing avatar files first.
+    for (const existing of fs.readdirSync(workspaceDir)) {
+      if (existing.startsWith("avatar.")) {
+        fs.unlinkSync(path.join(workspaceDir, existing));
+      }
+    }
+
+    const avatarFileName = `avatar.${ext}`;
+    fs.writeFileSync(path.join(workspaceDir, avatarFileName), body);
+
+    sendJson(res, 200, {
+      avatarUrl: `/api/v1/assistant/avatar`,
+      avatarFileName,
+    });
+    return true;
+  }
+
+  if (req.method === "GET") {
+    if (!fs.existsSync(workspaceDir)) {
+      sendJson(res, 404, { error: "No avatar found." });
+      return true;
+    }
+
+    const files = fs.readdirSync(workspaceDir).filter((f) => f.startsWith("avatar."));
+    if (files.length === 0) {
+      sendJson(res, 404, { error: "No avatar found." });
+      return true;
+    }
+
+    const avatarFile = files[0]!;
+    const filePath = path.join(workspaceDir, avatarFile);
+    const ext = avatarFile.split(".").pop() ?? "png";
+    const mimeMap: Record<string, string> = {
+      png: "image/png",
+      jpg: "image/jpeg",
+      jpeg: "image/jpeg",
+      gif: "image/gif",
+      webp: "image/webp",
+    };
+
+    res.statusCode = 200;
+    res.setHeader("Content-Type", mimeMap[ext] ?? "application/octet-stream");
+    res.setHeader("Cache-Control", "public, max-age=300");
+    const stream = fs.createReadStream(filePath);
+    stream.pipe(res);
+    return true;
+  }
+
+  sendJson(res, 405, { error: "Method not allowed." });
   return true;
 }

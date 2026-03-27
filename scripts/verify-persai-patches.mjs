@@ -101,7 +101,17 @@ check("agent-command resolves reasoning level", () =>
 check("persai runtime stream emits thinking chunks", () =>
   fileContains('src/gateway/persai-runtime/persai-runtime-agent-turn.ts', 'type: "thinking"'));
 
-console.log("\n[8] Gateway HTTP route registration");
+console.log("\n[8] Workspace avatar file endpoints");
+check("persai-runtime-http.ts has RUNTIME_WORKSPACE_AVATAR_PATH", () =>
+  fileContainsCount("src/gateway/persai-runtime/persai-runtime-http.ts", "RUNTIME_WORKSPACE_AVATAR_PATH") >= 2);
+check("server-http.ts registers workspace-avatar stage", () =>
+  fileContains("src/gateway/server-http.ts", "persai-runtime-workspace-avatar"));
+
+console.log("\n[9] Telegram bot profile sync");
+check("persai-runtime-telegram.ts has syncBotProfile", () =>
+  fileContainsCount("src/gateway/persai-runtime/persai-runtime-telegram.ts", "syncBotProfile") >= 2);
+
+console.log("\n[10] Gateway HTTP route registration");
 check("server-http.ts imports persai-runtime modules", () =>
   fileContainsCount("src/gateway/server-http.ts", "persai-runtime") >= 5);
 check("server-runtime-state.ts creates persai spec store", () =>
