@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { resolveAgentWorkspaceDir } from "../agents/agent-scope.js";
 import { resolveMemorySearchConfig } from "../agents/memory-search.js";
+import { persaiRuntimeRequestContext } from "../agents/persai-runtime-context.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { isFileMissingError, statRegularFile } from "./fs-utils.js";
 import { isMemoryPath, normalizeExtraMemoryPaths } from "./internal.js";
@@ -86,8 +87,9 @@ export async function readAgentMemoryFile(params: {
   if (!settings) {
     throw new Error("memory search disabled");
   }
+  const runtimeOverride = persaiRuntimeRequestContext.getStore()?.workspaceDir;
   return await readMemoryFile({
-    workspaceDir: resolveAgentWorkspaceDir(params.cfg, params.agentId),
+    workspaceDir: runtimeOverride || resolveAgentWorkspaceDir(params.cfg, params.agentId),
     extraPaths: settings.extraPaths,
     relPath: params.relPath,
     from: params.from,

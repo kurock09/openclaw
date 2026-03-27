@@ -1,9 +1,9 @@
-import { AsyncLocalStorage } from "node:async_hooks";
 import type { OpenClawConfig } from "../config/config.js";
 import { resolvePluginTools } from "../plugins/tools.js";
 import { getActiveRuntimeWebToolsMetadata } from "../secrets/runtime.js";
 import type { GatewayMessageChannel } from "../utils/message-channel.js";
 import { resolveSessionAgentId } from "./agent-scope.js";
+import { persaiRuntimeRequestContext } from "./persai-runtime-context.js";
 import type { SandboxFsBridge } from "./sandbox/fs-bridge.js";
 import type { SpawnedToolContext } from "./spawned-context.js";
 import type { ToolFsPolicy } from "./tool-fs-policy.js";
@@ -29,14 +29,7 @@ import { createTtsTool } from "./tools/tts-tool.js";
 import { createWebFetchTool, createWebSearchTool } from "./tools/web-tools.js";
 import { resolveWorkspaceRoot } from "./workspace-dir.js";
 
-/**
- * Per-request context for PersAI runtime. Allows concurrent requests to carry
- * their own toolDenyList and workspaceDir without sharing process.env.
- */
-export const persaiRuntimeRequestContext = new AsyncLocalStorage<{
-  toolDenyList?: string[];
-  workspaceDir?: string;
-}>();
+export { persaiRuntimeRequestContext } from "./persai-runtime-context.js";
 
 export function createOpenClawTools(
   options?: {

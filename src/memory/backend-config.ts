@@ -1,5 +1,6 @@
 import path from "node:path";
 import { resolveAgentWorkspaceDir } from "../agents/agent-scope.js";
+import { persaiRuntimeRequestContext } from "../agents/persai-runtime-context.js";
 import { parseDurationMs } from "../cli/parse-duration.js";
 import type { OpenClawConfig } from "../config/config.js";
 import type { SessionSendPolicyConfig } from "../config/types.base.js";
@@ -304,7 +305,8 @@ export function resolveMemoryBackendConfig(params: {
     return { backend: "builtin", citations };
   }
 
-  const workspaceDir = resolveAgentWorkspaceDir(params.cfg, params.agentId);
+  const runtimeOverride = persaiRuntimeRequestContext.getStore()?.workspaceDir;
+  const workspaceDir = runtimeOverride || resolveAgentWorkspaceDir(params.cfg, params.agentId);
   const qmdCfg = params.cfg.memory?.qmd;
   const includeDefaultMemory = qmdCfg?.includeDefaultMemory !== false;
   const nameSet = new Set<string>();

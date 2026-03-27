@@ -3,6 +3,7 @@ import { type FSWatcher } from "chokidar";
 import { resolveAgentDir, resolveAgentWorkspaceDir } from "../agents/agent-scope.js";
 import type { ResolvedMemorySearchConfig } from "../agents/memory-search.js";
 import { resolveMemorySearchConfig } from "../agents/memory-search.js";
+import { persaiRuntimeRequestContext } from "../agents/persai-runtime-context.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import {
@@ -170,7 +171,8 @@ export class MemoryIndexManager extends MemoryManagerEmbeddingOps implements Mem
     if (!settings) {
       return null;
     }
-    const workspaceDir = resolveAgentWorkspaceDir(cfg, agentId);
+    const runtimeOverride = persaiRuntimeRequestContext.getStore()?.workspaceDir;
+    const workspaceDir = runtimeOverride || resolveAgentWorkspaceDir(cfg, agentId);
     const purpose = params.purpose === "status" ? "status" : "default";
     const key = `${agentId}:${workspaceDir}:${JSON.stringify(settings)}:${purpose}`;
     const statusOnly = params.purpose === "status";

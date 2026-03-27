@@ -50,4 +50,11 @@ export async function prepareSessionManagerForRun(params: {
     sm.leafId = null;
     sm.flushed = false;
   }
+
+  // Keep session cwd in sync with the runtime workspace. PersAI multi-tenant
+  // deployments may move the workspace between turns (e.g. after a reapply),
+  // and the persisted header must reflect the current value.
+  if (header && header.cwd !== params.cwd) {
+    header.cwd = params.cwd;
+  }
 }

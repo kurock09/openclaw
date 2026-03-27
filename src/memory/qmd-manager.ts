@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
 import { resolveAgentWorkspaceDir } from "../agents/agent-scope.js";
+import { persaiRuntimeRequestContext } from "../agents/persai-runtime-context.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { resolveStateDir } from "../config/paths.js";
 import { writeFileWithinRoot } from "../infra/fs-safe.js";
@@ -185,7 +186,8 @@ export class QmdMemoryManager implements MemorySearchManager {
     this.cfg = params.cfg;
     this.agentId = params.agentId;
     this.qmd = params.resolved;
-    this.workspaceDir = resolveAgentWorkspaceDir(params.cfg, params.agentId);
+    const runtimeOverride = persaiRuntimeRequestContext.getStore()?.workspaceDir;
+    this.workspaceDir = runtimeOverride || resolveAgentWorkspaceDir(params.cfg, params.agentId);
     this.stateDir = resolveStateDir(process.env, os.homedir);
     this.agentStateDir = path.join(this.stateDir, "agents", this.agentId);
     this.qmdDir = path.join(this.agentStateDir, "qmd");
