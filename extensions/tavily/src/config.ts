@@ -1,4 +1,5 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-runtime";
+import { getPersaiToolCredential } from "openclaw/plugin-sdk/persai-credential";
 import { normalizeSecretInput } from "openclaw/plugin-sdk/provider-auth";
 import { normalizeResolvedSecretInputString } from "openclaw/plugin-sdk/secret-input";
 
@@ -42,6 +43,7 @@ export function resolveTavilyApiKey(cfg?: OpenClawConfig): string | undefined {
   const search = resolveTavilySearchConfig(cfg);
   return (
     normalizeConfiguredSecret(search?.apiKey, "plugins.entries.tavily.config.webSearch.apiKey") ||
+    getPersaiToolCredential("TAVILY_API_KEY") ||
     normalizeSecretInput(process.env.TAVILY_API_KEY) ||
     undefined
   );

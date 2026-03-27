@@ -1,4 +1,5 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-runtime";
+import { getPersaiToolCredential } from "openclaw/plugin-sdk/persai-credential";
 import { normalizeSecretInput } from "openclaw/plugin-sdk/provider-auth";
 import { normalizeResolvedSecretInputString } from "openclaw/plugin-sdk/secret-input";
 
@@ -109,6 +110,7 @@ export function resolveFirecrawlApiKey(cfg?: OpenClawConfig): string | undefined
     ) ||
     normalizeConfiguredSecret(search?.apiKey, "tools.web.search.firecrawl.apiKey") ||
     normalizeConfiguredSecret(fetch?.apiKey, "tools.web.fetch.firecrawl.apiKey") ||
+    getPersaiToolCredential("FIRECRAWL_API_KEY") ||
     normalizeSecretInput(process.env.FIRECRAWL_API_KEY) ||
     undefined
   );

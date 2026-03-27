@@ -20,8 +20,6 @@ function resolveAgentResponseText(result: unknown): string {
   return content || "No response from OpenClaw.";
 }
 
-const PERSAI_WORKSPACE_ENV = "PERSAI_AGENT_WORKSPACE_DIR";
-
 function buildPersaiWebIngressCommandInput(params: {
   userMessage: string;
   extraSystemPrompt?: string;
@@ -47,21 +45,6 @@ function buildPersaiWebIngressCommandInput(params: {
   };
 }
 
-function injectToolCredentials(credentials: Map<string, string>): string[] {
-  const injectedKeys: string[] = [];
-  for (const [envVar, value] of credentials) {
-    process.env[envVar] = value;
-    injectedKeys.push(envVar);
-  }
-  return injectedKeys;
-}
-
-function cleanupInjectedEnv(keys: string[]): void {
-  for (const key of keys) {
-    delete process.env[key];
-  }
-}
-
 /** P3: one full embedded agent turn for PersAI web runtime (sync). */
 export async function runPersaiWebRuntimeAgentTurnSync(params: {
   userMessage: string;
@@ -85,17 +68,10 @@ export async function runPersaiWebRuntimeAgentTurnSync(params: {
     workspaceDir: params.workspaceDir,
   });
 
-  const injectedKeys = params.resolvedToolCredentials
-    ? injectToolCredentials(params.resolvedToolCredentials)
-    : [];
-  const prevWorkspace = process.env[PERSAI_WORKSPACE_ENV];
-  if (params.workspaceDir) {
-    process.env[PERSAI_WORKSPACE_ENV] = params.workspaceDir;
-  }
-
   const runtimeCtx = {
     toolDenyList: params.toolDenyList,
     workspaceDir: params.workspaceDir,
+    toolCredentials: params.resolvedToolCredentials,
   };
 
   try {
@@ -107,13 +83,6 @@ export async function runPersaiWebRuntimeAgentTurnSync(params: {
     const message = err instanceof Error ? err.message : String(err);
     logWarn(`persai-runtime: sync agent turn failed: ${message}`);
     return { ok: false, error: message };
-  } finally {
-    cleanupInjectedEnv(injectedKeys);
-    if (prevWorkspace !== undefined) {
-      process.env[PERSAI_WORKSPACE_ENV] = prevWorkspace;
-    } else {
-      delete process.env[PERSAI_WORKSPACE_ENV];
-    }
   }
 }
 
@@ -145,17 +114,10 @@ export async function runPersaiTelegramAgentTurn(params: {
     workspaceDir: params.workspaceDir,
   };
 
-  const injectedKeys = params.resolvedToolCredentials
-    ? injectToolCredentials(params.resolvedToolCredentials)
-    : [];
-  const prevWorkspace = process.env[PERSAI_WORKSPACE_ENV];
-  if (params.workspaceDir) {
-    process.env[PERSAI_WORKSPACE_ENV] = params.workspaceDir;
-  }
-
   const runtimeCtx = {
     toolDenyList: params.toolDenyList,
     workspaceDir: params.workspaceDir,
+    toolCredentials: params.resolvedToolCredentials,
   };
 
   try {
@@ -167,13 +129,6 @@ export async function runPersaiTelegramAgentTurn(params: {
     const message = err instanceof Error ? err.message : String(err);
     logWarn(`persai-runtime: telegram agent turn failed: ${message}`);
     return { ok: false, error: message };
-  } finally {
-    cleanupInjectedEnv(injectedKeys);
-    if (prevWorkspace !== undefined) {
-      process.env[PERSAI_WORKSPACE_ENV] = prevWorkspace;
-    } else {
-      delete process.env[PERSAI_WORKSPACE_ENV];
-    }
   }
 }
 
@@ -205,17 +160,10 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
     workspaceDir: params.workspaceDir,
   });
 
-  const injectedKeys = params.resolvedToolCredentials
-    ? injectToolCredentials(params.resolvedToolCredentials)
-    : [];
-  const prevWorkspace = process.env[PERSAI_WORKSPACE_ENV];
-  if (params.workspaceDir) {
-    process.env[PERSAI_WORKSPACE_ENV] = params.workspaceDir;
-  }
-
   const runtimeCtx = {
     toolDenyList: params.toolDenyList,
     workspaceDir: params.workspaceDir,
+    toolCredentials: params.resolvedToolCredentials,
   };
 
   let closed = false;
@@ -271,13 +219,6 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
           params.res.write(`${JSON.stringify({ type: "delta", delta: `Error: ${message}` })}\n`);
         }
       } finally {
-        cleanupInjectedEnv(injectedKeys);
-        if (prevWorkspace !== undefined) {
-          process.env[PERSAI_WORKSPACE_ENV] = prevWorkspace;
-        } else {
-          delete process.env[PERSAI_WORKSPACE_ENV];
-        }
-
         if (!closed) {
           closed = true;
           unsubscribe();

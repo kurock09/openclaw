@@ -397,6 +397,10 @@
       "types": "./dist/plugin-sdk/nostr.d.ts",
       "default": "./dist/plugin-sdk/nostr.js"
     },
+    "./plugin-sdk/persai-credential": {
+      "types": "./dist/plugin-sdk/persai-credential.d.ts",
+      "default": "./dist/plugin-sdk/persai-credential.js"
+    },
     "./plugin-sdk/provider-auth": {
       "types": "./dist/plugin-sdk/provider-auth.d.ts",
       "default": "./dist/plugin-sdk/provider-auth.js"

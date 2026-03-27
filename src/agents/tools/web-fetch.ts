@@ -5,6 +5,7 @@ import { SsrFBlockedError } from "../../infra/net/ssrf.js";
 import { logDebug } from "../../logger.js";
 import type { RuntimeWebFetchFirecrawlMetadata } from "../../secrets/runtime-web-tools.js";
 import { wrapExternalContent, wrapWebContent } from "../../security/external-content.js";
+import { getPersaiToolCredential } from "../persai-runtime-context.js";
 import { normalizeSecretInput } from "../../utils/normalize-secret-input.js";
 import { stringEnum } from "../schema/typebox.js";
 import type { AnyAgentTool } from "./common.js";
@@ -146,8 +147,9 @@ function resolveFirecrawlApiKey(firecrawl?: FirecrawlFetchConfig): string | unde
         })
       : undefined;
   const fromConfig = normalizeSecretInput(fromConfigRaw);
+  const fromCtx = getPersaiToolCredential("FIRECRAWL_API_KEY");
   const fromEnv = normalizeSecretInput(process.env.FIRECRAWL_API_KEY);
-  return fromConfig || fromEnv || undefined;
+  return fromConfig || fromCtx || fromEnv || undefined;
 }
 
 function resolveFirecrawlEnabled(params: {
