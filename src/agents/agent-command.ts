@@ -11,6 +11,7 @@ import { normalizeReplyPayload } from "../auto-reply/reply/normalize-reply.js";
 import {
   formatThinkingLevels,
   formatXHighModelHint,
+  normalizeReasoningLevel,
   normalizeThinkLevel,
   normalizeVerboseLevel,
   supportsXHighThinking,
@@ -362,6 +363,7 @@ function runAgentAttempt(params: {
   body: string;
   isFallbackRetry: boolean;
   resolvedThinkLevel: ThinkLevel;
+  resolvedReasoningLevel: "off" | "on" | "stream";
   timeoutMs: number;
   runId: string;
   opts: AgentCommandOpts & { senderIsOwner: boolean };
@@ -517,6 +519,7 @@ function runAgentAttempt(params: {
     authProfileId,
     authProfileIdSource: authProfileId ? params.sessionEntry?.authProfileOverrideSource : undefined,
     thinkLevel: params.resolvedThinkLevel,
+    reasoningLevel: params.resolvedReasoningLevel,
     verboseLevel: params.resolvedVerboseLevel,
     timeoutMs: params.timeoutMs,
     runId: params.runId,
@@ -602,11 +605,15 @@ async function prepareAgentCommandExecution(
 
   const thinkOverride = normalizeThinkLevel(opts.thinking);
   const thinkOnce = normalizeThinkLevel(opts.thinkingOnce);
+  const reasoningOverride = normalizeReasoningLevel(opts.reasoning);
   if (opts.thinking && !thinkOverride) {
     throw new Error(`Invalid thinking level. Use one of: ${thinkingLevelsHint}.`);
   }
   if (opts.thinkingOnce && !thinkOnce) {
     throw new Error(`Invalid one-shot thinking level. Use one of: ${thinkingLevelsHint}.`);
+  }
+  if (opts.reasoning && !reasoningOverride) {
+    throw new Error('Invalid reasoning level. Use one of: "off", "on", or "stream".');
   }
 
   const verboseOverride = normalizeVerboseLevel(opts.verbose);
@@ -687,6 +694,7 @@ async function prepareAgentCommandExecution(
     agentCfg,
     thinkOverride,
     thinkOnce,
+    reasoningOverride,
     verboseOverride,
     timeoutMs,
     sessionId,
@@ -720,6 +728,7 @@ async function agentCommandInternal(
     agentCfg,
     thinkOverride,
     thinkOnce,
+    reasoningOverride,
     verboseOverride,
     timeoutMs,
     sessionId,
@@ -895,6 +904,8 @@ async function agentCommandInternal(
     }
 
     let resolvedThinkLevel = thinkOnce ?? thinkOverride ?? persistedThinking;
+    const resolvedReasoningLevel =
+      reasoningOverride ?? normalizeReasoningLevel(sessionEntry?.reasoningLevel) ?? "off";
     const resolvedVerboseLevel =
       verboseOverride ?? persistedVerbose ?? (agentCfg?.verboseDefault as VerboseLevel | undefined);
 
@@ -1193,6 +1204,7 @@ async function agentCommandInternal(
             body,
             isFallbackRetry,
             resolvedThinkLevel,
+            resolvedReasoningLevel,
             timeoutMs,
             runId,
             opts,

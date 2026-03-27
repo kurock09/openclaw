@@ -93,7 +93,15 @@ check("package.json has persai-credential export", () =>
 check("entrypoints.json has persai-credential", () =>
   fileContains("scripts/lib/plugin-sdk-entrypoints.json", "persai-credential"));
 
-console.log("\n[7] Gateway HTTP route registration");
+console.log("\n[7] Thinking/reasoning stream for PersAI web chat (H10)");
+check("command types expose reasoning option", () =>
+  fileContains('src/agents/command/types.ts', "reasoning?: string"));
+check("agent-command resolves reasoning level", () =>
+  fileContains("src/agents/agent-command.ts", "resolvedReasoningLevel"));
+check("persai runtime stream emits thinking chunks", () =>
+  fileContains('src/gateway/persai-runtime/persai-runtime-agent-turn.ts', 'type: "thinking"'));
+
+console.log("\n[8] Gateway HTTP route registration");
 check("server-http.ts imports persai-runtime modules", () =>
   fileContainsCount("src/gateway/server-http.ts", "persai-runtime") >= 5);
 check("server-runtime-state.ts creates persai spec store", () =>

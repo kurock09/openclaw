@@ -25,6 +25,7 @@ function buildPersaiWebIngressCommandInput(params: {
   extraSystemPrompt?: string;
   providerOverride?: string;
   modelOverride?: string;
+  reasoning?: string;
   sessionKey: string;
   runId: string;
   workspaceDir?: string;
@@ -34,6 +35,7 @@ function buildPersaiWebIngressCommandInput(params: {
     extraSystemPrompt: params.extraSystemPrompt,
     provider: params.providerOverride,
     model: params.modelOverride,
+    reasoning: params.reasoning,
     sessionKey: params.sessionKey,
     runId: params.runId,
     deliver: false as const,
@@ -63,6 +65,7 @@ export async function runPersaiWebRuntimeAgentTurnSync(params: {
     extraSystemPrompt: params.extraSystemPrompt,
     providerOverride: params.providerOverride,
     modelOverride: params.modelOverride,
+    reasoning: "stream",
     sessionKey: params.sessionKey,
     runId,
     workspaceDir: params.workspaceDir,
@@ -178,6 +181,14 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
       if (content) {
         sawAssistantDelta = true;
         params.res.write(`${JSON.stringify({ type: "delta", delta: content })}\n`);
+      }
+      return;
+    }
+    if (evt.stream === "thinking") {
+      const delta = typeof evt.data?.delta === "string" ? evt.data.delta : "";
+      const text = typeof evt.data?.text === "string" ? evt.data.text : "";
+      if (delta && text) {
+        params.res.write(`${JSON.stringify({ type: "thinking", delta, text })}\n`);
       }
       return;
     }

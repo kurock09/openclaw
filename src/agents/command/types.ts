@@ -48,6 +48,7 @@ export type AgentCommandOpts = {
   sessionKey?: string;
   thinking?: string;
   thinkingOnce?: string;
+  reasoning?: string;
   verbose?: string;
   json?: boolean;
   timeout?: string;

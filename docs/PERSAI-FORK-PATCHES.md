@@ -62,7 +62,17 @@ After merging upstream, walk this checklist to verify all patches survived.
 **Introduced by:** `97706dbea` (feat: H9)
 **Verify:** `grep -c 'persai-credential' package.json` should return >= 1
 
-### 6. Gateway HTTP route registration
+### 6. Thinking/reasoning stream for PersAI web chat (H10)
+
+**Files:**
+- `src/agents/command/types.ts` — adds per-run `reasoning` ingress option
+- `src/agents/agent-command.ts` — normalizes/passes `resolvedReasoningLevel` into `runEmbeddedPiAgent()`
+- `src/gateway/persai-runtime/persai-runtime-agent-turn.ts` — PersAI web stream requests `reasoning: "stream"` and forwards `thinking` NDJSON chunks
+
+**Introduced by:** `TBD` (feat: H10)
+**Verify:** `grep -c 'resolvedReasoningLevel' src/agents/agent-command.ts` should return >= 2
+
+### 7. Gateway HTTP route registration
 
 **Files:**
 - `src/gateway/server-http.ts` — imports from `persai-runtime/` modules, registers HTTP request stages (spec apply, chat, stream, memory, telegram webhook), resolves spec store singleton
