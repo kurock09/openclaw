@@ -243,8 +243,9 @@ async function notifyPersaiGroupUpdate(params: {
   event: "joined" | "left";
 }): Promise<void> {
   const cfg = loadConfig();
-  const baseUrl = (cfg as Record<string, unknown>).persaiSecretResolverBaseUrl;
-  if (typeof baseUrl !== "string" || !baseUrl) return;
+  const provider = cfg.secrets?.providers?.["persai-runtime"];
+  const baseUrl = provider?.source === "persai" ? provider.baseUrl : undefined;
+  if (!baseUrl) return;
 
   const token = process.env.OPENCLAW_GATEWAY_TOKEN ?? "";
   if (!token) return;
