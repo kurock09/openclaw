@@ -7,6 +7,7 @@ import { parseAgentSessionKey } from "../../sessions/session-key-utils.js";
 import { extractTextFromChatContent } from "../../shared/chat-content.js";
 import { isRecord, truncateUtf16Safe } from "../../utils.js";
 import { resolveSessionAgentId } from "../agent-scope.js";
+import { persaiRuntimeRequestContext } from "../persai-runtime-context.js";
 import { optionalStringEnum, stringEnum } from "../schema/typebox.js";
 import { type AnyAgentTool, jsonResult, readStringParam } from "./common.js";
 import { callGatewayTool, readGatewayCallOptions, type GatewayCallOptions } from "./gateway.js";
@@ -63,6 +64,94 @@ type ChatMessage = {
   role?: unknown;
   content?: unknown;
 };
+
+function resolvePersaiInternalApiBaseUrl(): string | undefined {
+  const cfg = loadConfig();
+  const provider = cfg.secrets?.providers?.["persai-runtime"];
+  return provider?.source === "persai" ? provider.baseUrl : undefined;
+}
+
+function buildTaskRegistrySyncPayload(params: { assistantId: string; job: unknown }): {
+  operation: "upsert";
+  assistantId: string;
+  externalRef: string;
+  title: string;
+  sourceSurface: "web";
+  sourceLabel: string;
+  controlStatus: "active" | "disabled";
+  nextRunAt: string | null;
+} | null {
+  if (!isRecord(params.job)) {
+    return null;
+  }
+  const externalRef = typeof params.job.id === "string" ? params.job.id.trim() : "";
+  const title = typeof params.job.name === "string" ? params.job.name.trim() : "";
+  if (!externalRef || !title) {
+    return null;
+  }
+  const enabled = params.job.enabled !== false;
+  const state = isRecord(params.job.state) ? params.job.state : undefined;
+  const nextRunAtMs =
+    typeof state?.nextRunAtMs === "number" && Number.isFinite(state.nextRunAtMs)
+      ? state.nextRunAtMs
+      : null;
+
+  return {
+    operation: "upsert",
+    assistantId: params.assistantId,
+    externalRef,
+    title,
+    sourceSurface: "web",
+    sourceLabel: "Assistant reminders",
+    controlStatus: enabled ? "active" : "disabled",
+    nextRunAt: nextRunAtMs === null ? null : new Date(nextRunAtMs).toISOString(),
+  };
+}
+
+async function syncTaskRegistryWithPersai(params: {
+  assistantId?: string;
+  payload:
+    | {
+        operation: "upsert";
+        assistantId: string;
+        externalRef: string;
+        title: string;
+        sourceSurface: "web";
+        sourceLabel: string;
+        controlStatus: "active" | "disabled";
+        nextRunAt: string | null;
+      }
+    | {
+        operation: "delete";
+        assistantId: string;
+        externalRef: string;
+      }
+    | null;
+}) {
+  if (!params.assistantId || !params.payload) {
+    return;
+  }
+  const baseUrl = resolvePersaiInternalApiBaseUrl();
+  const token = process.env.OPENCLAW_GATEWAY_TOKEN?.trim();
+  if (!baseUrl || !token) {
+    return;
+  }
+
+  const response = await fetch(`${baseUrl}/api/v1/internal/runtime/tasks/sync`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(params.payload),
+  });
+
+  if (!response.ok) {
+    console.warn(
+      `[persai-cron] Task registry sync failed: ${response.status} ${response.statusText}`,
+    );
+  }
+}
 
 function stripExistingContext(text: string) {
   const index = text.indexOf(REMINDER_CONTEXT_MARKER);
@@ -291,6 +380,7 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
             ? params.timeoutMs
             : 60_000,
       };
+      const runtimeCtx = persaiRuntimeRequestContext.getStore();
 
       switch (action) {
         case "status":
@@ -361,6 +451,7 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
             normalizeCronJobCreate(params.job, {
               sessionContext: { sessionKey: opts?.agentSessionKey },
             }) ?? params.job;
+          const runtimeCronWebhookUrl = normalizeHttpWebhookUrl(runtimeCtx?.cronWebhookUrl);
           if (job && typeof job === "object") {
             const cfg = loadConfig();
             const { mainKey, alias } = resolveMainSessionAlias(cfg);
@@ -377,6 +468,18 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
             }
             if (!("sessionKey" in job) && resolvedSessionKey) {
               (job as { sessionKey?: string }).sessionKey = resolvedSessionKey;
+            }
+            const currentDelivery = (job as { delivery?: unknown }).delivery;
+            const hasExplicitDelivery =
+              isRecord(currentDelivery) &&
+              (typeof currentDelivery.mode === "string" ||
+                typeof currentDelivery.to === "string" ||
+                typeof currentDelivery.channel === "string");
+            if (runtimeCronWebhookUrl && !hasExplicitDelivery) {
+              (job as { delivery?: CronDelivery }).delivery = {
+                mode: "webhook",
+                to: runtimeCronWebhookUrl,
+              };
             }
           }
 
@@ -445,7 +548,15 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
               }
             }
           }
-          return jsonResult(await callGateway("cron.add", gatewayOpts, job));
+          const createdJob = await callGateway("cron.add", gatewayOpts, job);
+          await syncTaskRegistryWithPersai({
+            assistantId: runtimeCtx?.assistantId,
+            payload: buildTaskRegistrySyncPayload({
+              assistantId: runtimeCtx?.assistantId ?? "",
+              job: createdJob,
+            }),
+          });
+          return jsonResult(createdJob);
         }
         case "update": {
           const id = readStringParam(params, "jobId") ?? readStringParam(params, "id");
@@ -492,19 +603,36 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
             throw new Error("patch required");
           }
           const patch = normalizeCronJobPatch(params.patch) ?? params.patch;
-          return jsonResult(
-            await callGateway("cron.update", gatewayOpts, {
-              id,
-              patch,
+          const updatedJob = await callGateway("cron.update", gatewayOpts, {
+            id,
+            patch,
+          });
+          await syncTaskRegistryWithPersai({
+            assistantId: runtimeCtx?.assistantId,
+            payload: buildTaskRegistrySyncPayload({
+              assistantId: runtimeCtx?.assistantId ?? "",
+              job: updatedJob,
             }),
-          );
+          });
+          return jsonResult(updatedJob);
         }
         case "remove": {
           const id = readStringParam(params, "jobId") ?? readStringParam(params, "id");
           if (!id) {
             throw new Error("jobId required (id accepted for backward compatibility)");
           }
-          return jsonResult(await callGateway("cron.remove", gatewayOpts, { id }));
+          const removed = await callGateway("cron.remove", gatewayOpts, { id });
+          await syncTaskRegistryWithPersai({
+            assistantId: runtimeCtx?.assistantId,
+            payload: runtimeCtx?.assistantId
+              ? {
+                  operation: "delete",
+                  assistantId: runtimeCtx.assistantId,
+                  externalRef: id,
+                }
+              : null,
+          });
+          return jsonResult(removed);
         }
         case "run": {
           const id = readStringParam(params, "jobId") ?? readStringParam(params, "id");

@@ -57,25 +57,14 @@ import { getBearerToken } from "./http-utils.js";
 import { resolveRequestClientIp } from "./net.js";
 import { handleOpenAiHttpRequest } from "./openai-http.js";
 import { handleOpenResponsesHttpRequest } from "./openresponses-http.js";
-import { DEDUPE_MAX, DEDUPE_TTL_MS } from "./server-constants.js";
 import {
-  authorizeCanvasRequest,
-  enforcePluginRouteGatewayAuth,
-  isCanvasPath,
-} from "./server/http-auth.js";
-import {
-  isProtectedPluginRoutePathFromContext,
-  resolvePluginRoutePathContext,
-  type PluginHttpRequestHandler,
-  type PluginRoutePathContext,
-} from "./server/plugins-http.js";
-import type { ReadinessChecker } from "./server/readiness.js";
-import type { GatewayWsClient } from "./server/ws-types.js";
-import {
+  handleRuntimeCronControlHttpRequest,
   handleRuntimeChatWebHttpRequest,
   handleRuntimeChatWebStreamHttpRequest,
   handleRuntimeSpecApplyHttpRequest,
   handleRuntimeWorkspaceCleanupHttpRequest,
+  handleRuntimeWorkspaceResetHttpRequest,
+  handleRuntimeWorkspaceMemoryResetHttpRequest,
   handleRuntimeWorkspaceAvatarHttpRequest,
 } from "./persai-runtime/persai-runtime-http.js";
 import {
@@ -91,9 +80,22 @@ import {
 } from "./persai-runtime/persai-runtime-spec-store.js";
 import {
   handleTelegramWebhookRequest,
-  syncTelegramBotForAssistant,
   reinitializeTelegramBotsFromStore,
 } from "./persai-runtime/persai-runtime-telegram.js";
+import { DEDUPE_MAX, DEDUPE_TTL_MS } from "./server-constants.js";
+import {
+  authorizeCanvasRequest,
+  enforcePluginRouteGatewayAuth,
+  isCanvasPath,
+} from "./server/http-auth.js";
+import {
+  isProtectedPluginRoutePathFromContext,
+  resolvePluginRoutePathContext,
+  type PluginHttpRequestHandler,
+  type PluginRoutePathContext,
+} from "./server/plugins-http.js";
+import type { ReadinessChecker } from "./server/readiness.js";
+import type { GatewayWsClient } from "./server/ws-types.js";
 import { handleSessionKillHttpRequest } from "./session-kill-http.js";
 import { handleSessionHistoryHttpRequest } from "./sessions-history-http.js";
 import { handleToolsInvokeHttpRequest } from "./tools-invoke-http.js";
@@ -102,9 +104,7 @@ type SubsystemLogger = ReturnType<typeof createSubsystemLogger>;
 
 let persaiRuntimeSpecStoreSingleton: PersaiRuntimeSpecStore | undefined;
 
-function resolvePersaiRuntimeSpecStore(
-  explicit?: PersaiRuntimeSpecStore,
-): PersaiRuntimeSpecStore {
+function resolvePersaiRuntimeSpecStore(explicit?: PersaiRuntimeSpecStore): PersaiRuntimeSpecStore {
   if (explicit) {
     return explicit;
   }
@@ -926,6 +926,43 @@ export function createGatewayHttpServer(opts: {
           }),
       });
       requestStages.push({
+        name: "persai-runtime-workspace-reset",
+        run: () =>
+          handleRuntimeWorkspaceResetHttpRequest({
+            req,
+            res,
+            requestPath,
+            resolvedAuth,
+            trustedProxies,
+            allowRealIpFallback,
+            store: persaiRuntimeSpecStore,
+          }),
+      });
+      requestStages.push({
+        name: "persai-runtime-workspace-memory-reset",
+        run: () =>
+          handleRuntimeWorkspaceMemoryResetHttpRequest({
+            req,
+            res,
+            requestPath,
+            resolvedAuth,
+            trustedProxies,
+            allowRealIpFallback,
+          }),
+      });
+      requestStages.push({
+        name: "persai-runtime-cron-control",
+        run: () =>
+          handleRuntimeCronControlHttpRequest({
+            req,
+            res,
+            requestPath,
+            resolvedAuth,
+            trustedProxies,
+            allowRealIpFallback,
+          }),
+      });
+      requestStages.push({
         name: "persai-runtime-chat-web",
         run: () =>
           handleRuntimeChatWebHttpRequest({
@@ -961,11 +998,26 @@ export function createGatewayHttpServer(opts: {
         store: persaiRuntimeSpecStore,
       };
       requestStages.push(
-        { name: "persai-runtime-memory-items", run: () => handleRuntimeMemoryItemsHttpRequest(memoryParams) },
-        { name: "persai-runtime-memory-add", run: () => handleRuntimeMemoryAddHttpRequest(memoryParams) },
-        { name: "persai-runtime-memory-edit", run: () => handleRuntimeMemoryEditHttpRequest(memoryParams) },
-        { name: "persai-runtime-memory-forget", run: () => handleRuntimeMemoryForgetHttpRequest(memoryParams) },
-        { name: "persai-runtime-memory-search", run: () => handleRuntimeMemorySearchHttpRequest(memoryParams) },
+        {
+          name: "persai-runtime-memory-items",
+          run: () => handleRuntimeMemoryItemsHttpRequest(memoryParams),
+        },
+        {
+          name: "persai-runtime-memory-add",
+          run: () => handleRuntimeMemoryAddHttpRequest(memoryParams),
+        },
+        {
+          name: "persai-runtime-memory-edit",
+          run: () => handleRuntimeMemoryEditHttpRequest(memoryParams),
+        },
+        {
+          name: "persai-runtime-memory-forget",
+          run: () => handleRuntimeMemoryForgetHttpRequest(memoryParams),
+        },
+        {
+          name: "persai-runtime-memory-search",
+          run: () => handleRuntimeMemorySearchHttpRequest(memoryParams),
+        },
       );
       requestStages.push({
         name: "persai-runtime-workspace-avatar",

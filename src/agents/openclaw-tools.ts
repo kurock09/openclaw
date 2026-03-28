@@ -18,6 +18,7 @@ import { createImageTool } from "./tools/image-tool.js";
 import { createMessageTool } from "./tools/message-tool.js";
 import { createNodesTool } from "./tools/nodes-tool.js";
 import { createPdfTool } from "./tools/pdf-tool.js";
+import { createReminderTaskTool } from "./tools/reminder-task-tool.js";
 import { createSessionStatusTool } from "./tools/session-status-tool.js";
 import { createSessionsHistoryTool } from "./tools/sessions-history-tool.js";
 import { createSessionsListTool } from "./tools/sessions-list-tool.js";
@@ -167,6 +168,9 @@ export function createOpenClawTools(
       modelHasVision: options?.modelHasVision,
       allowMediaInvokeCommands: options?.allowMediaInvokeCommands,
     }),
+    createReminderTaskTool({
+      agentSessionKey: options?.agentSessionKey,
+    }),
     createCronTool({
       agentSessionKey: options?.agentSessionKey,
     }),
@@ -265,7 +269,10 @@ export function createOpenClawTools(
   const denyRaw = process.env.PERSAI_TOOL_DENY;
   if (denyRaw) {
     const denySet = new Set(
-      denyRaw.split(",").map((s) => s.trim()).filter(Boolean),
+      denyRaw
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
     );
     if (denySet.size > 0) {
       return allTools.filter((tool) => !denySet.has(tool.name));

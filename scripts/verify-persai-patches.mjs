@@ -48,78 +48,183 @@ console.log("\n--- PersAI fork patch verification ---\n");
 
 console.log("[1] PersAI-only files exist");
 check("persai-runtime-context.ts exists", () => fileExists("src/agents/persai-runtime-context.ts"));
-check("plugin-sdk/persai-credential.ts exists", () => fileExists("src/plugin-sdk/persai-credential.ts"));
+check("plugin-sdk/persai-credential.ts exists", () =>
+  fileExists("src/plugin-sdk/persai-credential.ts"),
+);
 check("persai-runtime/ directory exists", () => fileExists("src/gateway/persai-runtime"));
-check("persai-runtime-agent-turn.ts exists", () => fileExists("src/gateway/persai-runtime/persai-runtime-agent-turn.ts"));
-check("persai-runtime-http.ts exists", () => fileExists("src/gateway/persai-runtime/persai-runtime-http.ts"));
-check("persai-runtime-telegram.ts exists", () => fileExists("src/gateway/persai-runtime/persai-runtime-telegram.ts"));
+check("persai-runtime-agent-turn.ts exists", () =>
+  fileExists("src/gateway/persai-runtime/persai-runtime-agent-turn.ts"),
+);
+check("persai-runtime-http.ts exists", () =>
+  fileExists("src/gateway/persai-runtime/persai-runtime-http.ts"),
+);
+check("persai-runtime-telegram.ts exists", () =>
+  fileExists("src/gateway/persai-runtime/persai-runtime-telegram.ts"),
+);
 
 console.log("\n[2] Secret ref source: persai type");
-check("types.secrets.ts has persai source", () => fileContainsCount("src/config/types.secrets.ts", '"persai"') >= 4);
-check("ref-contract.ts has persai default", () => fileContains("src/secrets/ref-contract.ts", "persai"));
-check("resolve.ts has resolvePersaiRefs", () => fileContains("src/secrets/resolve.ts", "resolvePersaiRefs"));
+check(
+  "types.secrets.ts has persai source",
+  () => fileContainsCount("src/config/types.secrets.ts", '"persai"') >= 4,
+);
+check("ref-contract.ts has persai default", () =>
+  fileContains("src/secrets/ref-contract.ts", "persai"),
+);
+check("resolve.ts has resolvePersaiRefs", () =>
+  fileContains("src/secrets/resolve.ts", "resolvePersaiRefs"),
+);
 
 console.log("\n[3] Tool deny list via AsyncLocalStorage");
 check("openclaw-tools.ts imports persaiRuntimeRequestContext", () =>
-  fileContains("src/agents/openclaw-tools.ts", "persaiRuntimeRequestContext"));
+  fileContains("src/agents/openclaw-tools.ts", "persaiRuntimeRequestContext"),
+);
 check("openclaw-tools.ts re-exports persaiRuntimeRequestContext", () =>
-  fileContains("src/agents/openclaw-tools.ts", "export { persaiRuntimeRequestContext }"));
+  fileContains("src/agents/openclaw-tools.ts", "export { persaiRuntimeRequestContext }"),
+);
 
 console.log("\n[4] Memory workspace override");
 check("backend-config.ts has persaiRuntimeRequestContext", () =>
-  fileContains("src/memory/backend-config.ts", "persaiRuntimeRequestContext"));
+  fileContains("src/memory/backend-config.ts", "persaiRuntimeRequestContext"),
+);
 check("manager.ts has persaiRuntimeRequestContext", () =>
-  fileContains("src/memory/manager.ts", "persaiRuntimeRequestContext"));
+  fileContains("src/memory/manager.ts", "persaiRuntimeRequestContext"),
+);
 check("qmd-manager.ts has persaiRuntimeRequestContext", () =>
-  fileContains("src/memory/qmd-manager.ts", "persaiRuntimeRequestContext"));
+  fileContains("src/memory/qmd-manager.ts", "persaiRuntimeRequestContext"),
+);
 check("read-file.ts has persaiRuntimeRequestContext", () =>
-  fileContains("src/memory/read-file.ts", "persaiRuntimeRequestContext"));
+  fileContains("src/memory/read-file.ts", "persaiRuntimeRequestContext"),
+);
 
 console.log("\n[5] Per-request tool credential isolation (H9)");
 check("persai-runtime-context.ts exports getPersaiToolCredential", () =>
-  fileContains("src/agents/persai-runtime-context.ts", "getPersaiToolCredential"));
+  fileContains("src/agents/persai-runtime-context.ts", "getPersaiToolCredential"),
+);
 check("persai-runtime-context.ts has toolCredentials field", () =>
-  fileContains("src/agents/persai-runtime-context.ts", "toolCredentials"));
+  fileContains("src/agents/persai-runtime-context.ts", "toolCredentials"),
+);
 check("tavily config reads from context", () =>
-  fileContains("extensions/tavily/src/config.ts", "getPersaiToolCredential"));
+  fileContains("extensions/tavily/src/config.ts", "getPersaiToolCredential"),
+);
 check("firecrawl config reads from context", () =>
-  fileContains("extensions/firecrawl/src/config.ts", "getPersaiToolCredential"));
+  fileContains("extensions/firecrawl/src/config.ts", "getPersaiToolCredential"),
+);
 check("web-fetch reads from context", () =>
-  fileContains("src/agents/tools/web-fetch.ts", "getPersaiToolCredential"));
+  fileContains("src/agents/tools/web-fetch.ts", "getPersaiToolCredential"),
+);
 
 console.log("\n[6] Plugin-sdk export");
 check("package.json has persai-credential export", () =>
-  fileContains("package.json", "persai-credential"));
+  fileContains("package.json", "persai-credential"),
+);
 check("entrypoints.json has persai-credential", () =>
-  fileContains("scripts/lib/plugin-sdk-entrypoints.json", "persai-credential"));
+  fileContains("scripts/lib/plugin-sdk-entrypoints.json", "persai-credential"),
+);
 
 console.log("\n[7] Thinking/reasoning stream for PersAI web chat (H10)");
 check("command types expose reasoning option", () =>
-  fileContains('src/agents/command/types.ts', "reasoning?: string"));
+  fileContains("src/agents/command/types.ts", "reasoning?: string"),
+);
 check("agent-command resolves reasoning level", () =>
-  fileContains("src/agents/agent-command.ts", "resolvedReasoningLevel"));
+  fileContains("src/agents/agent-command.ts", "resolvedReasoningLevel"),
+);
 check("persai runtime stream emits thinking chunks", () =>
-  fileContains('src/gateway/persai-runtime/persai-runtime-agent-turn.ts', 'type: "thinking"'));
+  fileContains("src/gateway/persai-runtime/persai-runtime-agent-turn.ts", 'type: "thinking"'),
+);
 
 console.log("\n[8] Workspace avatar file endpoints");
-check("persai-runtime-http.ts has RUNTIME_WORKSPACE_AVATAR_PATH", () =>
-  fileContainsCount("src/gateway/persai-runtime/persai-runtime-http.ts", "RUNTIME_WORKSPACE_AVATAR_PATH") >= 2);
+check(
+  "persai-runtime-http.ts has RUNTIME_WORKSPACE_AVATAR_PATH",
+  () =>
+    fileContainsCount(
+      "src/gateway/persai-runtime/persai-runtime-http.ts",
+      "RUNTIME_WORKSPACE_AVATAR_PATH",
+    ) >= 2,
+);
 check("server-http.ts registers workspace-avatar stage", () =>
-  fileContains("src/gateway/server-http.ts", "persai-runtime-workspace-avatar"));
+  fileContains("src/gateway/server-http.ts", "persai-runtime-workspace-avatar"),
+);
 
 console.log("\n[9] Telegram bot profile sync");
-check("persai-runtime-telegram.ts has syncBotProfile", () =>
-  fileContainsCount("src/gateway/persai-runtime/persai-runtime-telegram.ts", "syncBotProfile") >= 2);
+check(
+  "persai-runtime-telegram.ts has syncBotProfile",
+  () =>
+    fileContainsCount("src/gateway/persai-runtime/persai-runtime-telegram.ts", "syncBotProfile") >=
+    2,
+);
+check("persai-runtime-telegram.ts syncs inbound chat target back to PersAI", () =>
+  fileContains(
+    "src/gateway/persai-runtime/persai-runtime-telegram.ts",
+    "/api/v1/internal/runtime/telegram/chat-target",
+  ),
+);
 
 console.log("\n[10] Gateway HTTP route registration");
-check("server-http.ts imports persai-runtime modules", () =>
-  fileContainsCount("src/gateway/server-http.ts", "persai-runtime") >= 5);
+check(
+  "server-http.ts imports persai-runtime modules",
+  () => fileContainsCount("src/gateway/server-http.ts", "persai-runtime") >= 5,
+);
 check("server-runtime-state.ts creates persai spec store", () =>
-  fileContains("src/gateway/server-runtime-state.ts", "persaiRuntimeSpecStore"));
+  fileContains("src/gateway/server-runtime-state.ts", "persaiRuntimeSpecStore"),
+);
+
+console.log("\n[11] Cron callback bridge + task registry sync (H12)");
+check("persai-runtime-context.ts exposes cronWebhookUrl", () =>
+  fileContains("src/agents/persai-runtime-context.ts", "cronWebhookUrl"),
+);
+check("persai-runtime-context.ts exposes assistantId", () =>
+  fileContains("src/agents/persai-runtime-context.ts", "assistantId"),
+);
+check("cron-tool.ts syncs task registry to PersAI", () =>
+  fileContains("src/agents/tools/cron-tool.ts", "internal/runtime/tasks/sync"),
+);
+check("persai-runtime-http.ts derives internal cron-fire callback", () =>
+  fileContains("src/gateway/persai-runtime/persai-runtime-http.ts", "/api/v1/internal/cron-fire"),
+);
+check("persai-runtime-http.ts exposes internal cron control route", () =>
+  fileContains("src/gateway/persai-runtime/persai-runtime-http.ts", "/api/v1/runtime/cron/control"),
+);
+check("reminder-task-tool.ts exposes reminder_task", () =>
+  fileContains('src/agents/tools/reminder-task-tool.ts', 'name: "reminder_task"'),
+);
+check("openclaw-tools.ts wires reminder_task into tool list", () =>
+  fileContains("src/agents/openclaw-tools.ts", "createReminderTaskTool"),
+);
+check("server-http.ts registers cron control stage", () =>
+  fileContains("src/gateway/server-http.ts", "persai-runtime-cron-control"),
+);
+
+console.log("\n[12] Memory lifecycle reset bridge (H12g)");
+check("persai-runtime-workspace.ts resets assistant memory workspace", () =>
+  fileContains(
+    "src/gateway/persai-runtime/persai-runtime-workspace.ts",
+    "resetPersaiAssistantMemoryWorkspace",
+  ),
+);
+check("persai-runtime-http.ts exposes workspace memory reset route", () =>
+  fileContains(
+    "src/gateway/persai-runtime/persai-runtime-http.ts",
+    "/api/v1/runtime/workspace/memory/reset",
+  ),
+);
+check("persai-runtime-http.ts exposes strict workspace reset route", () =>
+  fileContains(
+    "src/gateway/persai-runtime/persai-runtime-http.ts",
+    "/api/v1/runtime/workspace/reset",
+  ),
+);
+check("server-http.ts registers workspace reset stage", () =>
+  fileContains("src/gateway/server-http.ts", "persai-runtime-workspace-reset"),
+);
+check("server-http.ts registers workspace memory reset stage", () =>
+  fileContains("src/gateway/server-http.ts", "persai-runtime-workspace-memory-reset"),
+);
 
 console.log(`\n--- Result: ${checks - failures}/${checks} passed ---`);
 if (failures > 0) {
-  console.error(`\n${failures} check(s) FAILED. PersAI patches may be missing after upstream merge.`);
+  console.error(
+    `\n${failures} check(s) FAILED. PersAI patches may be missing after upstream merge.`,
+  );
   process.exit(1);
 } else {
   console.log("\nAll PersAI patches verified.\n");

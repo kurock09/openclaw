@@ -49,6 +49,7 @@ function buildPersaiWebIngressCommandInput(params: {
 
 /** P3: one full embedded agent turn for PersAI web runtime (sync). */
 export async function runPersaiWebRuntimeAgentTurnSync(params: {
+  assistantId: string;
   userMessage: string;
   sessionKey: string;
   extraSystemPrompt?: string;
@@ -56,6 +57,7 @@ export async function runPersaiWebRuntimeAgentTurnSync(params: {
   modelOverride?: string;
   resolvedToolCredentials?: Map<string, string>;
   toolDenyList?: string[];
+  cronWebhookUrl?: string;
   workspaceDir?: string;
 }): Promise<{ ok: true; assistantMessage: string } | { ok: false; error: string }> {
   const runId = randomUUID();
@@ -72,7 +74,9 @@ export async function runPersaiWebRuntimeAgentTurnSync(params: {
   });
 
   const runtimeCtx = {
+    assistantId: params.assistantId,
     toolDenyList: params.toolDenyList,
+    cronWebhookUrl: params.cronWebhookUrl,
     workspaceDir: params.workspaceDir,
     toolCredentials: params.resolvedToolCredentials,
   };
@@ -91,6 +95,7 @@ export async function runPersaiWebRuntimeAgentTurnSync(params: {
 
 /** Telegram agent turn (sync, non-streaming). */
 export async function runPersaiTelegramAgentTurn(params: {
+  assistantId: string;
   userMessage: string;
   sessionKey: string;
   extraSystemPrompt?: string;
@@ -98,6 +103,7 @@ export async function runPersaiTelegramAgentTurn(params: {
   modelOverride?: string;
   resolvedToolCredentials?: Map<string, string>;
   toolDenyList?: string[];
+  cronWebhookUrl?: string;
   workspaceDir?: string;
 }): Promise<{ ok: true; assistantMessage: string } | { ok: false; error: string }> {
   const runId = randomUUID();
@@ -118,7 +124,9 @@ export async function runPersaiTelegramAgentTurn(params: {
   };
 
   const runtimeCtx = {
+    assistantId: params.assistantId,
     toolDenyList: params.toolDenyList,
+    cronWebhookUrl: params.cronWebhookUrl,
     workspaceDir: params.workspaceDir,
     toolCredentials: params.resolvedToolCredentials,
   };
@@ -142,6 +150,7 @@ export async function runPersaiTelegramAgentTurn(params: {
 export function runPersaiWebRuntimeAgentTurnStream(params: {
   req: IncomingMessage;
   res: ServerResponse;
+  assistantId: string;
   userMessage: string;
   sessionKey: string;
   extraSystemPrompt?: string;
@@ -149,6 +158,7 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
   modelOverride?: string;
   resolvedToolCredentials?: Map<string, string>;
   toolDenyList?: string[];
+  cronWebhookUrl?: string;
   workspaceDir?: string;
 }): Promise<void> {
   const runId = randomUUID();
@@ -164,7 +174,9 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
   });
 
   const runtimeCtx = {
+    assistantId: params.assistantId,
     toolDenyList: params.toolDenyList,
+    cronWebhookUrl: params.cronWebhookUrl,
     workspaceDir: params.workspaceDir,
     toolCredentials: params.resolvedToolCredentials,
   };

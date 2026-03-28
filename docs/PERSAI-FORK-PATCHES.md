@@ -30,6 +30,7 @@ Before preserving or adding a higher-risk patch, confirm:
 ### 1. Secret ref source: `"persai"` type
 
 **Files:**
+
 - `src/config/types.secrets.ts` — added `"persai"` to `SecretRefSource` union, `PersaiSecretProviderConfig` type, `isSecretRef`/`coerceSecretRef` guards
 - `src/secrets/ref-contract.ts` — `persai` default provider alias resolution
 - `src/secrets/resolve.ts` — `resolvePersaiRefs()` function (+186 lines), wired into `resolveProviderRefs()`
@@ -47,6 +48,7 @@ Before preserving or adding a higher-risk patch, confirm:
 ### 3. Memory workspace override via AsyncLocalStorage
 
 **Files:**
+
 - `src/memory/backend-config.ts`
 - `src/memory/manager.ts`
 - `src/memory/qmd-manager.ts`
@@ -59,6 +61,7 @@ Before preserving or adding a higher-risk patch, confirm:
 ### 4. Per-request tool credential isolation (H9)
 
 **Files:**
+
 - `extensions/tavily/src/config.ts` — import `getPersaiToolCredential`, call before `process.env.TAVILY_API_KEY`
 - `extensions/firecrawl/src/config.ts` — import `getPersaiToolCredential`, call before `process.env.FIRECRAWL_API_KEY`
 - `src/agents/tools/web-fetch.ts` — import `getPersaiToolCredential`, call before `process.env.FIRECRAWL_API_KEY`
@@ -69,6 +72,7 @@ Before preserving or adding a higher-risk patch, confirm:
 ### 5. Plugin-sdk export for persai-credential
 
 **Files:**
+
 - `package.json` — `"./plugin-sdk/persai-credential"` export entry
 - `scripts/lib/plugin-sdk-entrypoints.json` — `"persai-credential"` entry
 
@@ -80,6 +84,7 @@ Before preserving or adding a higher-risk patch, confirm:
 **Risk:** Higher-risk native OpenClaw patch
 
 **Files:**
+
 - `src/agents/command/types.ts` — adds per-run `reasoning` ingress option
 - `src/agents/agent-command.ts` — normalizes/passes `resolvedReasoningLevel` into `runEmbeddedPiAgent()`
 - `src/gateway/persai-runtime/persai-runtime-agent-turn.ts` — PersAI web stream requests `reasoning: "stream"` and forwards `thinking` NDJSON chunks
@@ -90,6 +95,7 @@ Before preserving or adding a higher-risk patch, confirm:
 ### 7. Gateway HTTP route registration
 
 **Files:**
+
 - `src/gateway/server-http.ts` — imports from `persai-runtime/` modules, registers HTTP request stages (spec apply, chat, stream, memory, telegram webhook), resolves spec store singleton
 - `src/gateway/server-runtime-state.ts` — creates `persaiRuntimeSpecStore` and passes it to `createGatewayHttpServer`
 
@@ -101,6 +107,7 @@ Before preserving or adding a higher-risk patch, confirm:
 **Risk:** Lower-risk PersAI-specific bridge file
 
 **Files:**
+
 - `src/gateway/persai-runtime/persai-runtime-http.ts` — `POST/GET /api/v1/runtime/workspace/avatar` handler (file write/read to workspace dir)
 - `src/gateway/server-http.ts` — registers the `persai-runtime-workspace-avatar` request stage
 
@@ -112,10 +119,59 @@ Before preserving or adding a higher-risk patch, confirm:
 **Risk:** Lower-risk PersAI-specific bridge file
 
 **Files:**
-- `src/gateway/persai-runtime/persai-runtime-telegram.ts` — `syncBotProfile()` helper: sets bot name, description, and profile photo from workspace persona on every `syncTelegramBotForAssistant` call
+
+- `src/gateway/persai-runtime/persai-runtime-telegram.ts` — `syncBotProfile()` helper: sets bot name, description, and profile photo from workspace persona on every `syncTelegramBotForAssistant` call; also posts the latest inbound Telegram chat target back to PersAI so reminder delivery can reuse the correct `telegramChatId`
 
 **Introduced by:** UI polish (Telegram sync)
-**Verify:** `grep -c 'syncBotProfile' src/gateway/persai-runtime/persai-runtime-telegram.ts` should return >= 2
+**Verify:**
+
+- `grep -c 'syncBotProfile' src/gateway/persai-runtime/persai-runtime-telegram.ts` should return >= 2
+- `grep -c '/api/v1/internal/runtime/telegram/chat-target' src/gateway/persai-runtime/persai-runtime-telegram.ts` should return >= 1
+
+### 10. Cron callback bridge + task registry sync (H12)
+
+**Risk:** Mixed
+
+- Lower-risk bridge files:
+  - `src/agents/persai-runtime-context.ts` — request context now carries `assistantId` and `cronWebhookUrl`
+  - `src/gateway/persai-runtime/persai-runtime-agent-turn.ts` — PersAI runtime turns pass those values through AsyncLocalStorage
+  - `src/gateway/persai-runtime/persai-runtime-http.ts` — derives `/api/v1/internal/cron-fire?assistantId=...` callback URL from the PersAI secret provider base URL
+- Higher-risk native patch:
+  - `src/agents/tools/cron-tool.ts` — auto-injects webhook delivery when `cronWebhookUrl` exists and mirrors `cron.add` / `cron.update` / `cron.remove` to PersAI `POST /api/v1/internal/runtime/tasks/sync`
+- `src/agents/tools/reminder-task-tool.ts` — new product-facing reminder/task tool that exposes `create/list/pause/resume/cancel`; `list` resolves current tasks through PersAI registry state, while write actions route through PersAI internal control-plane instead of direct user-flow `cron.add/update/remove`
+- `src/gateway/persai-runtime/persai-runtime-http.ts` — exposes `POST /api/v1/runtime/cron/control` so PersAI backend can drive internal cron mutations through PersAI-owned runtime bridge instead of native `/tools/invoke`
+- `src/gateway/server-http.ts` — registers the `persai-runtime-cron-control` request stage
+  - `src/agents/openclaw-tools.ts` — exposes `reminder_task` in the core tool list so plan/tool policy can show it while hiding `cron`
+
+**Introduced by:** H12 task registry + cron callback slice
+**Verify:**
+
+- `grep -c 'cronWebhookUrl' src/agents/persai-runtime-context.ts` should return >= 1
+- `grep -c 'internal/runtime/tasks/sync' src/agents/tools/cron-tool.ts` should return >= 1
+- `grep -c '/api/v1/internal/cron-fire' src/gateway/persai-runtime/persai-runtime-http.ts` should return >= 1
+- `grep -c '/api/v1/runtime/cron/control' src/gateway/persai-runtime/persai-runtime-http.ts` should return >= 1
+- `grep -c 'name: "reminder_task"' src/agents/tools/reminder-task-tool.ts` should return >= 1
+- `grep -c 'createReminderTaskTool' src/agents/openclaw-tools.ts` should return >= 1
+- `grep -c 'persai-runtime-cron-control' src/gateway/server-http.ts` should return >= 1
+
+### 11. Memory lifecycle reset bridge (H12g)
+
+**Risk:** Lower-risk PersAI-specific bridge files
+
+**Files:**
+
+- `src/gateway/persai-runtime/persai-runtime-workspace.ts` — helper to recreate clean `MEMORY.md` + `memory/`
+- `src/gateway/persai-runtime/persai-runtime-http.ts` — `POST /api/v1/runtime/workspace/memory/reset` and strict `POST /api/v1/runtime/workspace/reset`
+- `src/gateway/server-http.ts` — registers the request stage
+
+**Introduced by:** H12g memory lifecycle bridge
+**Verify:**
+
+- `grep -c 'resetPersaiAssistantMemoryWorkspace' src/gateway/persai-runtime/persai-runtime-workspace.ts` should return >= 1
+- `grep -c '/api/v1/runtime/workspace/memory/reset' src/gateway/persai-runtime/persai-runtime-http.ts` should return >= 1
+- `grep -c '/api/v1/runtime/workspace/reset' src/gateway/persai-runtime/persai-runtime-http.ts` should return >= 1
+- `grep -c 'persai-runtime-workspace-reset' src/gateway/server-http.ts` should return >= 1
+- `grep -c 'persai-runtime-workspace-memory-reset' src/gateway/server-http.ts` should return >= 1
 
 ## Quick full verification
 

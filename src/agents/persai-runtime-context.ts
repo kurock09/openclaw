@@ -1,7 +1,9 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
 export interface PersaiRuntimeRequestCtx {
+  assistantId?: string;
   toolDenyList?: string[];
+  cronWebhookUrl?: string;
   workspaceDir?: string;
   /** Per-request resolved tool credentials (env var name → secret value). */
   toolCredentials?: Map<string, string>;
@@ -9,7 +11,7 @@ export interface PersaiRuntimeRequestCtx {
 
 /**
  * Per-request context for PersAI runtime. Allows concurrent requests to carry
- * their own toolDenyList, workspaceDir, and toolCredentials without sharing
+ * their own assistant context, toolDenyList, workspaceDir, and toolCredentials without sharing
  * process.env.
  *
  * Extracted to a dependency-free module so that low-level helpers (memory tools,

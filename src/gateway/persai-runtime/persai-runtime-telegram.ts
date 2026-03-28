@@ -1,21 +1,19 @@
-import { Bot, InputFile, webhookCallback } from "grammy";
-import type { IncomingMessage, ServerResponse } from "node:http";
 import * as fs from "node:fs";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import * as path from "node:path";
+import { Bot, InputFile, webhookCallback } from "grammy";
+import { loadConfig } from "../../config/config.js";
+import { runPersaiTelegramAgentTurn } from "./persai-runtime-agent-turn.js";
+import { extractPersonaInstructionsFromWorkspace } from "./persai-runtime-http.js";
+import { extractPersaiRuntimeModelOverride } from "./persai-runtime-provider-profile.js";
 import type { PersaiRuntimeSpecStore } from "./persai-runtime-spec-store.js";
-import {
-  extractPersaiRuntimeModelOverride,
-} from "./persai-runtime-provider-profile.js";
 import {
   buildToolDenyList,
   extractToolCredentialRefs,
   extractToolQuotaPolicy,
   resolveToolCredentials,
 } from "./persai-runtime-tool-policy.js";
-import { extractPersonaInstructionsFromWorkspace } from "./persai-runtime-http.js";
 import { resolvePersaiAssistantWorkspaceDir } from "./persai-runtime-workspace.js";
-import { loadConfig } from "../../config/config.js";
-import { runPersaiTelegramAgentTurn } from "./persai-runtime-agent-turn.js";
 
 type WebhookHandler = (req: IncomingMessage, res: ServerResponse) => Promise<void>;
 
@@ -43,11 +41,17 @@ function extractTelegramChannel(bootstrap: unknown): {
   inbound: boolean;
   outbound: boolean;
 } | null {
-  if (!isRecord(bootstrap)) return null;
+  if (!isRecord(bootstrap)) {
+    return null;
+  }
   const channels = bootstrap.channels;
-  if (!isRecord(channels)) return null;
+  if (!isRecord(channels)) {
+    return null;
+  }
   const tg = channels.telegram;
-  if (!isRecord(tg)) return null;
+  if (!isRecord(tg)) {
+    return null;
+  }
   return {
     enabled: tg.enabled === true,
     botToken: typeof tg.botToken === "string" ? tg.botToken : null,
@@ -65,14 +69,24 @@ function extractPersonaFromWorkspace(workspace: unknown): {
   instructions: string | null;
   avatarUrl: string | null;
 } {
-  if (!isRecord(workspace)) return { displayName: null, instructions: null, avatarUrl: null };
+  if (!isRecord(workspace)) {
+    return { displayName: null, instructions: null, avatarUrl: null };
+  }
   const persona = workspace.persona;
-  if (!isRecord(persona)) return { displayName: null, instructions: null, avatarUrl: null };
+  if (!isRecord(persona)) {
+    return { displayName: null, instructions: null, avatarUrl: null };
+  }
   return {
     displayName: typeof persona.displayName === "string" ? persona.displayName : null,
     instructions: typeof persona.instructions === "string" ? persona.instructions : null,
     avatarUrl: typeof persona.avatarUrl === "string" ? persona.avatarUrl : null,
   };
+}
+
+function resolvePersaiInternalApiBaseUrl(): string | undefined {
+  const cfg = loadConfig();
+  const provider = cfg.secrets?.providers?.["persai-runtime"];
+  return provider?.source === "persai" ? provider.baseUrl : undefined;
 }
 
 async function syncBotProfile(bot: Bot, workspace: unknown, assistantId: string): Promise<void> {
@@ -99,9 +113,12 @@ async function syncBotProfile(bot: Bot, workspace: unknown, assistantId: string)
     if (fs.existsSync(workspaceDir)) {
       const avatarFiles = fs.readdirSync(workspaceDir).filter((f) => f.startsWith("avatar."));
       if (avatarFiles.length > 0) {
-        const avatarPath = path.join(workspaceDir, avatarFiles[0]!);
+        const avatarPath = path.join(workspaceDir, avatarFiles[0]);
         const buffer = fs.readFileSync(avatarPath);
-        await bot.api.setMyProfilePhoto({ type: "static", photo: new InputFile(buffer, avatarFiles[0]!) });
+        await bot.api.setMyProfilePhoto({
+          type: "static",
+          photo: new InputFile(buffer, avatarFiles[0]),
+        });
         console.log(`[persai-telegram] Profile photo set for ${assistantId}`);
       }
     }
@@ -136,7 +153,9 @@ export async function syncTelegramBotForAssistant(params: {
   bot.on("my_chat_member", async (ctx) => {
     const update = ctx.myChatMember;
     const chat = update.chat;
-    if (chat.type !== "group" && chat.type !== "supergroup") return;
+    if (chat.type !== "group" && chat.type !== "supergroup") {
+      return;
+    }
 
     const newStatus = update.new_chat_member.status;
     const event = newStatus === "member" || newStatus === "administrator" ? "joined" : "left";
@@ -152,7 +171,9 @@ export async function syncTelegramBotForAssistant(params: {
   });
 
   bot.on("message:text", async (ctx) => {
-    if (!tgConfig.inbound) return;
+    if (!tgConfig.inbound) {
+      return;
+    }
 
     const chatType = ctx.chat.type;
     const isGroup = chatType === "group" || chatType === "supergroup";
@@ -162,12 +183,24 @@ export async function syncTelegramBotForAssistant(params: {
       const text = ctx.message.text ?? "";
       const isReply = ctx.message.reply_to_message?.from?.id === botInfo.id;
       const isMentioned = text.includes(`@${botInfo.username}`);
-      if (!isReply && !isMentioned) return;
+      if (!isReply && !isMentioned) {
+        return;
+      }
     }
 
-    if (!tgConfig.outbound) return;
+    if (!tgConfig.outbound) {
+      return;
+    }
 
     try {
+      await notifyPersaiTelegramChatTarget({
+        assistantId,
+        telegramChatId: String(ctx.chat.id),
+        chatType: ctx.chat.type,
+        title: "title" in ctx.chat && typeof ctx.chat.title === "string" ? ctx.chat.title : "",
+        username:
+          "username" in ctx.chat && typeof ctx.chat.username === "string" ? ctx.chat.username : "",
+      });
       const reply = await runTelegramAgentTurn({
         assistantId,
         userMessage: ctx.message.text ?? "",
@@ -212,7 +245,10 @@ export async function syncTelegramBotForAssistant(params: {
       bot,
       assistantId,
       webhookSecret: "",
-      handleWebhook: async (_req, res) => { res.statusCode = 404; res.end("Polling mode"); },
+      handleWebhook: async (_req, res) => {
+        res.statusCode = 404;
+        res.end("Polling mode");
+      },
       mode: "polling",
     });
 
@@ -222,13 +258,15 @@ export async function syncTelegramBotForAssistant(params: {
       // best effort — ensure no stale webhook blocks polling
     }
 
-    bot.start({
-      allowed_updates: ["message", "my_chat_member"],
-      drop_pending_updates: false,
-      onStart: () => console.log(`[persai-telegram] Polling started for ${assistantId}`),
-    }).catch((err) => {
-      console.warn(`[persai-telegram] Polling error for ${assistantId} (non-fatal):`, err);
-    });
+    bot
+      .start({
+        allowed_updates: ["message", "my_chat_member"],
+        drop_pending_updates: false,
+        onStart: () => console.log(`[persai-telegram] Polling started for ${assistantId}`),
+      })
+      .catch((err) => {
+        console.warn(`[persai-telegram] Polling error for ${assistantId} (non-fatal):`, err);
+      });
   }
 
   void syncBotProfile(bot, workspace, assistantId).catch((err) => {
@@ -238,7 +276,9 @@ export async function syncTelegramBotForAssistant(params: {
 
 async function stopTelegramBot(assistantId: string): Promise<void> {
   const existing = activeBots.get(assistantId);
-  if (!existing) return;
+  if (!existing) {
+    return;
+  }
   try {
     if (existing.mode === "polling") {
       await existing.bot.stop();
@@ -278,8 +318,15 @@ async function runTelegramAgentTurn(params: {
   }
 
   const sessionKey = `agent:persai:${assistantId}:telegram:${chatId}`;
+  const cronWebhookUrl = (() => {
+    const baseUrl = resolvePersaiInternalApiBaseUrl();
+    return baseUrl
+      ? `${baseUrl}/api/v1/internal/cron-fire?assistantId=${encodeURIComponent(assistantId)}`
+      : undefined;
+  })();
 
   const result = await runPersaiTelegramAgentTurn({
+    assistantId,
     userMessage,
     sessionKey,
     extraSystemPrompt,
@@ -287,6 +334,7 @@ async function runTelegramAgentTurn(params: {
     modelOverride: runtimeOverride?.model,
     resolvedToolCredentials,
     toolDenyList,
+    cronWebhookUrl,
     workspaceDir: params.workspaceDir,
   });
 
@@ -301,13 +349,15 @@ async function notifyPersaiGroupUpdate(params: {
   title: string;
   event: "joined" | "left";
 }): Promise<void> {
-  const cfg = loadConfig();
-  const provider = cfg.secrets?.providers?.["persai-runtime"];
-  const baseUrl = provider?.source === "persai" ? provider.baseUrl : undefined;
-  if (!baseUrl) return;
+  const baseUrl = resolvePersaiInternalApiBaseUrl();
+  if (!baseUrl) {
+    return;
+  }
 
   const token = process.env.OPENCLAW_GATEWAY_TOKEN ?? "";
-  if (!token) return;
+  if (!token) {
+    return;
+  }
 
   const url = `${baseUrl}/api/v1/internal/runtime/telegram/group-update`;
   const res = await fetch(url, {
@@ -324,6 +374,38 @@ async function notifyPersaiGroupUpdate(params: {
   }
 }
 
+async function notifyPersaiTelegramChatTarget(params: {
+  assistantId: string;
+  telegramChatId: string;
+  chatType: string;
+  title: string;
+  username: string;
+}): Promise<void> {
+  const baseUrl = resolvePersaiInternalApiBaseUrl();
+  if (!baseUrl) {
+    return;
+  }
+
+  const token = process.env.OPENCLAW_GATEWAY_TOKEN ?? "";
+  if (!token) {
+    return;
+  }
+
+  const url = `${baseUrl}/api/v1/internal/runtime/telegram/chat-target`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(params),
+  });
+
+  if (!res.ok) {
+    console.error(`[persai-telegram] Chat target POST failed: ${res.status} ${res.statusText}`);
+  }
+}
+
 export async function handleTelegramWebhookRequest(params: {
   req: IncomingMessage;
   res: ServerResponse;
@@ -331,7 +413,9 @@ export async function handleTelegramWebhookRequest(params: {
 }): Promise<boolean> {
   const { req, res, requestPath } = params;
   const prefix = "/telegram-webhook/";
-  if (!requestPath.startsWith(prefix)) return false;
+  if (!requestPath.startsWith(prefix)) {
+    return false;
+  }
 
   const method = (req.method ?? "GET").toUpperCase();
   if (method !== "POST") {
@@ -370,7 +454,9 @@ export async function reinitializeTelegramBotsFromStore(
   store: PersaiRuntimeSpecStore,
 ): Promise<void> {
   const allSpecs = await store.getAll();
-  if (!allSpecs || allSpecs.length === 0) return;
+  if (!allSpecs || allSpecs.length === 0) {
+    return;
+  }
 
   let started = 0;
   for (const spec of allSpecs) {

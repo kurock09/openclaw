@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 
 const log = createSubsystemLogger("persai-runtime-workspace");
@@ -17,10 +17,12 @@ const BOOTSTRAP_FILE_MAP: Record<string, string> = {
 
 const WRITE_ONCE_FILES = new Set(["BOOTSTRAP.md"]);
 const NEVER_OVERWRITE_FILES = new Set(["MEMORY.md"]);
+const MEMORY_FILE_NAME = "MEMORY.md";
+const LEGACY_MEMORY_FILE_NAME = "memory.md";
+const MEMORY_DIR_NAME = "memory";
+const EMPTY_MEMORY_FILE_CONTENT = "# MEMORY.md\n";
 
-export function resolvePersaiWorkspaceRoot(
-  env: NodeJS.ProcessEnv = process.env,
-): string {
+export function resolvePersaiWorkspaceRoot(env: NodeJS.ProcessEnv = process.env): string {
   const explicit = env.PERSAI_WORKSPACE_ROOT?.trim();
   if (explicit) {
     return explicit;
@@ -41,12 +43,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function extractBootstrapDocuments(
-  workspace: unknown,
-): Record<string, string> | null {
-  if (!isRecord(workspace)) return null;
+export function extractBootstrapDocuments(workspace: unknown): Record<string, string> | null {
+  if (!isRecord(workspace)) {
+    return null;
+  }
   const docs = workspace.bootstrapDocuments;
-  if (!isRecord(docs)) return null;
+  if (!isRecord(docs)) {
+    return null;
+  }
   const result: Record<string, string> = {};
   for (const [key, value] of Object.entries(docs)) {
     if (typeof value === "string" && value.trim()) {
@@ -71,6 +75,35 @@ export async function cleanupPersaiAssistantWorkspace(
     log.debug("workspace cleanup skipped (may not exist)", { assistantId, dir, error: message });
     return { workspaceDir: dir, deleted: false };
   }
+}
+
+export async function resetPersaiAssistantMemoryWorkspace(
+  assistantId: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<{
+  workspaceDir: string;
+  memoryFilePath: string;
+  memoryDirPath: string;
+}> {
+  const workspaceDir = resolvePersaiAssistantWorkspaceDir(assistantId, env);
+  const memoryFilePath = path.join(workspaceDir, MEMORY_FILE_NAME);
+  const legacyMemoryFilePath = path.join(workspaceDir, LEGACY_MEMORY_FILE_NAME);
+  const memoryDirPath = path.join(workspaceDir, MEMORY_DIR_NAME);
+
+  await fs.mkdir(workspaceDir, { recursive: true });
+  await fs.rm(memoryDirPath, { recursive: true, force: true });
+  await fs.rm(legacyMemoryFilePath, { recursive: true, force: true }).catch(() => {});
+  await fs.mkdir(memoryDirPath, { recursive: true });
+  await fs.writeFile(memoryFilePath, EMPTY_MEMORY_FILE_CONTENT, "utf-8");
+
+  log.debug("assistant memory workspace reset", {
+    assistantId,
+    workspaceDir,
+    memoryFilePath,
+    memoryDirPath,
+  });
+
+  return { workspaceDir, memoryFilePath, memoryDirPath };
 }
 
 export async function writeBootstrapFilesToWorkspace(params: {
