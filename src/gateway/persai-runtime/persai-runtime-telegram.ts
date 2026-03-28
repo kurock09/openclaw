@@ -193,6 +193,14 @@ export async function syncTelegramBotForAssistant(params: {
     }
 
     try {
+      if (isGroup) {
+        await notifyPersaiGroupUpdate({
+          assistantId,
+          telegramChatId: String(ctx.chat.id),
+          title: "title" in ctx.chat && typeof ctx.chat.title === "string" ? ctx.chat.title : "",
+          event: "joined",
+        });
+      }
       await notifyPersaiTelegramChatTarget({
         assistantId,
         telegramChatId: String(ctx.chat.id),
