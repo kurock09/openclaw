@@ -52,6 +52,7 @@ const CronToolSchema = Type.Object(
 
 type CronToolOptions = {
   agentSessionKey?: string;
+  contextSessionKey?: string;
 };
 
 type GatewayToolCaller = typeof callGatewayTool;
@@ -179,7 +180,7 @@ function extractMessageText(message: ChatMessage): { role: string; text: string 
 }
 
 async function buildReminderContextLines(params: {
-  agentSessionKey?: string;
+  contextSessionKey?: string;
   gatewayOpts: GatewayCallOptions;
   contextMessages: number;
   callGatewayTool: GatewayToolCaller;
@@ -191,7 +192,7 @@ async function buildReminderContextLines(params: {
   if (maxMessages <= 0) {
     return [];
   }
-  const sessionKey = params.agentSessionKey?.trim();
+  const sessionKey = params.contextSessionKey?.trim();
   if (!sessionKey) {
     return [];
   }
@@ -537,7 +538,7 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
             const payload = (job as { payload: { kind: string; text: string } }).payload;
             if (typeof payload.text === "string" && payload.text.trim()) {
               const contextLines = await buildReminderContextLines({
-                agentSessionKey: opts?.agentSessionKey,
+                contextSessionKey: opts?.contextSessionKey ?? opts?.agentSessionKey,
                 gatewayOpts,
                 contextMessages,
                 callGatewayTool: callGateway,

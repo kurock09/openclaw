@@ -221,7 +221,7 @@ TARGET RULES:
             action: "create",
             title,
             reminderText,
-            ...(opts?.agentSessionKey ? { sessionKey: opts.agentSessionKey } : {}),
+            ...(opts?.agentSessionKey ? { contextSessionKey: opts.agentSessionKey } : {}),
             ...(normalizeNonEmptyString(params.runAt)
               ? { runAt: normalizeNonEmptyString(params.runAt) }
               : {}),

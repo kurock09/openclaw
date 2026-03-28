@@ -495,6 +495,8 @@ export async function handleRuntimeCronControlHttpRequest(params: {
   const payload = isRecord(parsed.value) ? parsed.value : {};
   const action = typeof payload.action === "string" ? payload.action.trim() : "";
   const sessionKey = typeof payload.sessionKey === "string" ? payload.sessionKey.trim() : "";
+  const contextSessionKey =
+    typeof payload.contextSessionKey === "string" ? payload.contextSessionKey.trim() : "";
   const args = isRecord(payload.args) ? payload.args : {};
   if (action !== "add" && action !== "update" && action !== "remove") {
     sendJson(res, 400, {
@@ -504,7 +506,14 @@ export async function handleRuntimeCronControlHttpRequest(params: {
     return true;
   }
 
-  const cronTool = createCronTool(sessionKey ? { agentSessionKey: sessionKey } : undefined);
+  const cronTool = createCronTool(
+    sessionKey || contextSessionKey
+      ? {
+          ...(sessionKey ? { agentSessionKey: sessionKey } : {}),
+          ...(contextSessionKey ? { contextSessionKey } : {}),
+        }
+      : undefined,
+  );
   if (!cronTool.execute) {
     sendJson(res, 500, { ok: false, error: "cron tool execute handler is unavailable." });
     return true;
