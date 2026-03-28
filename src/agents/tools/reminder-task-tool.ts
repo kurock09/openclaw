@@ -15,6 +15,7 @@ const ReminderTaskToolSchema = Type.Object(
     taskId: Type.Optional(Type.String()),
     titleMatch: Type.Optional(Type.String()),
     runAt: Type.Optional(Type.String()),
+    delayMs: Type.Optional(Type.Number({ minimum: 1 })),
     everyMs: Type.Optional(Type.Number({ minimum: 1 })),
     anchorAt: Type.Optional(Type.String()),
     cronExpr: Type.Optional(Type.String()),
@@ -100,11 +101,40 @@ async function postReminderTaskControl(body: Record<string, unknown>): Promise<u
     body: JSON.stringify(body),
   });
   if (!response.ok) {
-    throw new Error(
-      `PersAI internal task control failed: ${response.status} ${response.statusText}`,
-    );
+    let message = `PersAI internal task control failed: ${response.status} ${response.statusText}`;
+    try {
+      const payload = (await response.json()) as {
+        error?: { message?: unknown } | string;
+      };
+      if (
+        payload?.error &&
+        typeof payload.error === "object" &&
+        !Array.isArray(payload.error) &&
+        typeof payload.error.message === "string" &&
+        payload.error.message.trim().length > 0
+      ) {
+        message = payload.error.message.trim();
+      } else if (typeof payload?.error === "string" && payload.error.trim().length > 0) {
+        message = payload.error.trim();
+      }
+    } catch {
+      // Ignore JSON parsing issues and keep the generic status-based message.
+    }
+    throw new Error(message);
   }
   return (await response.json()) as unknown;
+}
+
+function buildCreateRulesDescription(): string {
+  return [
+    "CREATE RULES:",
+    "- title is required",
+    "- exactly one schedule must be provided: runAt, delayMs, everyMs, or cronExpr",
+    "- reminderText is the text delivered when the reminder fires; defaults to title",
+    "- use contextMessages (0-10) to include recent chat context in the reminder payload",
+    "- for relative one-time reminders like 'in 5 minutes', prefer delayMs instead of calculating runAt yourself",
+    "- use runAt only for an already-resolved absolute datetime in the future",
+  ].join("\n");
 }
 
 async function resolveTaskTarget(params: {
@@ -152,11 +182,7 @@ ACTIONS:
 - resume: resume a paused reminder/task
 - cancel: permanently cancel and remove a reminder/task
 
-CREATE RULES:
-- title is required
-- exactly one schedule must be provided: runAt, everyMs, or cronExpr
-- reminderText is the text delivered when the reminder fires; defaults to title
-- use contextMessages (0-10) to include recent chat context in the reminder payload
+${buildCreateRulesDescription()}
 
 TARGET RULES:
 - pause/resume/cancel prefer taskId from a prior list result
@@ -188,6 +214,8 @@ TARGET RULES:
         case "create": {
           const title = readStringParam(params, "title", { required: true });
           const reminderText = readStringParam(params, "reminderText") ?? title;
+          const delayMs = readNumberParam(params, "delayMs");
+          const everyMs = readNumberParam(params, "everyMs");
           const response = await postReminderTaskControl({
             assistantId,
             action: "create",
@@ -197,9 +225,8 @@ TARGET RULES:
             ...(normalizeNonEmptyString(params.runAt)
               ? { runAt: normalizeNonEmptyString(params.runAt) }
               : {}),
-            ...(readNumberParam(params, "everyMs") !== undefined
-              ? { everyMs: readNumberParam(params, "everyMs") }
-              : {}),
+            ...(delayMs !== undefined ? { delayMs } : {}),
+            ...(everyMs !== undefined ? { everyMs } : {}),
             ...(normalizeNonEmptyString(params.anchorAt)
               ? { anchorAt: normalizeNonEmptyString(params.anchorAt) }
               : {}),

@@ -92,6 +92,45 @@ export function extractPersonaInstructionsFromWorkspace(workspace: unknown): str
   return ins.trim().slice(0, 4000);
 }
 
+function buildSchedulingContext(params: {
+  currentTimeIso?: string;
+  userTimezone?: string;
+}): string | null {
+  if (!params.currentTimeIso) {
+    return null;
+  }
+  const currentTimeMs = Date.parse(params.currentTimeIso);
+  if (!Number.isFinite(currentTimeMs)) {
+    return null;
+  }
+
+  const lines = ["# Scheduling Context", `- Current UTC time: ${params.currentTimeIso}`];
+  if (params.userTimezone) {
+    lines.push(`- User timezone: ${params.userTimezone}`);
+    try {
+      const localTime = new Intl.DateTimeFormat("en-US", {
+        timeZone: params.userTimezone,
+        dateStyle: "full",
+        timeStyle: "long",
+      }).format(new Date(currentTimeMs));
+      lines.push(`- Current local time in the user's timezone: ${localTime}`);
+    } catch {
+      // Ignore invalid timezone formatting and keep the raw timezone string.
+    }
+  }
+  lines.push(
+    "- For relative reminders like 'in 5 minutes', calculate from this current time instead of guessing.",
+  );
+  return lines.join("\n");
+}
+
+function mergeSystemPrompt(base: string | undefined, addition: string | null): string | undefined {
+  if (!addition) {
+    return base;
+  }
+  return base ? `${base}\n\n${addition}` : addition;
+}
+
 export async function handleRuntimeSpecApplyHttpRequest(params: {
   req: IncomingMessage;
   res: ServerResponse;
@@ -547,6 +586,10 @@ export async function handleRuntimeChatWebHttpRequest(params: {
   const userMessageId =
     typeof payload.userMessageId === "string" ? payload.userMessageId.trim() : "";
   const userMessage = typeof payload.userMessage === "string" ? payload.userMessage.trim() : "";
+  const userTimezone =
+    typeof payload.userTimezone === "string" ? payload.userTimezone.trim() : undefined;
+  const currentTimeIso =
+    typeof payload.currentTimeIso === "string" ? payload.currentTimeIso.trim() : undefined;
 
   if (
     !assistantId ||
@@ -582,8 +625,10 @@ export async function handleRuntimeChatWebHttpRequest(params: {
       applied = (await store.get(assistantId, publishedVersionId)) ?? applied;
     }
 
-    const extraSystemPrompt =
-      extractPersonaInstructionsFromWorkspace(applied.workspace) ?? undefined;
+    const extraSystemPrompt = mergeSystemPrompt(
+      extractPersonaInstructionsFromWorkspace(applied.workspace) ?? undefined,
+      buildSchedulingContext({ currentTimeIso, userTimezone }),
+    );
     const runtimeOverride = extractPersaiRuntimeModelOverride(applied.bootstrap);
 
     const credentialRefs = extractToolCredentialRefs(applied.bootstrap);
@@ -691,6 +736,10 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
   const userMessageId =
     typeof payload.userMessageId === "string" ? payload.userMessageId.trim() : "";
   const userMessage = typeof payload.userMessage === "string" ? payload.userMessage.trim() : "";
+  const userTimezone =
+    typeof payload.userTimezone === "string" ? payload.userTimezone.trim() : undefined;
+  const currentTimeIso =
+    typeof payload.currentTimeIso === "string" ? payload.currentTimeIso.trim() : undefined;
 
   if (
     !assistantId ||
@@ -737,7 +786,10 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
   res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
   res.setHeader("Cache-Control", "no-cache");
 
-  const extraSystemPrompt = extractPersonaInstructionsFromWorkspace(applied.workspace) ?? undefined;
+  const extraSystemPrompt = mergeSystemPrompt(
+    extractPersonaInstructionsFromWorkspace(applied.workspace) ?? undefined,
+    buildSchedulingContext({ currentTimeIso, userTimezone }),
+  );
   const runtimeOverride = extractPersaiRuntimeModelOverride(applied.bootstrap);
 
   const streamCredentialRefs = extractToolCredentialRefs(applied.bootstrap);
