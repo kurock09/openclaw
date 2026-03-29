@@ -1,5 +1,5 @@
-import * as fs from "node:fs";
 import { createHash } from "node:crypto";
+import * as fs from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import * as path from "node:path";
 import { Bot, InputFile, webhookCallback } from "grammy";
@@ -153,7 +153,10 @@ function getTelegramReinitConcurrency(): number {
 }
 
 function getTelegramReinitJitterMs(): number {
-  return parsePositiveIntegerEnv("PERSAI_TELEGRAM_REINIT_JITTER_MS", DEFAULT_TELEGRAM_REINIT_JITTER_MS);
+  return parsePositiveIntegerEnv(
+    "PERSAI_TELEGRAM_REINIT_JITTER_MS",
+    DEFAULT_TELEGRAM_REINIT_JITTER_MS,
+  );
 }
 
 function getTelegramReinitRetries(): number {
@@ -161,11 +164,17 @@ function getTelegramReinitRetries(): number {
 }
 
 function getTelegramReinitBackoffMs(): number {
-  return parsePositiveIntegerEnv("PERSAI_TELEGRAM_REINIT_BACKOFF_MS", DEFAULT_TELEGRAM_REINIT_BACKOFF_MS);
+  return parsePositiveIntegerEnv(
+    "PERSAI_TELEGRAM_REINIT_BACKOFF_MS",
+    DEFAULT_TELEGRAM_REINIT_BACKOFF_MS,
+  );
 }
 
 function getReadinessRecheckMs(): number {
-  return parsePositiveIntegerEnv("PERSAI_TELEGRAM_PROFILE_READY_RECHECK_MS", DEFAULT_READINESS_RECHECK_MS);
+  return parsePositiveIntegerEnv(
+    "PERSAI_TELEGRAM_PROFILE_READY_RECHECK_MS",
+    DEFAULT_READINESS_RECHECK_MS,
+  );
 }
 
 function extractTelegramRetryAfterMs(error: unknown): number | null {
@@ -173,7 +182,11 @@ function extractTelegramRetryAfterMs(error: unknown): number | null {
     return null;
   }
   const directRetryAfter = error.retryAfterMs;
-  if (typeof directRetryAfter === "number" && Number.isFinite(directRetryAfter) && directRetryAfter > 0) {
+  if (
+    typeof directRetryAfter === "number" &&
+    Number.isFinite(directRetryAfter) &&
+    directRetryAfter > 0
+  ) {
     return directRetryAfter;
   }
   const parameters = error.parameters;
@@ -189,6 +202,40 @@ function extractTelegramRetryAfterMs(error: unknown): number | null {
     return null;
   }
   return Math.ceil(retryAfterSeconds * 1000);
+}
+
+export function isTelegramMarkdownParseError(error: unknown): boolean {
+  if (!isRecord(error)) {
+    return false;
+  }
+  return (
+    error.error_code === 400 &&
+    typeof error.description === "string" &&
+    error.description.includes("can't parse entities")
+  );
+}
+
+export async function sendTelegramReplyWithConfiguredParseMode(
+  ctx: {
+    reply(text: string, options?: { parse_mode?: "MarkdownV2" }): Promise<unknown>;
+  },
+  reply: string,
+  parseMode: string,
+): Promise<void> {
+  if (parseMode !== "markdown") {
+    await ctx.reply(reply);
+    return;
+  }
+
+  try {
+    await ctx.reply(reply, { parse_mode: "MarkdownV2" });
+  } catch (error) {
+    if (!isTelegramMarkdownParseError(error)) {
+      throw error;
+    }
+    console.warn("[persai-telegram] MarkdownV2 parse failed, retrying as plain text:", error);
+    await ctx.reply(reply);
+  }
 }
 
 function sleep(ms: number): Promise<void> {
@@ -315,7 +362,11 @@ function resolvePersaiInternalApiBaseUrl(): string | undefined {
   return provider?.source === "persai" ? provider.baseUrl : undefined;
 }
 
-export async function syncBotProfile(bot: Bot, workspace: unknown, assistantId: string): Promise<void> {
+export async function syncBotProfile(
+  bot: Bot,
+  workspace: unknown,
+  assistantId: string,
+): Promise<void> {
   const persona = extractPersonaFromWorkspace(workspace);
   const failures: string[] = [];
   let retryAfterMs: number | null = null;
@@ -384,12 +435,18 @@ function scheduleProfileSync(params: {
     return;
   }
   clearProfileSyncTimer(managed);
-  managed.profileSyncTimer = setTimeout(() => {
-    managed.profileSyncTimer = null;
-    void reconcileTelegramProfile(params).catch((err) => {
-      console.warn(`[persai-telegram] Deferred profile reconcile failed for ${params.assistantId}:`, err);
-    });
-  }, Math.max(0, params.delayMs ?? 0));
+  managed.profileSyncTimer = setTimeout(
+    () => {
+      managed.profileSyncTimer = null;
+      void reconcileTelegramProfile(params).catch((err) => {
+        console.warn(
+          `[persai-telegram] Deferred profile reconcile failed for ${params.assistantId}:`,
+          err,
+        );
+      });
+    },
+    Math.max(0, params.delayMs ?? 0),
+  );
 }
 
 async function reconcileTelegramProfile(params: {
@@ -427,7 +484,9 @@ async function reconcileTelegramProfile(params: {
     : Number.NaN;
   const notBeforeAt = parseIsoTimestampMs(currentMeta.nextProfileSyncNotBeforeAt ?? null);
   if (!params.force) {
-    const remainingCooldown = Number.isFinite(lastAttemptAt) ? cooldownMs - (Date.now() - lastAttemptAt) : 0;
+    const remainingCooldown = Number.isFinite(lastAttemptAt)
+      ? cooldownMs - (Date.now() - lastAttemptAt)
+      : 0;
     const remainingNotBefore = Number.isFinite(notBeforeAt) ? notBeforeAt - Date.now() : 0;
     const delayMs = Math.max(remainingCooldown, remainingNotBefore, 0);
     if (delayMs > 0) {
@@ -618,8 +677,7 @@ export async function syncTelegramBotForAssistant(params: {
         workspace: currentManaged.state.workspace,
         workspaceDir: currentManaged.state.workspaceDir,
       });
-      const parseMode = currentConfig.parseMode === "markdown" ? "MarkdownV2" : undefined;
-      await ctx.reply(reply, { parse_mode: parseMode });
+      await sendTelegramReplyWithConfiguredParseMode(ctx, reply, currentConfig.parseMode);
     } catch (err) {
       console.error(`[persai-telegram] Agent turn failed for ${assistantId}:`, err);
       await ctx.reply("Sorry, I encountered an error. Please try again.").catch(() => {});

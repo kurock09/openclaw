@@ -114,22 +114,23 @@ Before preserving or adding a higher-risk patch, confirm:
 **Introduced by:** UI polish (avatar upload to workspace)
 **Verify:** `grep -c 'RUNTIME_WORKSPACE_AVATAR_PATH' src/gateway/persai-runtime/persai-runtime-http.ts` should return >= 2
 
-### 9. Telegram lifecycle reconcile and profile sync hardening (H8-scale)
+### 9. Telegram lifecycle reconcile, profile sync, and markdown fallback hardening (H8-scale + follow-up)
 
 **Risk:** Lower-risk PersAI-specific bridge file
 
 **Files:**
 
-- `src/gateway/persai-runtime/persai-runtime-telegram.ts` — `syncBotProfile()` helper: sets bot name, description, and profile photo from workspace persona on every `syncTelegramBotForAssistant` call; also posts the latest inbound Telegram chat target back to PersAI so reminder delivery can reuse the correct `telegramChatId`
+- `src/gateway/persai-runtime/persai-runtime-telegram.ts` — `syncBotProfile()` helper: sets bot name, description, and profile photo from workspace persona on every `syncTelegramBotForAssistant` call; posts the latest inbound Telegram chat target back to PersAI so reminder delivery can reuse the correct `telegramChatId`; retries Telegram replies as plain text when `MarkdownV2` entity parsing fails
 - `src/gateway/persai-runtime/persai-runtime-spec-store.ts` — persisted `telegramRuntime` metadata (transport/profile fingerprints + profile sync timestamps/errors)
 
-**Introduced by:** H8 Telegram bridge + H8-scale lifecycle hardening
+**Introduced by:** H8 Telegram bridge + H8-scale lifecycle hardening + Telegram markdown fallback follow-up
 **Verify:**
 
 - `grep -c 'syncBotProfile' src/gateway/persai-runtime/persai-runtime-telegram.ts` should return >= 2
 - `grep -c 'transportFingerprint' src/gateway/persai-runtime/persai-runtime-telegram.ts` should return >= 2
 - `grep -c 'telegramRuntime' src/gateway/persai-runtime/persai-runtime-spec-store.ts` should return >= 1
 - `grep -c '/api/v1/internal/runtime/telegram/chat-target' src/gateway/persai-runtime/persai-runtime-telegram.ts` should return >= 1
+- `grep -c 'sendTelegramReplyWithConfiguredParseMode' src/gateway/persai-runtime/persai-runtime-telegram.ts` should return >= 1
 
 ### 10. Cron callback bridge + task registry sync (H12)
 

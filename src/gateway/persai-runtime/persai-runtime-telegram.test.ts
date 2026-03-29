@@ -1,10 +1,12 @@
 import { describe, expect, test } from "vitest";
+import type { PersaiAppliedRuntimeSpec } from "./persai-runtime-spec-store.js";
 import {
+  isTelegramMarkdownParseError,
+  sendTelegramReplyWithConfiguredParseMode,
   selectLatestRuntimeSpecs,
   syncBotProfile,
   TelegramProfileSyncError,
 } from "./persai-runtime-telegram.js";
-import type { PersaiAppliedRuntimeSpec } from "./persai-runtime-spec-store.js";
 
 function sampleSpec(params: {
   assistantId: string;
@@ -63,15 +65,15 @@ describe("selectLatestRuntimeSpecs", () => {
 
     expect(duplicateAssistantIds).toEqual(["assistant-1"]);
     expect(latestSpecs).toHaveLength(2);
-    expect(
-      latestSpecs.find((spec) => spec.assistantId === "assistant-1")?.bootstrap,
-    ).toMatchObject({
-      channels: {
-        telegram: {
-          groupReplyMode: "mention_reply",
+    expect(latestSpecs.find((spec) => spec.assistantId === "assistant-1")?.bootstrap).toMatchObject(
+      {
+        channels: {
+          telegram: {
+            groupReplyMode: "mention_reply",
+          },
         },
       },
-    });
+    );
   });
 });
 
@@ -106,5 +108,70 @@ describe("syncBotProfile", () => {
       name: "TelegramProfileSyncError",
       retryAfterMs: 40104000,
     });
+  });
+});
+
+describe("sendTelegramReplyWithConfiguredParseMode", () => {
+  test("retries as plain text when Telegram rejects MarkdownV2 entities", async () => {
+    const calls: Array<{ text: string; options?: { parse_mode?: "MarkdownV2" } }> = [];
+    const ctx = {
+      reply: async (text: string, options?: { parse_mode?: "MarkdownV2" }) => {
+        calls.push({ text, options });
+        if (options?.parse_mode === "MarkdownV2") {
+          throw {
+            error_code: 400,
+            description:
+              "Bad Request: can't parse entities: Character '!' is reserved and must be escaped with the preceding '\\'",
+          };
+        }
+        return undefined;
+      },
+    };
+
+    await expect(
+      sendTelegramReplyWithConfiguredParseMode(ctx, "Привет, Алекс! Чем могу помочь?", "markdown"),
+    ).resolves.toBeUndefined();
+
+    expect(calls).toEqual([
+      {
+        text: "Привет, Алекс! Чем могу помочь?",
+        options: { parse_mode: "MarkdownV2" },
+      },
+      {
+        text: "Привет, Алекс! Чем могу помочь?",
+        options: undefined,
+      },
+    ]);
+  });
+
+  test("uses plain text directly when markdown mode is disabled", async () => {
+    const calls: Array<{ text: string; options?: { parse_mode?: "MarkdownV2" } }> = [];
+    const ctx = {
+      reply: async (text: string, options?: { parse_mode?: "MarkdownV2" }) => {
+        calls.push({ text, options });
+        return undefined;
+      },
+    };
+
+    await sendTelegramReplyWithConfiguredParseMode(ctx, "Hello", "plain_text");
+
+    expect(calls).toEqual([{ text: "Hello", options: undefined }]);
+  });
+});
+
+describe("isTelegramMarkdownParseError", () => {
+  test("matches Telegram entity parse failures", () => {
+    expect(
+      isTelegramMarkdownParseError({
+        error_code: 400,
+        description: "Bad Request: can't parse entities: Character '!' is reserved",
+      }),
+    ).toBe(true);
+    expect(
+      isTelegramMarkdownParseError({
+        error_code: 400,
+        description: "Bad Request: chat not found",
+      }),
+    ).toBe(false);
   });
 });
