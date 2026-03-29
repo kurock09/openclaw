@@ -19,6 +19,7 @@ export type PersaiAppliedRuntimeSpec = {
     profileFingerprint?: string;
     lastProfileSyncAt?: string;
     lastProfileSyncAttemptAt?: string;
+    nextProfileSyncNotBeforeAt?: string | null;
     lastProfileSyncError?: string | null;
   };
 };

@@ -127,6 +127,8 @@ export async function applyPersaiRuntimeSpecLocally(params: {
     reapply,
   });
 
+  // Keep a single runtime spec per assistant so restarts do not resurrect stale versions.
+  await store.remove(assistantId);
   await store.put({
     assistantId,
     publishedVersionId,

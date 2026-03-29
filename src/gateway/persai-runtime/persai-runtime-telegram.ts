@@ -55,6 +55,16 @@ const DEFAULT_TELEGRAM_REINIT_RETRIES = 3;
 const DEFAULT_TELEGRAM_REINIT_BACKOFF_MS = 1_000;
 const DEFAULT_READINESS_RECHECK_MS = 5_000;
 
+export class TelegramProfileSyncError extends Error {
+  constructor(
+    message: string,
+    readonly retryAfterMs: number | null,
+  ) {
+    super(message);
+    this.name = "TelegramProfileSyncError";
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -158,6 +168,29 @@ function getReadinessRecheckMs(): number {
   return parsePositiveIntegerEnv("PERSAI_TELEGRAM_PROFILE_READY_RECHECK_MS", DEFAULT_READINESS_RECHECK_MS);
 }
 
+function extractTelegramRetryAfterMs(error: unknown): number | null {
+  if (!isRecord(error)) {
+    return null;
+  }
+  const directRetryAfter = error.retryAfterMs;
+  if (typeof directRetryAfter === "number" && Number.isFinite(directRetryAfter) && directRetryAfter > 0) {
+    return directRetryAfter;
+  }
+  const parameters = error.parameters;
+  if (!isRecord(parameters)) {
+    return null;
+  }
+  const retryAfterSeconds = parameters.retry_after;
+  if (
+    typeof retryAfterSeconds !== "number" ||
+    !Number.isFinite(retryAfterSeconds) ||
+    retryAfterSeconds <= 0
+  ) {
+    return null;
+  }
+  return Math.ceil(retryAfterSeconds * 1000);
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -167,6 +200,43 @@ function randomJitter(maxMs: number): number {
     return 0;
   }
   return Math.floor(Math.random() * maxMs);
+}
+
+function parseIsoTimestampMs(value: string | null | undefined): number {
+  if (!value) {
+    return Number.NaN;
+  }
+  return Date.parse(value);
+}
+
+export function selectLatestRuntimeSpecs(specs: PersaiAppliedRuntimeSpec[]): {
+  latestSpecs: PersaiAppliedRuntimeSpec[];
+  duplicateAssistantIds: string[];
+} {
+  const latestByAssistant = new Map<string, PersaiAppliedRuntimeSpec>();
+  const countsByAssistant = new Map<string, number>();
+  for (const spec of specs) {
+    countsByAssistant.set(spec.assistantId, (countsByAssistant.get(spec.assistantId) ?? 0) + 1);
+    const previous = latestByAssistant.get(spec.assistantId);
+    if (!previous) {
+      latestByAssistant.set(spec.assistantId, spec);
+      continue;
+    }
+    const previousAppliedAt = parseIsoTimestampMs(previous.appliedAt);
+    const nextAppliedAt = parseIsoTimestampMs(spec.appliedAt);
+    if (
+      nextAppliedAt > previousAppliedAt ||
+      (nextAppliedAt === previousAppliedAt && spec.publishedVersionId > previous.publishedVersionId)
+    ) {
+      latestByAssistant.set(spec.assistantId, spec);
+    }
+  }
+  return {
+    latestSpecs: [...latestByAssistant.values()],
+    duplicateAssistantIds: [...countsByAssistant.entries()]
+      .filter(([, count]) => count > 1)
+      .map(([assistantId]) => assistantId),
+  };
 }
 
 function resolveTransportMode(config: TelegramChannelConfig): "webhook" | "polling" {
@@ -245,14 +315,18 @@ function resolvePersaiInternalApiBaseUrl(): string | undefined {
   return provider?.source === "persai" ? provider.baseUrl : undefined;
 }
 
-async function syncBotProfile(bot: Bot, workspace: unknown, assistantId: string): Promise<void> {
+export async function syncBotProfile(bot: Bot, workspace: unknown, assistantId: string): Promise<void> {
   const persona = extractPersonaFromWorkspace(workspace);
+  const failures: string[] = [];
+  let retryAfterMs: number | null = null;
 
   if (persona.displayName) {
     try {
       await bot.api.setMyName(persona.displayName.slice(0, 64));
     } catch (err) {
       console.warn(`[persai-telegram] setMyName failed for ${assistantId}:`, err);
+      failures.push("setMyName");
+      retryAfterMs = Math.max(retryAfterMs ?? 0, extractTelegramRetryAfterMs(err) ?? 0) || null;
     }
   }
 
@@ -261,6 +335,8 @@ async function syncBotProfile(bot: Bot, workspace: unknown, assistantId: string)
       await bot.api.setMyDescription(persona.instructions.slice(0, 512));
     } catch (err) {
       console.warn(`[persai-telegram] setMyDescription failed for ${assistantId}:`, err);
+      failures.push("setMyDescription");
+      retryAfterMs = Math.max(retryAfterMs ?? 0, extractTelegramRetryAfterMs(err) ?? 0) || null;
     }
   }
 
@@ -276,6 +352,15 @@ async function syncBotProfile(bot: Bot, workspace: unknown, assistantId: string)
     }
   } catch (err) {
     console.warn(`[persai-telegram] setMyProfilePhoto failed for ${assistantId}:`, err);
+    failures.push("setMyProfilePhoto");
+    retryAfterMs = Math.max(retryAfterMs ?? 0, extractTelegramRetryAfterMs(err) ?? 0) || null;
+  }
+
+  if (failures.length > 0) {
+    throw new TelegramProfileSyncError(
+      `Telegram profile sync failed for ${assistantId}: ${failures.join(", ")}`,
+      retryAfterMs,
+    );
   }
 }
 
@@ -340,12 +425,15 @@ async function reconcileTelegramProfile(params: {
   const lastAttemptAt = currentMeta.lastProfileSyncAttemptAt
     ? Date.parse(currentMeta.lastProfileSyncAttemptAt)
     : Number.NaN;
-  if (!params.force && Number.isFinite(lastAttemptAt)) {
-    const remainingCooldown = cooldownMs - (Date.now() - lastAttemptAt);
-    if (remainingCooldown > 0) {
+  const notBeforeAt = parseIsoTimestampMs(currentMeta.nextProfileSyncNotBeforeAt ?? null);
+  if (!params.force) {
+    const remainingCooldown = Number.isFinite(lastAttemptAt) ? cooldownMs - (Date.now() - lastAttemptAt) : 0;
+    const remainingNotBefore = Number.isFinite(notBeforeAt) ? notBeforeAt - Date.now() : 0;
+    const delayMs = Math.max(remainingCooldown, remainingNotBefore, 0);
+    if (delayMs > 0) {
       scheduleProfileSync({
         ...params,
-        delayMs: remainingCooldown,
+        delayMs,
       });
       return;
     }
@@ -364,15 +452,22 @@ async function reconcileTelegramProfile(params: {
       profileFingerprint: desiredProfileFingerprint,
       lastProfileSyncAt: attemptAt,
       lastProfileSyncAttemptAt: attemptAt,
+      nextProfileSyncNotBeforeAt: null,
       lastProfileSyncError: null,
     });
   } catch (err) {
+    const retryAfterMs = extractTelegramRetryAfterMs(err) ?? cooldownMs;
+    const nextProfileSyncNotBeforeAt = new Date(Date.now() + retryAfterMs).toISOString();
     await updateStoredTelegramRuntime(params.store, state.assistantId, state.publishedVersionId, {
       transportFingerprint: state.transportFingerprint,
       lastProfileSyncAttemptAt: attemptAt,
+      nextProfileSyncNotBeforeAt,
       lastProfileSyncError: err instanceof Error ? err.message : String(err),
     });
-    throw err;
+    scheduleProfileSync({
+      ...params,
+      delayMs: retryAfterMs,
+    });
   }
 }
 
@@ -776,7 +871,22 @@ export async function reinitializeTelegramBotsFromStore(
     return;
   }
 
-  const candidates = allSpecs.filter((spec) => {
+  const { latestSpecs, duplicateAssistantIds } = selectLatestRuntimeSpecs(allSpecs);
+  if (duplicateAssistantIds.length > 0) {
+    for (const assistantId of duplicateAssistantIds) {
+      const latestSpec = latestSpecs.find((spec) => spec.assistantId === assistantId);
+      if (!latestSpec) {
+        continue;
+      }
+      await store.remove(assistantId);
+      await store.put(latestSpec);
+    }
+    console.warn(
+      `[persai-telegram] Collapsed ${allSpecs.length - latestSpecs.length} stale runtime spec(s) across ${duplicateAssistantIds.length} assistant(s) before bot reinit`,
+    );
+  }
+
+  const candidates = latestSpecs.filter((spec) => {
     const tgConfig = extractTelegramChannel(spec.bootstrap);
     return Boolean(tgConfig?.enabled && tgConfig.botToken);
   });
