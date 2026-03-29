@@ -1,12 +1,17 @@
 import * as fs from "node:fs";
+import { createHash } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import * as path from "node:path";
 import { Bot, InputFile, webhookCallback } from "grammy";
 import { loadConfig } from "../../config/config.js";
+import type { ReadinessChecker } from "../server/readiness.js";
 import { runPersaiTelegramAgentTurn } from "./persai-runtime-agent-turn.js";
 import { extractPersonaInstructionsFromWorkspace } from "./persai-runtime-http.js";
 import { extractPersaiRuntimeModelOverride } from "./persai-runtime-provider-profile.js";
-import type { PersaiRuntimeSpecStore } from "./persai-runtime-spec-store.js";
+import type {
+  PersaiAppliedRuntimeSpec,
+  PersaiRuntimeSpecStore,
+} from "./persai-runtime-spec-store.js";
 import {
   buildToolDenyList,
   extractToolCredentialRefs,
@@ -17,15 +22,38 @@ import { resolvePersaiAssistantWorkspaceDir } from "./persai-runtime-workspace.j
 
 type WebhookHandler = (req: IncomingMessage, res: ServerResponse) => Promise<void>;
 
+type TelegramRuntimeMetadata = NonNullable<PersaiAppliedRuntimeSpec["telegramRuntime"]>;
+
+type TelegramChannelConfig = NonNullable<ReturnType<typeof extractTelegramChannel>>;
+
+type ManagedTelegramState = {
+  assistantId: string;
+  publishedVersionId: string;
+  bootstrap: unknown;
+  workspace: unknown;
+  workspaceDir?: string;
+  transportFingerprint: string;
+  profileFingerprint: string;
+};
+
 interface ManagedTelegramBot {
   bot: Bot;
   assistantId: string;
   webhookSecret: string;
   handleWebhook: WebhookHandler;
   mode: "webhook" | "polling";
+  state: ManagedTelegramState;
+  profileSyncTimer: NodeJS.Timeout | null;
 }
 
 const activeBots = new Map<string, ManagedTelegramBot>();
+
+const DEFAULT_TELEGRAM_PROFILE_COOLDOWN_MS = 10 * 60_000;
+const DEFAULT_TELEGRAM_REINIT_CONCURRENCY = 4;
+const DEFAULT_TELEGRAM_REINIT_JITTER_MS = 1_500;
+const DEFAULT_TELEGRAM_REINIT_RETRIES = 3;
+const DEFAULT_TELEGRAM_REINIT_BACKOFF_MS = 1_000;
+const DEFAULT_READINESS_RECHECK_MS = 5_000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -83,6 +111,134 @@ function extractPersonaFromWorkspace(workspace: unknown): {
   };
 }
 
+function hashJson(value: unknown): string {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+function hashText(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function parsePositiveIntegerEnv(name: string, fallback: number): number {
+  const raw = process.env[name]?.trim();
+  if (!raw) {
+    return fallback;
+  }
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function getTelegramProfileCooldownMs(): number {
+  return parsePositiveIntegerEnv(
+    "PERSAI_TELEGRAM_PROFILE_COOLDOWN_MS",
+    DEFAULT_TELEGRAM_PROFILE_COOLDOWN_MS,
+  );
+}
+
+function getTelegramReinitConcurrency(): number {
+  return parsePositiveIntegerEnv(
+    "PERSAI_TELEGRAM_REINIT_CONCURRENCY",
+    DEFAULT_TELEGRAM_REINIT_CONCURRENCY,
+  );
+}
+
+function getTelegramReinitJitterMs(): number {
+  return parsePositiveIntegerEnv("PERSAI_TELEGRAM_REINIT_JITTER_MS", DEFAULT_TELEGRAM_REINIT_JITTER_MS);
+}
+
+function getTelegramReinitRetries(): number {
+  return parsePositiveIntegerEnv("PERSAI_TELEGRAM_REINIT_RETRIES", DEFAULT_TELEGRAM_REINIT_RETRIES);
+}
+
+function getTelegramReinitBackoffMs(): number {
+  return parsePositiveIntegerEnv("PERSAI_TELEGRAM_REINIT_BACKOFF_MS", DEFAULT_TELEGRAM_REINIT_BACKOFF_MS);
+}
+
+function getReadinessRecheckMs(): number {
+  return parsePositiveIntegerEnv("PERSAI_TELEGRAM_PROFILE_READY_RECHECK_MS", DEFAULT_READINESS_RECHECK_MS);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function randomJitter(maxMs: number): number {
+  if (maxMs <= 0) {
+    return 0;
+  }
+  return Math.floor(Math.random() * maxMs);
+}
+
+function resolveTransportMode(config: TelegramChannelConfig): "webhook" | "polling" {
+  return config.webhookUrl ? "webhook" : "polling";
+}
+
+function buildTransportFingerprint(config: TelegramChannelConfig): string {
+  return hashJson({
+    tokenHash: hashText(config.botToken ?? ""),
+    mode: resolveTransportMode(config),
+    webhookUrl: config.webhookUrl ?? "",
+    webhookSecretHash: config.webhookSecret ? hashText(config.webhookSecret) : "",
+  });
+}
+
+function resolveAvatarPath(assistantId: string): string | null {
+  const workspaceDir = resolvePersaiAssistantWorkspaceDir(assistantId);
+  if (!fs.existsSync(workspaceDir)) {
+    return null;
+  }
+  const avatarFile = fs.readdirSync(workspaceDir).find((file) => file.startsWith("avatar."));
+  return avatarFile ? path.join(workspaceDir, avatarFile) : null;
+}
+
+function buildProfileFingerprint(workspace: unknown, assistantId: string): string {
+  const persona = extractPersonaFromWorkspace(workspace);
+  let avatarHash = "";
+  const avatarPath = resolveAvatarPath(assistantId);
+  if (avatarPath) {
+    try {
+      avatarHash = createHash("sha256").update(fs.readFileSync(avatarPath)).digest("hex");
+    } catch {
+      avatarHash = "";
+    }
+  }
+  return hashJson({
+    displayName: persona.displayName ?? "",
+    instructions: persona.instructions ?? "",
+    avatarUrl: persona.avatarUrl ?? "",
+    avatarHash,
+  });
+}
+
+async function loadStoredSpec(
+  store: PersaiRuntimeSpecStore,
+  assistantId: string,
+  publishedVersionId: string,
+): Promise<PersaiAppliedRuntimeSpec | null> {
+  return await store.get(assistantId, publishedVersionId);
+}
+
+async function updateStoredTelegramRuntime(
+  store: PersaiRuntimeSpecStore,
+  assistantId: string,
+  publishedVersionId: string,
+  patch: Partial<TelegramRuntimeMetadata>,
+): Promise<TelegramRuntimeMetadata | null> {
+  const record = await loadStoredSpec(store, assistantId, publishedVersionId);
+  if (!record) {
+    return null;
+  }
+  const telegramRuntime: TelegramRuntimeMetadata = {
+    ...record.telegramRuntime,
+    ...patch,
+  };
+  await store.put({
+    ...record,
+    telegramRuntime,
+  });
+  return telegramRuntime;
+}
+
 function resolvePersaiInternalApiBaseUrl(): string | undefined {
   const cfg = loadConfig();
   const provider = cfg.secrets?.providers?.["persai-runtime"];
@@ -109,31 +265,127 @@ async function syncBotProfile(bot: Bot, workspace: unknown, assistantId: string)
   }
 
   try {
-    const workspaceDir = resolvePersaiAssistantWorkspaceDir(assistantId);
-    if (fs.existsSync(workspaceDir)) {
-      const avatarFiles = fs.readdirSync(workspaceDir).filter((f) => f.startsWith("avatar."));
-      if (avatarFiles.length > 0) {
-        const avatarPath = path.join(workspaceDir, avatarFiles[0]);
-        const buffer = fs.readFileSync(avatarPath);
-        await bot.api.setMyProfilePhoto({
-          type: "static",
-          photo: new InputFile(buffer, avatarFiles[0]),
-        });
-        console.log(`[persai-telegram] Profile photo set for ${assistantId}`);
-      }
+    const avatarPath = resolveAvatarPath(assistantId);
+    if (avatarPath) {
+      const buffer = fs.readFileSync(avatarPath);
+      await bot.api.setMyProfilePhoto({
+        type: "static",
+        photo: new InputFile(buffer, path.basename(avatarPath)),
+      });
+      console.log(`[persai-telegram] Profile photo set for ${assistantId}`);
     }
   } catch (err) {
     console.warn(`[persai-telegram] setMyProfilePhoto failed for ${assistantId}:`, err);
   }
 }
 
+function clearProfileSyncTimer(managed: ManagedTelegramBot): void {
+  if (managed.profileSyncTimer) {
+    clearTimeout(managed.profileSyncTimer);
+    managed.profileSyncTimer = null;
+  }
+}
+
+function scheduleProfileSync(params: {
+  assistantId: string;
+  store: PersaiRuntimeSpecStore;
+  getReadiness?: ReadinessChecker;
+  deferUntilReady?: boolean;
+  delayMs?: number;
+  force?: boolean;
+}): void {
+  const managed = activeBots.get(params.assistantId);
+  if (!managed) {
+    return;
+  }
+  clearProfileSyncTimer(managed);
+  managed.profileSyncTimer = setTimeout(() => {
+    managed.profileSyncTimer = null;
+    void reconcileTelegramProfile(params).catch((err) => {
+      console.warn(`[persai-telegram] Deferred profile reconcile failed for ${params.assistantId}:`, err);
+    });
+  }, Math.max(0, params.delayMs ?? 0));
+}
+
+async function reconcileTelegramProfile(params: {
+  assistantId: string;
+  store: PersaiRuntimeSpecStore;
+  getReadiness?: ReadinessChecker;
+  deferUntilReady?: boolean;
+  force?: boolean;
+}): Promise<void> {
+  const managed = activeBots.get(params.assistantId);
+  if (!managed) {
+    return;
+  }
+  const state = managed.state;
+  const record = await loadStoredSpec(params.store, state.assistantId, state.publishedVersionId);
+  const currentMeta = record?.telegramRuntime ?? {};
+  const desiredProfileFingerprint = buildProfileFingerprint(state.workspace, state.assistantId);
+  managed.state.profileFingerprint = desiredProfileFingerprint;
+
+  if (!params.force && currentMeta.profileFingerprint === desiredProfileFingerprint) {
+    return;
+  }
+
+  if (params.deferUntilReady && params.getReadiness && !params.getReadiness().ready) {
+    scheduleProfileSync({
+      ...params,
+      delayMs: getReadinessRecheckMs(),
+    });
+    return;
+  }
+
+  const cooldownMs = getTelegramProfileCooldownMs();
+  const lastAttemptAt = currentMeta.lastProfileSyncAttemptAt
+    ? Date.parse(currentMeta.lastProfileSyncAttemptAt)
+    : Number.NaN;
+  if (!params.force && Number.isFinite(lastAttemptAt)) {
+    const remainingCooldown = cooldownMs - (Date.now() - lastAttemptAt);
+    if (remainingCooldown > 0) {
+      scheduleProfileSync({
+        ...params,
+        delayMs: remainingCooldown,
+      });
+      return;
+    }
+  }
+
+  const attemptAt = new Date().toISOString();
+  await updateStoredTelegramRuntime(params.store, state.assistantId, state.publishedVersionId, {
+    transportFingerprint: state.transportFingerprint,
+    lastProfileSyncAttemptAt: attemptAt,
+  });
+
+  try {
+    await syncBotProfile(managed.bot, state.workspace, state.assistantId);
+    await updateStoredTelegramRuntime(params.store, state.assistantId, state.publishedVersionId, {
+      transportFingerprint: state.transportFingerprint,
+      profileFingerprint: desiredProfileFingerprint,
+      lastProfileSyncAt: attemptAt,
+      lastProfileSyncAttemptAt: attemptAt,
+      lastProfileSyncError: null,
+    });
+  } catch (err) {
+    await updateStoredTelegramRuntime(params.store, state.assistantId, state.publishedVersionId, {
+      transportFingerprint: state.transportFingerprint,
+      lastProfileSyncAttemptAt: attemptAt,
+      lastProfileSyncError: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
+  }
+}
+
 export async function syncTelegramBotForAssistant(params: {
   assistantId: string;
+  publishedVersionId: string;
   bootstrap: unknown;
   workspace: unknown;
   store: PersaiRuntimeSpecStore;
-  persaiCallbackBaseUrl?: string;
   workspaceDir?: string;
+  getReadiness?: ReadinessChecker;
+  deferProfileUntilReady?: boolean;
+  forceProfileSync?: boolean;
 }): Promise<void> {
   const { assistantId, bootstrap, workspace } = params;
   const tgConfig = extractTelegramChannel(bootstrap);
@@ -143,12 +395,61 @@ export async function syncTelegramBotForAssistant(params: {
     return;
   }
 
+  const transportFingerprint = buildTransportFingerprint(tgConfig);
+  const profileFingerprint = buildProfileFingerprint(workspace, assistantId);
+  const desiredState: ManagedTelegramState = {
+    assistantId,
+    publishedVersionId: params.publishedVersionId,
+    bootstrap,
+    workspace,
+    workspaceDir: params.workspaceDir,
+    transportFingerprint,
+    profileFingerprint,
+  };
+
+  const storedSpec = await loadStoredSpec(params.store, assistantId, params.publishedVersionId);
   const existing = activeBots.get(assistantId);
-  if (existing) {
+  const shouldRestartTransport =
+    !existing || existing.state.transportFingerprint !== transportFingerprint;
+
+  if (existing && shouldRestartTransport) {
     await stopTelegramBot(assistantId);
   }
 
+  if (!shouldRestartTransport && existing) {
+    existing.state = desiredState;
+    await updateStoredTelegramRuntime(params.store, assistantId, params.publishedVersionId, {
+      transportFingerprint,
+    });
+    if (
+      params.forceProfileSync ||
+      storedSpec?.telegramRuntime?.profileFingerprint !== profileFingerprint
+    ) {
+      scheduleProfileSync({
+        assistantId,
+        store: params.store,
+        getReadiness: params.getReadiness,
+        deferUntilReady: params.deferProfileUntilReady,
+        force: params.forceProfileSync,
+      });
+    }
+    return;
+  }
+
   const bot = new Bot(tgConfig.botToken);
+  const managed: ManagedTelegramBot = {
+    bot,
+    assistantId,
+    webhookSecret: tgConfig.webhookSecret ?? "",
+    handleWebhook: async (_req, res) => {
+      res.statusCode = 404;
+      res.end("Telegram bot not initialized");
+    },
+    mode: resolveTransportMode(tgConfig),
+    state: desiredState,
+    profileSyncTimer: null,
+  };
+  activeBots.set(assistantId, managed);
 
   bot.on("my_chat_member", async (ctx) => {
     const update = ctx.myChatMember;
@@ -171,14 +472,19 @@ export async function syncTelegramBotForAssistant(params: {
   });
 
   bot.on("message:text", async (ctx) => {
-    if (!tgConfig.inbound) {
+    const currentManaged = activeBots.get(assistantId);
+    if (!currentManaged) {
+      return;
+    }
+    const currentConfig = extractTelegramChannel(currentManaged.state.bootstrap);
+    if (!currentConfig || !currentConfig.inbound) {
       return;
     }
 
     const chatType = ctx.chat.type;
     const isGroup = chatType === "group" || chatType === "supergroup";
 
-    if (isGroup && tgConfig.groupReplyMode === "mention_reply") {
+    if (isGroup && currentConfig.groupReplyMode === "mention_reply") {
       const botInfo = ctx.me;
       const text = ctx.message.text ?? "";
       const isReply = ctx.message.reply_to_message?.from?.id === botInfo.id;
@@ -188,7 +494,7 @@ export async function syncTelegramBotForAssistant(params: {
       }
     }
 
-    if (!tgConfig.outbound) {
+    if (!currentConfig.outbound) {
       return;
     }
 
@@ -213,11 +519,11 @@ export async function syncTelegramBotForAssistant(params: {
         assistantId,
         userMessage: ctx.message.text ?? "",
         chatId: String(ctx.chat.id),
-        bootstrap,
-        workspace,
-        workspaceDir: params.workspaceDir,
+        bootstrap: currentManaged.state.bootstrap,
+        workspace: currentManaged.state.workspace,
+        workspaceDir: currentManaged.state.workspaceDir,
       });
-      const parseMode = tgConfig.parseMode === "markdown" ? "MarkdownV2" : undefined;
+      const parseMode = currentConfig.parseMode === "markdown" ? "MarkdownV2" : undefined;
       await ctx.reply(reply, { parse_mode: parseMode });
     } catch (err) {
       console.error(`[persai-telegram] Agent turn failed for ${assistantId}:`, err);
@@ -226,17 +532,9 @@ export async function syncTelegramBotForAssistant(params: {
   });
 
   if (tgConfig.webhookUrl) {
-    const handler = webhookCallback(bot, "http", {
+    managed.handleWebhook = webhookCallback(bot, "http", {
       secretToken: tgConfig.webhookSecret ?? undefined,
     }) as unknown as WebhookHandler;
-
-    activeBots.set(assistantId, {
-      bot,
-      assistantId,
-      webhookSecret: tgConfig.webhookSecret ?? "",
-      handleWebhook: handler,
-      mode: "webhook",
-    });
 
     try {
       await bot.api.setWebhook(tgConfig.webhookUrl, {
@@ -249,21 +547,15 @@ export async function syncTelegramBotForAssistant(params: {
       console.error(`[persai-telegram] Failed to set webhook for ${assistantId}:`, err);
     }
   } else {
-    activeBots.set(assistantId, {
-      bot,
-      assistantId,
-      webhookSecret: "",
-      handleWebhook: async (_req, res) => {
-        res.statusCode = 404;
-        res.end("Polling mode");
-      },
-      mode: "polling",
-    });
+    managed.handleWebhook = async (_req, res) => {
+      res.statusCode = 404;
+      res.end("Polling mode");
+    };
 
     try {
       await bot.api.deleteWebhook({ drop_pending_updates: false });
     } catch {
-      // best effort — ensure no stale webhook blocks polling
+      // Best effort — ensure no stale webhook blocks polling.
     }
 
     bot
@@ -277,9 +569,23 @@ export async function syncTelegramBotForAssistant(params: {
       });
   }
 
-  void syncBotProfile(bot, workspace, assistantId).catch((err) => {
-    console.warn(`[persai-telegram] syncBotProfile failed for ${assistantId}:`, err);
+  await updateStoredTelegramRuntime(params.store, assistantId, params.publishedVersionId, {
+    transportFingerprint,
   });
+
+  const shouldSyncProfile =
+    params.forceProfileSync ||
+    storedSpec?.telegramRuntime?.profileFingerprint !== profileFingerprint;
+  if (shouldSyncProfile) {
+    scheduleProfileSync({
+      assistantId,
+      store: params.store,
+      getReadiness: params.getReadiness,
+      deferUntilReady: params.deferProfileUntilReady,
+      force: params.forceProfileSync,
+      delayMs: shouldRestartTransport ? randomJitter(getTelegramReinitJitterMs()) : 0,
+    });
+  }
 }
 
 async function stopTelegramBot(assistantId: string): Promise<void> {
@@ -287,6 +593,7 @@ async function stopTelegramBot(assistantId: string): Promise<void> {
   if (!existing) {
     return;
   }
+  clearProfileSyncTimer(existing);
   try {
     if (existing.mode === "polling") {
       await existing.bot.stop();
@@ -460,31 +767,68 @@ export async function handleTelegramWebhookRequest(params: {
 
 export async function reinitializeTelegramBotsFromStore(
   store: PersaiRuntimeSpecStore,
+  opts: {
+    getReadiness?: ReadinessChecker;
+  } = {},
 ): Promise<void> {
   const allSpecs = await store.getAll();
   if (!allSpecs || allSpecs.length === 0) {
     return;
   }
 
-  let started = 0;
-  for (const spec of allSpecs) {
+  const candidates = allSpecs.filter((spec) => {
     const tgConfig = extractTelegramChannel(spec.bootstrap);
-    if (tgConfig?.enabled && tgConfig.botToken) {
-      try {
-        await syncTelegramBotForAssistant({
-          assistantId: spec.assistantId,
-          bootstrap: spec.bootstrap,
-          workspace: spec.workspace,
-          store,
-          workspaceDir: spec.workspaceDir,
-        });
-        started++;
-      } catch (err) {
-        console.error(`[persai-telegram] Failed to reinit bot for ${spec.assistantId}:`, err);
+    return Boolean(tgConfig?.enabled && tgConfig.botToken);
+  });
+  if (candidates.length === 0) {
+    return;
+  }
+
+  const concurrency = Math.max(1, getTelegramReinitConcurrency());
+  const retries = Math.max(1, getTelegramReinitRetries());
+  const baseBackoffMs = getTelegramReinitBackoffMs();
+  const jitterMs = getTelegramReinitJitterMs();
+  let started = 0;
+  let index = 0;
+
+  const workers = Array.from({ length: Math.min(concurrency, candidates.length) }, async () => {
+    while (true) {
+      const currentIndex = index++;
+      const spec = candidates[currentIndex];
+      if (!spec) {
+        return;
+      }
+      await sleep(randomJitter(jitterMs));
+      for (let attempt = 1; attempt <= retries; attempt += 1) {
+        try {
+          await syncTelegramBotForAssistant({
+            assistantId: spec.assistantId,
+            publishedVersionId: spec.publishedVersionId,
+            bootstrap: spec.bootstrap,
+            workspace: spec.workspace,
+            store,
+            workspaceDir: spec.workspaceDir,
+            getReadiness: opts.getReadiness,
+            deferProfileUntilReady: true,
+          });
+          started += 1;
+          break;
+        } catch (err) {
+          if (attempt >= retries) {
+            console.error(`[persai-telegram] Failed to reinit bot for ${spec.assistantId}:`, err);
+            break;
+          }
+          const backoffMs = baseBackoffMs * attempt + randomJitter(baseBackoffMs);
+          await sleep(backoffMs);
+        }
       }
     }
-  }
+  });
+
+  await Promise.all(workers);
   if (started > 0) {
-    console.log(`[persai-telegram] Reinitialized ${started} Telegram bot(s) from store`);
+    console.log(
+      `[persai-telegram] Reinitialized ${started} Telegram bot(s) from store with concurrency ${concurrency}`,
+    );
   }
 }

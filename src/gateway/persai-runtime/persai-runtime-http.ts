@@ -12,26 +12,20 @@ import {
   runPersaiWebRuntimeAgentTurnSync,
 } from "./persai-runtime-agent-turn.js";
 import { ensureSpecFreshness } from "./persai-runtime-freshness.js";
-import {
-  extractPersaiRuntimeModelOverride,
-  PersaiRuntimeProviderProfileValidationError,
-  validatePersaiRuntimeProviderProfileForApply,
-} from "./persai-runtime-provider-profile.js";
+import { applyPersaiRuntimeSpecLocally, PersaiRuntimeSpecApplyValidationError } from "./persai-runtime-local-apply.js";
+import { extractPersaiRuntimeModelOverride } from "./persai-runtime-provider-profile.js";
+import { cleanupPersaiAssistantSessions } from "./persai-runtime-session-cleanup.js";
 import { derivePersaiWebRuntimeSessionKey } from "./persai-runtime-session.js";
 import type { PersaiRuntimeSpecStore } from "./persai-runtime-spec-store.js";
-import { syncTelegramBotForAssistant } from "./persai-runtime-telegram.js";
 import {
   buildToolDenyList,
   extractToolCredentialRefs,
   extractToolQuotaPolicy,
-  PersaiToolPolicyValidationError,
   resolveToolCredentials,
-  validateToolPolicyForApply,
 } from "./persai-runtime-tool-policy.js";
 import {
   cleanupPersaiAssistantWorkspace,
   resetPersaiAssistantMemoryWorkspace,
-  writeBootstrapFilesToWorkspace,
   resolvePersaiAssistantWorkspaceDir,
 } from "./persai-runtime-workspace.js";
 
@@ -201,10 +195,23 @@ export async function handleRuntimeSpecApplyHttpRequest(params: {
     return true;
   }
 
+  let localApply;
   try {
-    await validatePersaiRuntimeProviderProfileForApply(spec.bootstrap);
+    localApply = await applyPersaiRuntimeSpecLocally({
+      payload: {
+        assistantId,
+        publishedVersionId,
+        contentHash,
+        reapply,
+        spec: {
+          bootstrap: spec.bootstrap,
+          workspace: spec.workspace,
+        },
+      },
+      store,
+    });
   } catch (error) {
-    if (error instanceof PersaiRuntimeProviderProfileValidationError) {
+    if (error instanceof PersaiRuntimeSpecApplyValidationError) {
       sendJson(res, 400, {
         ok: false,
         error: error.message,
@@ -213,51 +220,6 @@ export async function handleRuntimeSpecApplyHttpRequest(params: {
     }
     throw error;
   }
-
-  try {
-    await validateToolPolicyForApply(spec.bootstrap);
-  } catch (error) {
-    if (error instanceof PersaiToolPolicyValidationError) {
-      sendJson(res, 400, {
-        ok: false,
-        error: error.message,
-      });
-      return true;
-    }
-    throw error;
-  }
-
-  const appliedAt = new Date().toISOString();
-  const workspacePayload = spec.workspace;
-
-  const { workspaceDir, written, skipped } = await writeBootstrapFilesToWorkspace({
-    assistantId,
-    workspace: workspacePayload,
-    reapply,
-  });
-
-  const bootstrapPayload = spec.bootstrap;
-
-  await store.put({
-    assistantId,
-    publishedVersionId,
-    contentHash,
-    reapply,
-    bootstrap: bootstrapPayload,
-    workspace: workspacePayload,
-    appliedAt,
-    workspaceDir,
-  });
-
-  void syncTelegramBotForAssistant({
-    assistantId,
-    bootstrap: bootstrapPayload,
-    workspace: workspacePayload,
-    store,
-    workspaceDir,
-  }).catch((err) => {
-    console.error(`[persai-runtime] Telegram bot sync failed for ${assistantId}:`, err);
-  });
 
   sendJson(res, 200, {
     ok: true,
@@ -266,9 +228,9 @@ export async function handleRuntimeSpecApplyHttpRequest(params: {
     publishedVersionId,
     contentHash,
     reapply,
-    appliedAt,
-    workspaceDir,
-    bootstrapFiles: { written, skipped },
+    appliedAt: localApply.appliedAt,
+    workspaceDir: localApply.workspaceDir,
+    bootstrapFiles: localApply.bootstrapFiles,
   });
   return true;
 }
@@ -385,6 +347,7 @@ export async function handleRuntimeWorkspaceResetHttpRequest(params: {
   const cleanup = await cleanupPersaiAssistantWorkspace(assistantId);
   await store.remove(assistantId);
   const memory = await resetPersaiAssistantMemoryWorkspace(assistantId);
+  const sessions = await cleanupPersaiAssistantSessions(assistantId);
 
   sendJson(res, 200, {
     ok: true,
@@ -394,6 +357,8 @@ export async function handleRuntimeWorkspaceResetHttpRequest(params: {
     workspaceDir: memory.workspaceDir,
     memoryFilePath: memory.memoryFilePath,
     memoryDirPath: memory.memoryDirPath,
+    sessionStorePath: sessions.storePath,
+    removedSessions: sessions.removedCount,
   });
   return true;
 }
@@ -447,7 +412,14 @@ export async function handleRuntimeWorkspaceMemoryResetHttpRequest(params: {
   }
 
   const result = await resetPersaiAssistantMemoryWorkspace(assistantId);
-  sendJson(res, 200, { ok: true, assistantId, ...result });
+  const sessions = await cleanupPersaiAssistantSessions(assistantId);
+  sendJson(res, 200, {
+    ok: true,
+    assistantId,
+    ...result,
+    sessionStorePath: sessions.storePath,
+    removedSessions: sessions.removedCount,
+  });
   return true;
 }
 
@@ -628,7 +600,8 @@ export async function handleRuntimeChatWebHttpRequest(params: {
   if (applied) {
     const freshness = await ensureSpecFreshness({
       assistantId,
-      bootstrap: applied.bootstrap,
+      applied,
+      store,
     });
     if (freshness.rematerialized) {
       applied = (await store.get(assistantId, publishedVersionId)) ?? applied;
@@ -785,7 +758,8 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
 
   const streamFreshness = await ensureSpecFreshness({
     assistantId,
-    bootstrap: applied.bootstrap,
+    applied,
+    store,
   });
   if (streamFreshness.rematerialized) {
     applied = (await store.get(assistantId, publishedVersionId)) ?? applied;

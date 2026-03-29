@@ -14,6 +14,13 @@ export type PersaiAppliedRuntimeSpec = {
   workspace: unknown;
   appliedAt: string;
   workspaceDir?: string;
+  telegramRuntime?: {
+    transportFingerprint?: string;
+    profileFingerprint?: string;
+    lastProfileSyncAt?: string;
+    lastProfileSyncAttemptAt?: string;
+    lastProfileSyncError?: string | null;
+  };
 };
 
 export interface PersaiRuntimeSpecStore {

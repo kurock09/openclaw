@@ -114,18 +114,21 @@ Before preserving or adding a higher-risk patch, confirm:
 **Introduced by:** UI polish (avatar upload to workspace)
 **Verify:** `grep -c 'RUNTIME_WORKSPACE_AVATAR_PATH' src/gateway/persai-runtime/persai-runtime-http.ts` should return >= 2
 
-### 9. Telegram bot profile sync on apply
+### 9. Telegram lifecycle reconcile and profile sync hardening (H8-scale)
 
 **Risk:** Lower-risk PersAI-specific bridge file
 
 **Files:**
 
 - `src/gateway/persai-runtime/persai-runtime-telegram.ts` — `syncBotProfile()` helper: sets bot name, description, and profile photo from workspace persona on every `syncTelegramBotForAssistant` call; also posts the latest inbound Telegram chat target back to PersAI so reminder delivery can reuse the correct `telegramChatId`
+- `src/gateway/persai-runtime/persai-runtime-spec-store.ts` — persisted `telegramRuntime` metadata (transport/profile fingerprints + profile sync timestamps/errors)
 
-**Introduced by:** UI polish (Telegram sync)
+**Introduced by:** H8 Telegram bridge + H8-scale lifecycle hardening
 **Verify:**
 
 - `grep -c 'syncBotProfile' src/gateway/persai-runtime/persai-runtime-telegram.ts` should return >= 2
+- `grep -c 'transportFingerprint' src/gateway/persai-runtime/persai-runtime-telegram.ts` should return >= 2
+- `grep -c 'telegramRuntime' src/gateway/persai-runtime/persai-runtime-spec-store.ts` should return >= 1
 - `grep -c '/api/v1/internal/runtime/telegram/chat-target' src/gateway/persai-runtime/persai-runtime-telegram.ts` should return >= 1
 
 ### 10. Cron callback bridge + task registry sync (H12)
@@ -154,20 +157,23 @@ Before preserving or adding a higher-risk patch, confirm:
 - `grep -c 'createReminderTaskTool' src/agents/openclaw-tools.ts` should return >= 1
 - `grep -c 'persai-runtime-cron-control' src/gateway/server-http.ts` should return >= 1
 
-### 11. Memory lifecycle reset bridge (H12g)
+### 11. Memory/session lifecycle reset bridge (H12g + H8s8)
 
 **Risk:** Lower-risk PersAI-specific bridge files
 
 **Files:**
 
 - `src/gateway/persai-runtime/persai-runtime-workspace.ts` — helper to recreate clean `MEMORY.md` + `memory/`
-- `src/gateway/persai-runtime/persai-runtime-http.ts` — `POST /api/v1/runtime/workspace/memory/reset` and strict `POST /api/v1/runtime/workspace/reset`
+- `src/gateway/persai-runtime/persai-runtime-session-cleanup.ts` — assistant-scoped cleanup of `agent:persai:<assistantId>:*` sessions plus transcript archival
+- `src/gateway/persai-runtime/persai-runtime-http.ts` — `POST /api/v1/runtime/workspace/memory/reset` and strict `POST /api/v1/runtime/workspace/reset`, both now clear assistant-scoped PersAI runtime sessions
 - `src/gateway/server-http.ts` — registers the request stage
 
-**Introduced by:** H12g memory lifecycle bridge
+**Introduced by:** H12g memory lifecycle bridge + H8s8 runtime session cleanup
 **Verify:**
 
 - `grep -c 'resetPersaiAssistantMemoryWorkspace' src/gateway/persai-runtime/persai-runtime-workspace.ts` should return >= 1
+- `grep -c 'cleanupPersaiAssistantSessions' src/gateway/persai-runtime/persai-runtime-http.ts` should return >= 2
+- `grep -c 'agent:persai' src/gateway/persai-runtime/persai-runtime-session-cleanup.ts` should return >= 1
 - `grep -c '/api/v1/runtime/workspace/memory/reset' src/gateway/persai-runtime/persai-runtime-http.ts` should return >= 1
 - `grep -c '/api/v1/runtime/workspace/reset' src/gateway/persai-runtime/persai-runtime-http.ts` should return >= 1
 - `grep -c 'persai-runtime-workspace-reset' src/gateway/server-http.ts` should return >= 1

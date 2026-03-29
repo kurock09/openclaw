@@ -794,7 +794,7 @@ export function createGatewayHttpServer(opts: {
   } = opts;
   const persaiRuntimeSpecStore = resolvePersaiRuntimeSpecStore(persaiRuntimeSpecStoreOpt);
 
-  void reinitializeTelegramBotsFromStore(persaiRuntimeSpecStore).catch((err) => {
+  void reinitializeTelegramBotsFromStore(persaiRuntimeSpecStore, { getReadiness }).catch((err) => {
     console.error("[persai-telegram] Failed to reinitialize bots from store:", err);
   });
 

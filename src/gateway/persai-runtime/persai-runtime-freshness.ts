@@ -2,8 +2,18 @@
  * Two-tier freshness check for H3.1 lazy invalidation.
  *
  * Tier 1: In-memory cached configGeneration (fast, local).
- * Tier 2: PersAI ensure-fresh-spec endpoint (full check, remote).
+ * Tier 2: PersAI ensure-fresh-spec endpoint (single-assistant refresh, remote).
  */
+
+import {
+  applyPersaiRuntimeSpecLocally,
+  parseFreshSpecResponse,
+  type PersaiRuntimeFreshSpecResponse,
+} from "./persai-runtime-local-apply.js";
+import type {
+  PersaiAppliedRuntimeSpec,
+  PersaiRuntimeSpecStore,
+} from "./persai-runtime-spec-store.js";
 
 const DEFAULT_GENERATION_CACHE_TTL_MS = 3_600_000; // 1 hour
 const DEFAULT_FRESHNESS_TIMEOUT_MS = 5_000;
@@ -11,13 +21,15 @@ const DEFAULT_FRESHNESS_TIMEOUT_MS = 5_000;
 let cachedGeneration: number | null = null;
 let cachedAt = 0;
 
-const rematerializeMutex = new Map<string, Promise<void>>();
+const rematerializeMutex = new Map<string, Promise<boolean>>();
 
 function getGenerationCacheTtlMs(): number {
   const env = process.env.PERSAI_CONFIG_GENERATION_CACHE_TTL_MS?.trim();
   if (env) {
     const parsed = parseInt(env, 10);
-    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
   }
   return DEFAULT_GENERATION_CACHE_TTL_MS;
 }
@@ -43,7 +55,9 @@ function extractConfigGenerationFromBootstrap(bootstrap: unknown): number {
       !Array.isArray(gov)
     ) {
       const gen = (gov as Record<string, unknown>).configGeneration;
-      if (typeof gen === "number" && Number.isFinite(gen)) return gen;
+      if (typeof gen === "number" && Number.isFinite(gen)) {
+        return gen;
+      }
     }
   }
   return 0;
@@ -52,7 +66,9 @@ function extractConfigGenerationFromBootstrap(bootstrap: unknown): number {
 async function fetchRemoteConfigGeneration(): Promise<number | null> {
   const baseUrl = getPersaiInternalBaseUrl();
   const token = getGatewayToken();
-  if (!baseUrl || !token) return null;
+  if (!baseUrl || !token) {
+    return null;
+  }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), DEFAULT_FRESHNESS_TIMEOUT_MS);
@@ -66,9 +82,13 @@ async function fetchRemoteConfigGeneration(): Promise<number | null> {
       },
       signal: controller.signal,
     });
-    if (!resp.ok) return null;
+    if (!resp.ok) {
+      return null;
+    }
     const body = (await resp.json()) as { generation?: number };
-    if (typeof body.generation === "number") return body.generation;
+    if (typeof body.generation === "number") {
+      return body.generation;
+    }
     return null;
   } catch {
     return null;
@@ -80,10 +100,16 @@ async function fetchRemoteConfigGeneration(): Promise<number | null> {
 async function requestEnsureFreshSpec(
   assistantId: string,
   currentConfigGeneration: number,
-): Promise<{ fresh: boolean; rematerialized: boolean } | null> {
+): Promise<
+  | { status: "fresh" }
+  | { status: "updated"; payload: PersaiRuntimeFreshSpecResponse }
+  | null
+> {
   const baseUrl = getPersaiInternalBaseUrl();
   const token = getGatewayToken();
-  if (!baseUrl || !token) return null;
+  if (!baseUrl || !token) {
+    return null;
+  }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), DEFAULT_FRESHNESS_TIMEOUT_MS);
@@ -99,8 +125,14 @@ async function requestEnsureFreshSpec(
       body: JSON.stringify({ assistantId, currentConfigGeneration }),
       signal: controller.signal,
     });
-    if (!resp.ok) return null;
-    return (await resp.json()) as { fresh: boolean; rematerialized: boolean };
+    if (resp.status === 204) {
+      return { status: "fresh" };
+    }
+    if (!resp.ok) {
+      return null;
+    }
+    const parsed = parseFreshSpecResponse(await resp.json());
+    return parsed ? { status: "updated", payload: parsed } : null;
   } catch {
     return null;
   } finally {
@@ -111,14 +143,15 @@ async function requestEnsureFreshSpec(
 /**
  * Checks whether the applied spec is still fresh against the global configGeneration.
  * Returns `{ fresh: true, rematerialized: false }` when up-to-date,
- * `{ fresh: true, rematerialized: true }` when stale and PersAI re-materialized on demand,
+ * `{ fresh: true, rematerialized: true }` when stale and OpenClaw locally applied a fresh spec,
  * or `{ fresh: true, rematerialized: false }` on fail-open (PersAI unreachable).
  */
 export async function ensureSpecFreshness(params: {
   assistantId: string;
-  bootstrap: unknown;
+  applied: PersaiAppliedRuntimeSpec;
+  store: PersaiRuntimeSpecStore;
 }): Promise<{ fresh: boolean; rematerialized: boolean }> {
-  const specGeneration = extractConfigGenerationFromBootstrap(params.bootstrap);
+  const specGeneration = extractConfigGenerationFromBootstrap(params.applied.bootstrap);
   const now = Date.now();
   const ttl = getGenerationCacheTtlMs();
 
@@ -142,21 +175,37 @@ export async function ensureSpecFreshness(params: {
 
   const existing = rematerializeMutex.get(params.assistantId);
   if (existing) {
-    await existing;
-    return { fresh: true, rematerialized: true };
+    const rematerialized = await existing;
+    return { fresh: true, rematerialized };
   }
 
   const promise = (async () => {
     try {
-      await requestEnsureFreshSpec(params.assistantId, specGeneration);
+      const result = await requestEnsureFreshSpec(params.assistantId, specGeneration);
+      if (result === null || result.status === "fresh") {
+        return false;
+      }
+      cachedGeneration = result.payload.generation;
+      cachedAt = Date.now();
+      await applyPersaiRuntimeSpecLocally({
+        payload: {
+          assistantId: result.payload.assistantId,
+          publishedVersionId: result.payload.publishedVersionId,
+          contentHash: result.payload.contentHash,
+          reapply: false,
+          spec: result.payload.spec,
+        },
+        store: params.store,
+      });
+      return true;
     } finally {
       rematerializeMutex.delete(params.assistantId);
     }
   })();
   rematerializeMutex.set(params.assistantId, promise);
-  await promise;
+  const rematerialized = await promise;
 
-  return { fresh: true, rematerialized: true };
+  return { fresh: true, rematerialized };
 }
 
 /** Reset cache — useful for testing. */
