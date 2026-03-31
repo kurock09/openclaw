@@ -6,10 +6,9 @@ describe("derivePersaiWebRuntimeSessionKey", () => {
     expect(
       derivePersaiWebRuntimeSessionKey({
         assistantId: "a1",
-        publishedVersionId: "v1",
         chatId: "c1",
         surfaceThreadKey: "t1",
       }),
-    ).toBe("persai:web:a1:v1:c1:t1");
+    ).toBe("agent:persai:a1:web:c1:t1");
   });
 });

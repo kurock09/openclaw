@@ -61,6 +61,7 @@ import {
   handleRuntimeCronControlHttpRequest,
   handleRuntimeChatChannelHttpRequest,
   handleRuntimeChatWebHttpRequest,
+  handleRuntimeChatWebSessionDeleteHttpRequest,
   handleRuntimeChatWebStreamHttpRequest,
   handleRuntimeSpecApplyHttpRequest,
   handleRuntimeWorkspaceBootstrapConsumeHttpRequest,
@@ -968,6 +969,18 @@ export function createGatewayHttpServer(opts: {
         name: "persai-runtime-cron-control",
         run: () =>
           handleRuntimeCronControlHttpRequest({
+            req,
+            res,
+            requestPath,
+            resolvedAuth,
+            trustedProxies,
+            allowRealIpFallback,
+          }),
+      });
+      requestStages.push({
+        name: "persai-runtime-chat-web-session-delete",
+        run: () =>
+          handleRuntimeChatWebSessionDeleteHttpRequest({
             req,
             res,
             requestPath,

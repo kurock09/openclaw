@@ -1,14 +1,14 @@
 /**
- * Stable session identity for PersAI web chat turns (P1 / ADR-048).
- * OpenClaw native pipeline can adopt this key when wiring agentCommandFromIngress / hooks.
+ * Stable assistant-scoped session identity for PersAI web chat turns.
+ * Keeping web turns inside the persai agent namespace prevents assistant
+ * runtime state from leaking into the default main session bucket.
  */
 
 export function derivePersaiWebRuntimeSessionKey(params: {
   assistantId: string;
-  publishedVersionId: string;
   chatId: string;
   surfaceThreadKey: string;
 }): string {
-  const { assistantId, publishedVersionId, chatId, surfaceThreadKey } = params;
-  return `persai:web:${assistantId}:${publishedVersionId}:${chatId}:${surfaceThreadKey}`;
+  const { assistantId, chatId, surfaceThreadKey } = params;
+  return `agent:persai:${assistantId}:web:${chatId}:${surfaceThreadKey}`;
 }

@@ -18,7 +18,10 @@ import {
   PersaiRuntimeSpecApplyValidationError,
 } from "./persai-runtime-local-apply.js";
 import { extractPersaiRuntimeModelOverride } from "./persai-runtime-provider-profile.js";
-import { cleanupPersaiAssistantSessions } from "./persai-runtime-session-cleanup.js";
+import {
+  cleanupPersaiAssistantSessions,
+  cleanupPersaiWebChatSession,
+} from "./persai-runtime-session-cleanup.js";
 import { derivePersaiWebRuntimeSessionKey } from "./persai-runtime-session.js";
 import type { PersaiRuntimeSpecStore } from "./persai-runtime-spec-store.js";
 import {
@@ -42,6 +45,7 @@ export const RUNTIME_WORKSPACE_BOOTSTRAP_CONSUME_PATH =
   "/api/v1/runtime/workspace/bootstrap/consume";
 export const RUNTIME_CRON_CONTROL_PATH = "/api/v1/runtime/cron/control";
 export const RUNTIME_CHAT_WEB_PATH = "/api/v1/runtime/chat/web";
+export const RUNTIME_CHAT_WEB_SESSION_DELETE_PATH = "/api/v1/runtime/chat/web/session/delete";
 export const RUNTIME_CHAT_WEB_STREAM_PATH = "/api/v1/runtime/chat/web/stream";
 export const RUNTIME_CHAT_CHANNEL_PATH = "/api/v1/runtime/chat/channel";
 export const RUNTIME_WORKSPACE_AVATAR_PATH = "/api/v1/runtime/workspace/avatar";
@@ -498,6 +502,76 @@ export async function handleRuntimeWorkspaceBootstrapConsumeHttpRequest(params: 
   return true;
 }
 
+export async function handleRuntimeChatWebSessionDeleteHttpRequest(params: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  requestPath: string;
+  resolvedAuth: ResolvedGatewayAuth;
+  trustedProxies: string[];
+  allowRealIpFallback: boolean;
+}): Promise<boolean> {
+  const { req, res, requestPath, resolvedAuth, trustedProxies, allowRealIpFallback } = params;
+  if (requestPath !== RUNTIME_CHAT_WEB_SESSION_DELETE_PATH) {
+    return false;
+  }
+
+  const method = (req.method ?? "GET").toUpperCase();
+  if (method !== "POST") {
+    res.statusCode = 405;
+    res.setHeader("Allow", "POST");
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.end("Method Not Allowed");
+    return true;
+  }
+
+  const bearerToken = getBearerToken(req);
+  const auth = await authorizeHttpGatewayConnect({
+    auth: resolvedAuth,
+    connectAuth: bearerToken ? { token: bearerToken, password: bearerToken } : null,
+    req,
+    trustedProxies,
+    allowRealIpFallback,
+  });
+  if (!auth.ok) {
+    sendGatewayAuthFailure(res, auth);
+    return true;
+  }
+
+  const parsed = await readJsonBody(req, MAX_RUNTIME_JSON_BYTES);
+  if (!parsed.ok) {
+    sendJson(res, 400, { ok: false, error: parsed.error });
+    return true;
+  }
+
+  const payload = isRecord(parsed.value) ? parsed.value : {};
+  const assistantId = typeof payload.assistantId === "string" ? payload.assistantId.trim() : "";
+  const chatId = typeof payload.chatId === "string" ? payload.chatId.trim() : "";
+  const surfaceThreadKey =
+    typeof payload.surfaceThreadKey === "string" ? payload.surfaceThreadKey.trim() : "";
+
+  if (!assistantId || !chatId || !surfaceThreadKey) {
+    sendJson(res, 400, {
+      ok: false,
+      error: "assistantId, chatId, and surfaceThreadKey are required.",
+    });
+    return true;
+  }
+
+  const result = await cleanupPersaiWebChatSession({
+    assistantId,
+    chatId,
+    surfaceThreadKey,
+  });
+  sendJson(res, 200, {
+    ok: true,
+    assistantId,
+    chatId,
+    surfaceThreadKey,
+    removedSessions: result.removedCount,
+  });
+  return true;
+}
+
 export async function handleRuntimeCronControlHttpRequest(params: {
   req: IncomingMessage;
   res: ServerResponse;
@@ -665,7 +739,6 @@ export async function handleRuntimeChatWebHttpRequest(params: {
 
   const sessionKey = derivePersaiWebRuntimeSessionKey({
     assistantId,
-    publishedVersionId,
     chatId,
     surfaceThreadKey,
   });
@@ -975,7 +1048,6 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
 
   const sessionKey = derivePersaiWebRuntimeSessionKey({
     assistantId,
-    publishedVersionId,
     chatId,
     surfaceThreadKey,
   });
