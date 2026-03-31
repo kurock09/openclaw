@@ -7,6 +7,7 @@ export type PersaiToolCredentialRef = {
   toolCode: string;
   secretRef: SecretRef;
   configured: boolean;
+  providerId?: string;
 };
 
 export type PersaiToolQuotaEntry = {
@@ -16,8 +17,7 @@ export type PersaiToolQuotaEntry = {
 };
 
 /**
- * Maps tool credential IDs from the PersAI bootstrap to the environment
- * variable names that OpenClaw tools actually read at runtime.
+ * Default env var when no providerId is specified.
  */
 const TOOL_CREDENTIAL_ENV_MAP: Record<string, string> = {
   "tool/web_search/api-key": "TAVILY_API_KEY",
@@ -26,6 +26,33 @@ const TOOL_CREDENTIAL_ENV_MAP: Record<string, string> = {
   "tool/tts/api-key": "OPENAI_TTS_API_KEY",
   "tool/memory_search/api-key": "OPENAI_EMBEDDINGS_API_KEY",
 };
+
+/**
+ * Provider-specific env var overrides keyed by secretId → providerId → envVar.
+ */
+const PROVIDER_ENV_OVERRIDES: Record<string, Record<string, string>> = {
+  "tool/web_search/api-key": {
+    tavily: "TAVILY_API_KEY",
+    brave: "BRAVE_API_KEY",
+    perplexity: "PERPLEXITY_API_KEY",
+    google: "GEMINI_API_KEY",
+  },
+  "tool/tts/api-key": {
+    openai: "OPENAI_TTS_API_KEY",
+    elevenlabs: "ELEVENLABS_API_KEY",
+    yandex: "YANDEX_TTS_API_KEY",
+  },
+};
+
+function resolveCredentialEnvVar(secretId: string, providerId?: string): string | undefined {
+  if (providerId) {
+    const overrides = PROVIDER_ENV_OVERRIDES[secretId];
+    if (overrides?.[providerId]) {
+      return overrides[providerId];
+    }
+  }
+  return TOOL_CREDENTIAL_ENV_MAP[secretId];
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -65,7 +92,8 @@ function parseCredentialRefRow(
     return null;
   }
 
-  return { toolCode, secretRef: { source, provider, id }, configured };
+  const providerId = asNonEmptyString(row.providerId) ?? undefined;
+  return { toolCode, secretRef: { source, provider, id }, configured, providerId };
 }
 
 export function extractToolCredentialRefs(
@@ -153,10 +181,10 @@ export async function resolveToolCredentials(
   credentialRefs: Map<string, PersaiToolCredentialRef>,
   config: OpenClawConfig,
 ): Promise<Map<string, string>> {
-  const configuredRefs: { toolCode: string; ref: SecretRef }[] = [];
+  const configuredRefs: { toolCode: string; ref: SecretRef; providerId?: string }[] = [];
   for (const entry of credentialRefs.values()) {
     if (entry.configured) {
-      configuredRefs.push({ toolCode: entry.toolCode, ref: entry.secretRef });
+      configuredRefs.push({ toolCode: entry.toolCode, ref: entry.secretRef, providerId: entry.providerId });
     }
   }
 
@@ -168,11 +196,11 @@ export async function resolveToolCredentials(
   const resolved = await resolveSecretRefValues(secretRefs, { config, env: process.env });
 
   const credentials = new Map<string, string>();
-  for (const { ref } of configuredRefs) {
+  for (const { ref, providerId } of configuredRefs) {
     const key = secretRefKey(ref);
     const value = resolved.get(key);
     if (typeof value === "string" && value.length > 0) {
-      const envVar = TOOL_CREDENTIAL_ENV_MAP[ref.id];
+      const envVar = resolveCredentialEnvVar(ref.id, providerId);
       if (envVar) {
         credentials.set(envVar, value);
       }
