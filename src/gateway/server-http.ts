@@ -71,6 +71,13 @@ import {
   handleRuntimeWorkspaceAvatarHttpRequest,
 } from "./persai-runtime/persai-runtime-http.js";
 import {
+  handleRuntimeWorkspaceMediaUploadHttpRequest,
+  handleRuntimeWorkspaceMediaDownloadHttpRequest,
+  handleRuntimeWorkspaceMediaDeleteHttpRequest,
+  handleRuntimeWorkspaceMediaDeleteChatHttpRequest,
+  handleRuntimeWorkspaceMediaTranscribeHttpRequest,
+} from "./persai-runtime/persai-runtime-media.js";
+import {
   handleRuntimeMemoryItemsHttpRequest,
   handleRuntimeMemoryAddHttpRequest,
   handleRuntimeMemoryEditHttpRequest,
@@ -1071,6 +1078,68 @@ export function createGatewayHttpServer(opts: {
             allowRealIpFallback,
           }),
       });
+      requestStages.push(
+        {
+          name: "persai-runtime-workspace-media-upload",
+          run: () =>
+            handleRuntimeWorkspaceMediaUploadHttpRequest({
+              req,
+              res,
+              requestPath,
+              resolvedAuth,
+              trustedProxies,
+              allowRealIpFallback,
+            }),
+        },
+        {
+          name: "persai-runtime-workspace-media-download",
+          run: () =>
+            handleRuntimeWorkspaceMediaDownloadHttpRequest({
+              req,
+              res,
+              requestPath,
+              resolvedAuth,
+              trustedProxies,
+              allowRealIpFallback,
+            }),
+        },
+        {
+          name: "persai-runtime-workspace-media-delete",
+          run: () =>
+            handleRuntimeWorkspaceMediaDeleteHttpRequest({
+              req,
+              res,
+              requestPath,
+              resolvedAuth,
+              trustedProxies,
+              allowRealIpFallback,
+            }),
+        },
+        {
+          name: "persai-runtime-workspace-media-delete-chat",
+          run: () =>
+            handleRuntimeWorkspaceMediaDeleteChatHttpRequest({
+              req,
+              res,
+              requestPath,
+              resolvedAuth,
+              trustedProxies,
+              allowRealIpFallback,
+            }),
+        },
+        {
+          name: "persai-runtime-workspace-media-transcribe",
+          run: () =>
+            handleRuntimeWorkspaceMediaTranscribeHttpRequest({
+              req,
+              res,
+              requestPath,
+              resolvedAuth,
+              trustedProxies,
+              allowRealIpFallback,
+            }),
+        },
+      );
       requestStages.push({
         name: "persai-telegram-webhook",
         run: () => handleTelegramWebhookRequest({ req, res, requestPath }),

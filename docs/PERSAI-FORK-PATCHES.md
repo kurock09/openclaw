@@ -21,9 +21,10 @@ Before preserving or adding a higher-risk patch, confirm:
 - **Upstream**: `https://github.com/openclaw/openclaw.git`
 - **Fork base**: tag `persai-fork-base` (`aa6b962a3`)
 - **PersAI-only files** (zero merge risk — upstream doesn't have them):
-  - `src/gateway/persai-runtime/` (14 files)
+  - `src/gateway/persai-runtime/` (15 files, including new `persai-runtime-media.ts`)
   - `src/agents/persai-runtime-context.ts`
   - `src/plugin-sdk/persai-credential.ts`
+  - `src/tts/providers/yandex.ts` (new in M7)
 
 ## Cross-cutting patches (must survive upstream merge)
 
@@ -246,6 +247,80 @@ Before preserving or adding a higher-risk patch, confirm:
 - `grep -c 'persai-runtime-workspace-bootstrap-consume' src/gateway/server-http.ts` should return >= 1
 - `grep -c 'resolvePersaiHeartbeatModelOverride' src/infra/heartbeat-runner.ts` should return >= 1
 - `grep -c ':heartbeat' src/infra/heartbeat-runner.ts` should return >= 1
+
+### 13. Workspace media upload/download/transcribe bridge (M-series M1/M3)
+
+**Risk:** Lower-risk PersAI-specific bridge file
+
+**Files:**
+
+- `src/gateway/persai-runtime/persai-runtime-media.ts` (new) — HTTP handlers for workspace media operations: upload, download, delete, delete-chat, transcribe (calls native `transcribeAudioFile`)
+- `src/gateway/server-http.ts` — registers 5 media request stages: `persai-runtime-workspace-media-upload`, `-download`, `-delete`, `-delete-chat`, `-transcribe`
+
+**Introduced by:** M-series M1 foundation + M3 voice transcription
+**Verify:**
+
+- `grep -c 'handleRuntimeWorkspaceMediaUploadHttpRequest' src/gateway/persai-runtime/persai-runtime-media.ts` should return >= 1
+- `grep -c 'handleRuntimeWorkspaceMediaTranscribeHttpRequest' src/gateway/persai-runtime/persai-runtime-media.ts` should return >= 1
+- `grep -c 'persai-runtime-workspace-media-upload' src/gateway/server-http.ts` should return >= 1
+- `grep -c 'persai-runtime-workspace-media-transcribe' src/gateway/server-http.ts` should return >= 1
+
+### 14. Agent turn media extraction + web/stream media delivery (M-series M2)
+
+**Risk:** Lower-risk PersAI-specific bridge changes
+
+**Files:**
+
+- `src/gateway/persai-runtime/persai-runtime-agent-turn.ts` — `resolveAgentResponse` extracts `{ text, media: PersaiMediaArtifact[] }` from `normalizeOutboundPayloads`; web sync returns `media[]` in JSON; web stream emits `{ type: "media", media }` NDJSON event after `done`
+- `src/gateway/persai-runtime/persai-runtime-http.ts` — sync chat response includes `media: agentOut.media`
+
+**Introduced by:** M-series M2 tool media delivery
+**Verify:**
+
+- `grep -c 'resolveAgentResponse' src/gateway/persai-runtime/persai-runtime-agent-turn.ts` should return >= 2
+- `grep -c 'PersaiMediaArtifact' src/gateway/persai-runtime/persai-runtime-agent-turn.ts` should return >= 1
+- `grep -c '"media"' src/gateway/persai-runtime/persai-runtime-agent-turn.ts` should return >= 1
+
+### 15. Telegram inbound/outbound media (M-series M5/M6)
+
+**Risk:** Lower-risk PersAI-specific bridge changes
+
+**Files:**
+
+- `src/gateway/persai-runtime/persai-runtime-telegram.ts` — handlers for `message:voice` (download + STT + turn with attachment), `message:photo` (download + turn with attachment), `message:document` (download + turn with attachment); `requestPersaiTelegramTurn` returns `{ text, media[] }`; `deliverTelegramMedia` sends `sendPhoto`/`sendVoice`/`sendAudio`/`sendVideo`/`sendDocument` via Grammy `InputFile`
+
+**Introduced by:** M-series M5 Telegram inbound + M6 Telegram outbound
+**Verify:**
+
+- `grep -c 'message:voice' src/gateway/persai-runtime/persai-runtime-telegram.ts` should return >= 1
+- `grep -c 'message:photo' src/gateway/persai-runtime/persai-runtime-telegram.ts` should return >= 1
+- `grep -c 'message:document' src/gateway/persai-runtime/persai-runtime-telegram.ts` should return >= 1
+- `grep -c 'deliverTelegramMedia' src/gateway/persai-runtime/persai-runtime-telegram.ts` should return >= 2
+- `grep -c 'PersaiTelegramTurnResult' src/gateway/persai-runtime/persai-runtime-telegram.ts` should return >= 1
+
+### 16. Yandex SpeechKit TTS provider (M-series M7)
+
+**Risk:** Higher-risk — new native OpenClaw TTS provider file + modifications to native TTS config/registry/resolution
+
+**Files:**
+
+- `src/tts/providers/yandex.ts` (new) — Yandex SpeechKit v1 REST API TTS provider implementing `SpeechProviderPlugin` (oggopus + mp3 output, API-Key + IAM Token auth, 18 voices)
+- `src/tts/provider-registry.ts` — `buildYandexSpeechProvider` added to `BUILTIN_SPEECH_PROVIDER_BUILDERS`
+- `src/tts/tts.ts` — `"yandex"` in `TTS_PROVIDERS`, `ResolvedTtsConfig.yandex`, `resolveTtsConfig` maps `raw.yandex`, `resolveTtsApiKey` checks Yandex keys
+- `src/config/types.tts.ts` — `TtsConfig.yandex` section (apiKey, folderId, voice, lang, emotion, speed)
+- `src/secrets/runtime-config-collectors-tts.ts` — collects `yandex.apiKey` secret
+- `src/agents/persai-runtime-context.ts` — `TOOL_PROVIDER_ENV_FALLBACKS.tts.yandex` env aliases
+
+**Why native patch is required:** TTS provider registration, config resolution, and secret collection all happen inside native OpenClaw TTS infrastructure. A PersAI-only fix cannot add a new provider to the built-in registry.
+
+**Introduced by:** M-series M7 Yandex SpeechKit TTS
+**Verify:**
+
+- `grep -c 'buildYandexSpeechProvider' src/tts/provider-registry.ts` should return >= 1
+- `grep -c '"yandex"' src/tts/tts.ts` should return >= 2
+- `grep -c 'yandex' src/config/types.tts.ts` should return >= 1
+- `grep -c 'yandex' src/secrets/runtime-config-collectors-tts.ts` should return >= 1
+- `grep -c 'YANDEX_TTS_API_KEY' src/agents/persai-runtime-context.ts` should return >= 1
 
 ## Quick full verification
 

@@ -804,6 +804,7 @@ export async function handleRuntimeChatWebHttpRequest(params: {
     sendJson(res, 200, {
       ok: true,
       assistantMessage,
+      media: agentOut.media,
       respondedAt: new Date().toISOString(),
     });
     return true;

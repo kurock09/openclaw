@@ -43,4 +43,19 @@ export function collectTtsApiKeyAssignments(params: {
       },
     });
   }
+  const yandex = params.tts.yandex;
+  if (isRecord(yandex)) {
+    collectSecretInputAssignment({
+      value: yandex.apiKey,
+      path: `${params.pathPrefix}.yandex.apiKey`,
+      expected: "string",
+      defaults: params.defaults,
+      context: params.context,
+      active: params.active,
+      inactiveReason: params.inactiveReason,
+      apply: (value) => {
+        yandex.apiKey = value;
+      },
+    });
+  }
 }

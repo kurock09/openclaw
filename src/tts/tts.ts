@@ -133,6 +133,14 @@ export type ResolvedTtsConfig = {
     proxy?: string;
     timeoutMs?: number;
   };
+  yandex?: {
+    apiKey?: string;
+    folderId?: string;
+    voice: string;
+    lang: string;
+    emotion: string;
+    speed: number;
+  };
   prefsPath?: string;
   maxTextLength: number;
   timeoutMs: number;
@@ -340,6 +348,19 @@ export function resolveTtsConfig(cfg: OpenClawConfig): ResolvedTtsConfig {
       proxy: rawMicrosoft.proxy?.trim() || undefined,
       timeoutMs: rawMicrosoft.timeoutMs,
     },
+    yandex: raw.yandex
+      ? {
+          apiKey: normalizeResolvedSecretInputString({
+            value: raw.yandex.apiKey,
+            path: "messages.tts.yandex.apiKey",
+          }),
+          folderId: raw.yandex.folderId?.trim() || undefined,
+          voice: raw.yandex.voice?.trim() || "alena",
+          lang: raw.yandex.lang?.trim() || "ru-RU",
+          emotion: raw.yandex.emotion?.trim() || "neutral",
+          speed: raw.yandex.speed ?? 1.0,
+        }
+      : undefined,
     prefsPath: raw.prefsPath,
     maxTextLength: raw.maxTextLength ?? DEFAULT_MAX_TEXT_LENGTH,
     timeoutMs: raw.timeoutMs ?? DEFAULT_TIMEOUT_MS,
@@ -564,10 +585,22 @@ export function resolveTtsApiKey(
       process.env.OPENAI_API_KEY
     );
   }
+  if (normalizedProvider === "yandex") {
+    return (
+      config.yandex?.apiKey ||
+      resolvePersaiToolCredentialForEnvVars({
+        envVars: ["YANDEX_SPEECHKIT_API_KEY", "YANDEX_API_KEY"],
+        provider: "yandex",
+        toolName: "tts",
+      })?.value ||
+      process.env.YANDEX_SPEECHKIT_API_KEY ||
+      process.env.YANDEX_API_KEY
+    );
+  }
   return undefined;
 }
 
-export const TTS_PROVIDERS = ["openai", "elevenlabs", "microsoft"] as const;
+export const TTS_PROVIDERS = ["openai", "elevenlabs", "microsoft", "yandex"] as const;
 
 export function resolveTtsProviderOrder(primary: TtsProvider, cfg?: OpenClawConfig): TtsProvider[] {
   const normalizedPrimary = normalizeSpeechProviderId(primary) ?? primary;

@@ -1,9 +1,11 @@
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
+import * as fsp from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import * as path from "node:path";
 import { Bot, InputFile, webhookCallback } from "grammy";
 import { loadConfig } from "../../config/config.js";
+import { transcribeAudioFile } from "../../media-understanding/transcribe-audio.js";
 import type { ReadinessChecker } from "../server/readiness.js";
 import type {
   PersaiAppliedRuntimeSpec,
@@ -660,15 +662,161 @@ export async function syncTelegramBotForAssistant(params: {
         username:
           "username" in ctx.chat && typeof ctx.chat.username === "string" ? ctx.chat.username : "",
       });
-      const reply = await requestPersaiTelegramTurn({
+      const turnResult = await requestPersaiTelegramTurn({
         assistantId,
         userMessage: ctx.message.text ?? "",
         chatId: String(ctx.chat.id),
       });
-      await sendTelegramReplyWithConfiguredParseMode(ctx, reply, currentConfig.parseMode);
+      await sendTelegramReplyWithConfiguredParseMode(ctx, turnResult.text, currentConfig.parseMode);
+      if (turnResult.media.length > 0) {
+        await deliverTelegramMedia(bot, ctx.chat.id, assistantId, turnResult.media);
+      }
     } catch (err) {
       console.error(`[persai-telegram] Agent turn failed for ${assistantId}:`, err);
       await ctx.reply("Sorry, I encountered an error. Please try again.").catch(() => {});
+    }
+  });
+
+  bot.on("message:voice", async (ctx) => {
+    const currentManaged = activeBots.get(assistantId);
+    if (!currentManaged) return;
+    const currentConfig = extractTelegramChannel(currentManaged.state.bootstrap);
+    if (!currentConfig || !currentConfig.inbound || !currentConfig.outbound) return;
+
+    try {
+      const voice = ctx.message.voice;
+      const { buffer, filePath: tgFilePath } = await downloadTelegramFile(bot, voice.file_id);
+      const ext = inferExtFromMime(voice.mime_type ?? "audio/ogg");
+      const saved = await saveTelegramMediaToWorkspace({
+        assistantId,
+        chatId: String(ctx.chat.id),
+        buffer,
+        ext,
+      });
+
+      const cfg = loadConfig();
+      const absPath = path.join(resolveMediaDir(assistantId), saved.storagePath);
+      let transcription = "";
+      try {
+        const sttResult = await transcribeAudioFile({ filePath: absPath, cfg });
+        transcription = sttResult.text ?? "";
+      } catch (sttErr) {
+        console.warn(`[persai-telegram] Voice STT failed for ${assistantId}:`, sttErr);
+      }
+
+      const userMessage = transcription.trim() || "(voice message)";
+      const turnResult = await requestPersaiTelegramTurn({
+        assistantId,
+        userMessage,
+        chatId: String(ctx.chat.id),
+        attachments: [
+          {
+            type: "voice",
+            storagePath: saved.storagePath,
+            mimeType: voice.mime_type ?? "audio/ogg",
+            sizeBytes: saved.sizeBytes,
+            originalFilename: tgFilePath.split("/").pop() ?? null,
+            transcription: transcription || undefined,
+          },
+        ],
+      });
+      await sendTelegramReplyWithConfiguredParseMode(ctx, turnResult.text, currentConfig.parseMode);
+      if (turnResult.media.length > 0) {
+        await deliverTelegramMedia(bot, ctx.chat.id, assistantId, turnResult.media);
+      }
+    } catch (err) {
+      console.error(`[persai-telegram] Voice turn failed for ${assistantId}:`, err);
+      await ctx.reply("Sorry, I couldn't process your voice message. Please try again.").catch(() => {});
+    }
+  });
+
+  bot.on("message:photo", async (ctx) => {
+    const currentManaged = activeBots.get(assistantId);
+    if (!currentManaged) return;
+    const currentConfig = extractTelegramChannel(currentManaged.state.bootstrap);
+    if (!currentConfig || !currentConfig.inbound || !currentConfig.outbound) return;
+
+    try {
+      const photos = ctx.message.photo;
+      const largest = photos[photos.length - 1];
+      if (!largest) return;
+      const { buffer, filePath: tgFilePath } = await downloadTelegramFile(bot, largest.file_id);
+      const saved = await saveTelegramMediaToWorkspace({
+        assistantId,
+        chatId: String(ctx.chat.id),
+        buffer,
+        ext: "jpg",
+      });
+
+      const caption = ctx.message.caption ?? "";
+      const userMessage = caption.trim() || "(sent a photo)";
+      const turnResult = await requestPersaiTelegramTurn({
+        assistantId,
+        userMessage,
+        chatId: String(ctx.chat.id),
+        attachments: [
+          {
+            type: "image",
+            storagePath: saved.storagePath,
+            mimeType: "image/jpeg",
+            sizeBytes: saved.sizeBytes,
+            originalFilename: tgFilePath.split("/").pop() ?? null,
+          },
+        ],
+      });
+      await sendTelegramReplyWithConfiguredParseMode(ctx, turnResult.text, currentConfig.parseMode);
+      if (turnResult.media.length > 0) {
+        await deliverTelegramMedia(bot, ctx.chat.id, assistantId, turnResult.media);
+      }
+    } catch (err) {
+      console.error(`[persai-telegram] Photo turn failed for ${assistantId}:`, err);
+      await ctx.reply("Sorry, I couldn't process your photo. Please try again.").catch(() => {});
+    }
+  });
+
+  bot.on("message:document", async (ctx) => {
+    const currentManaged = activeBots.get(assistantId);
+    if (!currentManaged) return;
+    const currentConfig = extractTelegramChannel(currentManaged.state.bootstrap);
+    if (!currentConfig || !currentConfig.inbound || !currentConfig.outbound) return;
+
+    try {
+      const doc = ctx.message.document;
+      if (!doc) return;
+      const { buffer, filePath: tgFilePath } = await downloadTelegramFile(bot, doc.file_id);
+      const mime = doc.mime_type ?? "application/octet-stream";
+      const ext = inferExtFromMime(mime);
+      const saved = await saveTelegramMediaToWorkspace({
+        assistantId,
+        chatId: String(ctx.chat.id),
+        buffer,
+        ext,
+      });
+
+      const caption = ctx.message.caption ?? "";
+      const docName = doc.file_name ?? tgFilePath.split("/").pop() ?? "document";
+      const userMessage = caption.trim() || `(sent a file: ${docName})`;
+      const turnResult = await requestPersaiTelegramTurn({
+        assistantId,
+        userMessage,
+        chatId: String(ctx.chat.id),
+        attachments: [
+          {
+            type: mime.startsWith("audio/") ? "audio" : mime.startsWith("video/") ? "video" : "document",
+            storagePath: saved.storagePath,
+            mimeType: mime,
+            sizeBytes: saved.sizeBytes,
+            originalFilename: doc.file_name ?? null,
+          },
+        ],
+      });
+      await sendTelegramReplyWithConfiguredParseMode(ctx, turnResult.text, currentConfig.parseMode);
+      if (turnResult.media.length > 0) {
+        await deliverTelegramMedia(bot, ctx.chat.id, assistantId, turnResult.media);
+      }
+    } catch (err) {
+      console.error(`[persai-telegram] Document turn failed for ${assistantId}:`, err);
+      await ctx.reply("Sorry, I couldn't process your file. Please try again.").catch(() => {});
     }
   });
 
@@ -748,15 +896,113 @@ async function stopTelegramBot(assistantId: string): Promise<void> {
   console.log(`[persai-telegram] Bot stopped for ${assistantId} (${existing.mode})`);
 }
 
+type TelegramAttachmentPayload = {
+  type: "image" | "audio" | "voice" | "video" | "document";
+  storagePath: string;
+  mimeType: string;
+  sizeBytes: number;
+  originalFilename: string | null;
+  transcription?: string;
+};
+
+async function downloadTelegramFile(
+  bot: Bot,
+  fileId: string,
+): Promise<{ buffer: Buffer; filePath: string }> {
+  const file = await bot.api.getFile(fileId);
+  if (!file.file_path) {
+    throw new Error("Telegram file_path is missing.");
+  }
+  const url = `https://api.telegram.org/file/bot${bot.token}/${file.file_path}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Failed to download Telegram file: ${res.status}`);
+  }
+  const buffer = Buffer.from(await res.arrayBuffer());
+  return { buffer, filePath: file.file_path };
+}
+
+function resolveMediaDir(assistantId: string): string {
+  const workspaceDir = resolvePersaiAssistantWorkspaceDir(assistantId);
+  return path.join(workspaceDir, "media");
+}
+
+async function saveTelegramMediaToWorkspace(params: {
+  assistantId: string;
+  chatId: string;
+  buffer: Buffer;
+  ext: string;
+}): Promise<{ storagePath: string; sizeBytes: number }> {
+  const mediaDir = resolveMediaDir(params.assistantId);
+  const chatDir = path.join(mediaDir, params.chatId);
+  await fsp.mkdir(chatDir, { recursive: true });
+  const filename = `tg-${Date.now()}.${params.ext}`;
+  const filePath = path.join(chatDir, filename);
+  await fsp.writeFile(filePath, params.buffer);
+  return {
+    storagePath: `${params.chatId}/${filename}`,
+    sizeBytes: params.buffer.length,
+  };
+}
+
+function inferExtFromMime(mime: string): string {
+  const map: Record<string, string> = {
+    "audio/ogg": "ogg",
+    "audio/mpeg": "mp3",
+    "audio/mp4": "m4a",
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/gif": "gif",
+    "image/webp": "webp",
+    "video/mp4": "mp4",
+    "application/pdf": "pdf",
+  };
+  return map[mime] ?? mime.split("/").pop() ?? "bin";
+}
+
+type PersaiTurnMedia = {
+  url: string;
+  type: "image" | "audio" | "video" | "document";
+  audioAsVoice?: boolean;
+};
+
+type PersaiTelegramTurnResult = {
+  text: string;
+  media: PersaiTurnMedia[];
+};
+
+function parseTurnMedia(raw: unknown): PersaiTurnMedia[] {
+  if (!Array.isArray(raw)) return [];
+  const result: PersaiTurnMedia[] = [];
+  for (const item of raw) {
+    if (typeof item !== "object" || item === null) continue;
+    const r = item as Record<string, unknown>;
+    const url = typeof r.url === "string" ? r.url : "";
+    const type = typeof r.type === "string" ? r.type : "";
+    if (!url || !["image", "audio", "video", "document"].includes(type)) continue;
+    result.push({
+      url,
+      type: type as PersaiTurnMedia["type"],
+      ...(r.audioAsVoice === true ? { audioAsVoice: true } : {}),
+    });
+  }
+  return result;
+}
+
 async function requestPersaiTelegramTurn(params: {
   assistantId: string;
   userMessage: string;
   chatId: string;
-}): Promise<string> {
+  attachments?: TelegramAttachmentPayload[];
+}): Promise<PersaiTelegramTurnResult> {
+  const fallback: PersaiTelegramTurnResult = {
+    text: "I'm having trouble responding right now. Please try again.",
+    media: [],
+  };
   const baseUrl = resolvePersaiInternalApiBaseUrl();
   const token = process.env.OPENCLAW_GATEWAY_TOKEN?.trim();
   if (!baseUrl || !token) {
-    return "I'm having trouble responding right now. Please try again.";
+    return fallback;
   }
 
   try {
@@ -770,28 +1016,68 @@ async function requestPersaiTelegramTurn(params: {
         assistantId: params.assistantId,
         threadId: params.chatId,
         message: params.userMessage,
+        ...(params.attachments && params.attachments.length > 0
+          ? { attachments: params.attachments }
+          : {}),
       }),
     });
     if (!response.ok) {
-      return "I'm having trouble responding right now. Please try again.";
+      return fallback;
     }
-    const payload = (await response.json()) as
-      | { ok?: true; assistantMessage?: string }
-      | { ok?: false; renderedMessage?: string };
+    const payload = (await response.json()) as Record<string, unknown>;
     if (payload && payload.ok === true && typeof payload.assistantMessage === "string") {
-      return payload.assistantMessage.trim() || "...";
+      return {
+        text: payload.assistantMessage.trim() || "...",
+        media: parseTurnMedia(payload.media),
+      };
     }
     if (payload && payload.ok === false && typeof payload.renderedMessage === "string") {
-      return (
-        payload.renderedMessage.trim() ||
-        "I'm having trouble responding right now. Please try again."
-      );
+      return {
+        text:
+          payload.renderedMessage.trim() ||
+          "I'm having trouble responding right now. Please try again.",
+        media: [],
+      };
     }
   } catch (err) {
     console.error(`[persai-telegram] PersAI turn gateway failed for ${params.assistantId}:`, err);
   }
 
-  return "I'm having trouble responding right now. Please try again.";
+  return fallback;
+}
+
+async function deliverTelegramMedia(
+  bot: Bot,
+  chatId: string | number,
+  assistantId: string,
+  media: PersaiTurnMedia[],
+): Promise<void> {
+  for (const item of media) {
+    try {
+      const mediaDir = resolveMediaDir(assistantId);
+      const filePath = path.resolve(mediaDir, item.url);
+      if (!filePath.startsWith(mediaDir) || !fs.existsSync(filePath)) {
+        console.warn(`[persai-telegram] Media file not found: ${filePath}`);
+        continue;
+      }
+      const buffer = await fsp.readFile(filePath);
+      const filename = path.basename(filePath);
+
+      if (item.type === "image") {
+        await bot.api.sendPhoto(chatId, new InputFile(buffer, filename));
+      } else if (item.type === "audio" && item.audioAsVoice) {
+        await bot.api.sendVoice(chatId, new InputFile(buffer, filename));
+      } else if (item.type === "audio") {
+        await bot.api.sendAudio(chatId, new InputFile(buffer, filename));
+      } else if (item.type === "video") {
+        await bot.api.sendVideo(chatId, new InputFile(buffer, filename));
+      } else {
+        await bot.api.sendDocument(chatId, new InputFile(buffer, filename));
+      }
+    } catch (err) {
+      console.warn(`[persai-telegram] Failed to send media to ${chatId}:`, err);
+    }
+  }
 }
 
 async function notifyPersaiGroupUpdate(params: {

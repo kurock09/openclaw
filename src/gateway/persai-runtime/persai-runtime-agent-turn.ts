@@ -5,6 +5,7 @@ import { PersaiRuntimeToolLimitError } from "../../agents/persai-runtime-tool-li
 import { createDefaultDeps } from "../../cli/deps.js";
 import { agentCommandFromIngress } from "../../commands/agent.js";
 import { onAgentEvent } from "../../infra/agent-events.js";
+import { normalizeOutboundPayloads } from "../../infra/outbound/payloads.js";
 import { logWarn } from "../../logger.js";
 import { defaultRuntime } from "../../runtime.js";
 import { resolveAssistantStreamDeltaText } from "../agent-event-assistant-text.js";
@@ -37,16 +38,56 @@ function toPersaiRuntimeTurnError(error: unknown): PersaiRuntimeTurnError {
   };
 }
 
-function resolveAgentResponseText(result: unknown): string {
-  const payloads = (result as { payloads?: Array<{ text?: string }> } | null)?.payloads;
-  if (!Array.isArray(payloads) || payloads.length === 0) {
-    return "No response from OpenClaw.";
+export type PersaiMediaArtifact = {
+  url: string;
+  type: "image" | "audio" | "video" | "document";
+  audioAsVoice?: boolean;
+};
+
+type AgentResponse = {
+  text: string;
+  media: PersaiMediaArtifact[];
+};
+
+function inferMediaType(url: string): PersaiMediaArtifact["type"] {
+  const lower = url.toLowerCase();
+  if (/\.(png|jpe?g|gif|webp|svg|bmp)$/.test(lower)) return "image";
+  if (/\.(mp3|ogg|opus|wav|webm|m4a|aac|flac)$/.test(lower)) return "audio";
+  if (/\.(mp4|mkv|avi|mov)$/.test(lower)) return "video";
+  return "document";
+}
+
+function resolveAgentResponse(result: unknown): AgentResponse {
+  const raw = result as { payloads?: unknown[] } | null;
+  const payloads = Array.isArray(raw?.payloads) ? raw.payloads : [];
+  if (payloads.length === 0) {
+    return { text: "No response from OpenClaw.", media: [] };
   }
-  const content = payloads
-    .map((p) => (typeof p.text === "string" ? p.text : ""))
-    .filter(Boolean)
-    .join("\n\n");
-  return content || "No response from OpenClaw.";
+
+  const normalized = normalizeOutboundPayloads(payloads as never[]);
+
+  const textParts: string[] = [];
+  const media: PersaiMediaArtifact[] = [];
+
+  for (const p of normalized) {
+    if (p.text) textParts.push(p.text);
+    for (const url of p.mediaUrls) {
+      const baseType = inferMediaType(url);
+      const isVoice = p.audioAsVoice === true && baseType === "audio";
+      media.push({
+        url,
+        type: baseType,
+        ...(isVoice ? { audioAsVoice: true } : {}),
+      });
+    }
+  }
+
+  const text = textParts.filter(Boolean).join("\n\n") || "No response from OpenClaw.";
+  return { text, media };
+}
+
+function resolveAgentResponseText(result: unknown): string {
+  return resolveAgentResponse(result).text;
 }
 
 function buildPersaiWebIngressCommandInput(params: {
@@ -90,7 +131,10 @@ export async function runPersaiWebRuntimeAgentTurnSync(params: {
   toolLimitWebhookUrl?: string;
   cronWebhookUrl?: string;
   workspaceDir?: string;
-}): Promise<{ ok: true; assistantMessage: string } | { ok: false; error: PersaiRuntimeTurnError }> {
+}): Promise<
+  | { ok: true; assistantMessage: string; media: PersaiMediaArtifact[] }
+  | { ok: false; error: PersaiRuntimeTurnError }
+> {
   const runId = randomUUID();
   const deps = createDefaultDeps();
   const commandInput = buildPersaiWebIngressCommandInput({
@@ -118,7 +162,8 @@ export async function runPersaiWebRuntimeAgentTurnSync(params: {
     const result = await persaiRuntimeRequestContext.run(runtimeCtx, () =>
       agentCommandFromIngress(commandInput, defaultRuntime, deps),
     );
-    return { ok: true, assistantMessage: resolveAgentResponseText(result) };
+    const response = resolveAgentResponse(result);
+    return { ok: true, assistantMessage: response.text, media: response.media };
   } catch (err) {
     const normalized = toPersaiRuntimeTurnError(err);
     logWarn(`persai-runtime: sync agent turn failed: ${normalized.message}`);
@@ -272,9 +317,14 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
         if (closed) {
           return;
         }
+        const response = resolveAgentResponse(result);
         if (!sawAssistantDelta) {
-          const content = resolveAgentResponseText(result);
-          params.res.write(`${JSON.stringify({ type: "delta", delta: content })}\n`);
+          params.res.write(`${JSON.stringify({ type: "delta", delta: response.text })}\n`);
+        }
+        if (response.media.length > 0) {
+          params.res.write(
+            `${JSON.stringify({ type: "media", media: response.media })}\n`,
+          );
         }
       } catch (err) {
         const normalized = toPersaiRuntimeTurnError(err);

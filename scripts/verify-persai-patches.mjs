@@ -296,6 +296,74 @@ check("heartbeat-runner.ts uses dedicated heartbeat session key", () =>
   fileContains("src/infra/heartbeat-runner.ts", ":heartbeat"),
 );
 
+console.log("\n[15] Workspace media bridge (M-series M1/M3)");
+check("persai-runtime-media.ts exists", () =>
+  fileExists("src/gateway/persai-runtime/persai-runtime-media.ts"),
+);
+check("persai-runtime-media.ts has upload handler", () =>
+  fileContains(
+    "src/gateway/persai-runtime/persai-runtime-media.ts",
+    "handleRuntimeWorkspaceMediaUploadHttpRequest",
+  ),
+);
+check("persai-runtime-media.ts has transcribe handler", () =>
+  fileContains(
+    "src/gateway/persai-runtime/persai-runtime-media.ts",
+    "handleRuntimeWorkspaceMediaTranscribeHttpRequest",
+  ),
+);
+check("server-http.ts registers media upload stage", () =>
+  fileContains("src/gateway/server-http.ts", "persai-runtime-workspace-media-upload"),
+);
+check("server-http.ts registers media transcribe stage", () =>
+  fileContains("src/gateway/server-http.ts", "persai-runtime-workspace-media-transcribe"),
+);
+
+console.log("\n[16] Agent turn media extraction (M-series M2)");
+check("persai-runtime-agent-turn.ts has resolveAgentResponse", () =>
+  fileContains("src/gateway/persai-runtime/persai-runtime-agent-turn.ts", "resolveAgentResponse"),
+);
+check("persai-runtime-agent-turn.ts has PersaiMediaArtifact", () =>
+  fileContains("src/gateway/persai-runtime/persai-runtime-agent-turn.ts", "PersaiMediaArtifact"),
+);
+
+console.log("\n[17] Telegram inbound/outbound media (M-series M5/M6)");
+check("persai-runtime-telegram.ts handles voice messages", () =>
+  fileContains("src/gateway/persai-runtime/persai-runtime-telegram.ts", "message:voice"),
+);
+check("persai-runtime-telegram.ts handles photo messages", () =>
+  fileContains("src/gateway/persai-runtime/persai-runtime-telegram.ts", "message:photo"),
+);
+check("persai-runtime-telegram.ts handles document messages", () =>
+  fileContains("src/gateway/persai-runtime/persai-runtime-telegram.ts", "message:document"),
+);
+check(
+  "persai-runtime-telegram.ts delivers outbound media",
+  () =>
+    fileContainsCount(
+      "src/gateway/persai-runtime/persai-runtime-telegram.ts",
+      "deliverTelegramMedia",
+    ) >= 2,
+);
+
+console.log("\n[18] Yandex SpeechKit TTS provider (M-series M7)");
+check("yandex.ts TTS provider exists", () => fileExists("src/tts/providers/yandex.ts"));
+check("provider-registry.ts has buildYandexSpeechProvider", () =>
+  fileContains("src/tts/provider-registry.ts", "buildYandexSpeechProvider"),
+);
+check("tts.ts includes yandex in providers", () =>
+  fileContainsCount("src/tts/tts.ts", '"yandex"') >= 2,
+);
+check("types.tts.ts has yandex config section", () =>
+  fileContains("src/config/types.tts.ts", "yandex"),
+);
+check("runtime-config-collectors-tts.ts collects yandex apiKey", () =>
+  fileContains("src/secrets/runtime-config-collectors-tts.ts", "yandex"),
+);
+check("persai-runtime-context.ts has Yandex TTS env fallback", () =>
+  fileContains("src/agents/persai-runtime-context.ts", "YANDEX_TTS_API_KEY"),
+);
+
 console.log(`\n--- Result: ${checks - failures}/${checks} passed ---`);
 if (failures > 0) {
   console.error(

@@ -29,6 +29,7 @@ const TOOL_PROVIDER_ENV_FALLBACKS: Record<string, Record<string, string[]>> = {
   },
   tts: {
     openai: ["OPENAI_TTS_API_KEY"],
+    yandex: ["YANDEX_TTS_API_KEY", "YANDEX_SPEECHKIT_API_KEY", "YANDEX_API_KEY"],
   },
   memory_search: {
     openai: ["OPENAI_EMBEDDINGS_API_KEY"],

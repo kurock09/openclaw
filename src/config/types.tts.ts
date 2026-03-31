@@ -93,6 +93,20 @@ export type TtsConfig = {
     proxy?: string;
     timeoutMs?: number;
   };
+  /** Yandex SpeechKit configuration. */
+  yandex?: {
+    apiKey?: SecretInput;
+    /** Yandex Cloud folder ID (required for IAM token auth). */
+    folderId?: string;
+    /** Voice name (e.g. alena, filipp, jane, zahar). Default: alena. */
+    voice?: string;
+    /** Language code (e.g. ru-RU, en-US). Default: ru-RU. */
+    lang?: string;
+    /** Emotion (neutral, good, evil). Default: neutral. */
+    emotion?: string;
+    /** Speed 0.1–3.0. Default: 1.0. */
+    speed?: number;
+  };
   /** Optional path for local TTS user preferences JSON. */
   prefsPath?: string;
   /** Hard cap for text sent to TTS (chars). */
