@@ -4,6 +4,7 @@ import { normalizeOptionalSecretInput } from "../utils/normalize-secret-input.js
 import { hasAnthropicVertexAvailableAuth } from "./anthropic-vertex-provider.js";
 import { PROVIDER_ENV_API_KEY_CANDIDATES } from "./model-auth-env-vars.js";
 import { GCP_VERTEX_CREDENTIALS_MARKER } from "./model-auth-markers.js";
+import { resolvePersaiToolCredentialForEnvVars } from "./persai-runtime-context.js";
 import { normalizeProviderIdForAuth } from "./provider-id.js";
 
 export type EnvApiKeyResult = {
@@ -14,6 +15,7 @@ export type EnvApiKeyResult = {
 export function resolveEnvApiKey(
   provider: string,
   env: NodeJS.ProcessEnv = process.env,
+  options?: { toolName?: string },
 ): EnvApiKeyResult | null {
   const normalized = normalizeProviderIdForAuth(provider);
   const applied = new Set(getShellEnvAppliedKeys());
@@ -28,6 +30,17 @@ export function resolveEnvApiKey(
 
   const candidates = PROVIDER_ENV_API_KEY_CANDIDATES[normalized];
   if (candidates) {
+    const persaiResolved = resolvePersaiToolCredentialForEnvVars({
+      envVars: candidates,
+      provider: normalized,
+      toolName: options?.toolName,
+    });
+    if (persaiResolved) {
+      return {
+        apiKey: persaiResolved.value,
+        source: `persai runtime credential: ${persaiResolved.envVar}`,
+      };
+    }
     for (const envVar of candidates) {
       const resolved = pick(envVar);
       if (resolved) {

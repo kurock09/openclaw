@@ -3,6 +3,7 @@ import * as imageGenerationRuntime from "../../image-generation/runtime.js";
 import * as imageOps from "../../media/image-ops.js";
 import * as mediaStore from "../../media/store.js";
 import * as webMedia from "../../media/web-media.js";
+import { persaiRuntimeRequestContext } from "../persai-runtime-context.js";
 import {
   createImageGenerateTool,
   resolveImageGenerationModelConfigForTool,
@@ -85,6 +86,21 @@ describe("createImageGenerateTool", () => {
       primary: "openai/gpt-image-1",
     });
     expect(createImageGenerateTool({ config: {} })).not.toBeNull();
+  });
+
+  it("infers an OpenAI image-generation model from PersAI runtime credentials", () => {
+    stubImageGenerationProviders();
+
+    const resolved = persaiRuntimeRequestContext.run(
+      {
+        toolCredentials: new Map([["OPENAI_IMAGE_GEN_API_KEY", "openai-image-gen-test"]]),
+      },
+      () => resolveImageGenerationModelConfigForTool({ cfg: {} }),
+    );
+
+    expect(resolved).toEqual({
+      primary: "openai/gpt-image-1",
+    });
   });
 
   it("prefers the primary model provider when multiple image providers have auth", () => {

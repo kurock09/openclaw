@@ -3,6 +3,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ensureCustomApiRegistered } from "../agents/custom-api-registry.js";
 import { getApiKeyForModel } from "../agents/model-auth.js";
 import { resolveModelAsync } from "../agents/pi-embedded-runner/model.js";
+import { persaiRuntimeRequestContext } from "../agents/persai-runtime-context.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { withEnv } from "../test-utils/env.js";
 import * as tts from "./tts.js";
@@ -579,6 +580,18 @@ describe("tts", () => {
           expect(provider).toBe(testCase.expected);
         });
       }
+    });
+
+    it("selects OpenAI when PersAI injects OPENAI_TTS_API_KEY", () => {
+      const config = resolveTtsConfig(baseCfg);
+      const provider = persaiRuntimeRequestContext.run(
+        {
+          toolCredentials: new Map([["OPENAI_TTS_API_KEY", "openai-tts-test-key"]]),
+        },
+        () => getTtsProvider(config, "/tmp/tts-prefs-persai-openai.json"),
+      );
+
+      expect(provider).toBe("openai");
     });
   });
 

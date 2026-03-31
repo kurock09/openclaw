@@ -1,4 +1,5 @@
 import type { SpeechProviderPlugin } from "../../plugins/types.js";
+import { resolvePersaiToolCredentialForEnvVars } from "../../agents/persai-runtime-context.js";
 import type { SpeechVoiceOption } from "../provider-types.js";
 import { elevenLabsTTS } from "../tts-core.js";
 
@@ -46,6 +47,12 @@ export async function listElevenLabsVoices(params: {
 }
 
 export function buildElevenLabsSpeechProvider(): SpeechProviderPlugin {
+  const resolveRuntimeApiKey = () =>
+    resolvePersaiToolCredentialForEnvVars({
+      envVars: ["ELEVENLABS_API_KEY", "XI_API_KEY"],
+      provider: "elevenlabs",
+      toolName: "tts",
+    })?.value;
   return {
     id: "elevenlabs",
     label: "ElevenLabs",
@@ -54,6 +61,7 @@ export function buildElevenLabsSpeechProvider(): SpeechProviderPlugin {
       const apiKey =
         req.apiKey ||
         req.config?.elevenlabs.apiKey ||
+        resolveRuntimeApiKey() ||
         process.env.ELEVENLABS_API_KEY ||
         process.env.XI_API_KEY;
       if (!apiKey) {
@@ -65,10 +73,18 @@ export function buildElevenLabsSpeechProvider(): SpeechProviderPlugin {
       });
     },
     isConfigured: ({ config }) =>
-      Boolean(config.elevenlabs.apiKey || process.env.ELEVENLABS_API_KEY || process.env.XI_API_KEY),
+      Boolean(
+        config.elevenlabs.apiKey ||
+          resolveRuntimeApiKey() ||
+          process.env.ELEVENLABS_API_KEY ||
+          process.env.XI_API_KEY,
+      ),
     synthesize: async (req) => {
       const apiKey =
-        req.config.elevenlabs.apiKey || process.env.ELEVENLABS_API_KEY || process.env.XI_API_KEY;
+        req.config.elevenlabs.apiKey ||
+        resolveRuntimeApiKey() ||
+        process.env.ELEVENLABS_API_KEY ||
+        process.env.XI_API_KEY;
       if (!apiKey) {
         throw new Error("ElevenLabs API key missing");
       }
@@ -102,7 +118,10 @@ export function buildElevenLabsSpeechProvider(): SpeechProviderPlugin {
     },
     synthesizeTelephony: async (req) => {
       const apiKey =
-        req.config.elevenlabs.apiKey || process.env.ELEVENLABS_API_KEY || process.env.XI_API_KEY;
+        req.config.elevenlabs.apiKey ||
+        resolveRuntimeApiKey() ||
+        process.env.ELEVENLABS_API_KEY ||
+        process.env.XI_API_KEY;
       if (!apiKey) {
         throw new Error("ElevenLabs API key missing");
       }

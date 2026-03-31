@@ -103,14 +103,41 @@ check("persai-runtime-context.ts exports getPersaiToolCredential", () =>
 check("persai-runtime-context.ts has toolCredentials field", () =>
   fileContains("src/agents/persai-runtime-context.ts", "toolCredentials"),
 );
+check("persai-runtime-context.ts has central runtime credential resolver", () =>
+  fileContains("src/agents/persai-runtime-context.ts", "resolvePersaiToolCredentialForEnvVars"),
+);
+check("persai-runtime-context.ts tracks active tool name", () =>
+  fileContains("src/agents/persai-runtime-context.ts", "activeToolName"),
+);
+check("pi-tool-definition-adapter.ts wraps tool execution with active tool context", () =>
+  fileContains("src/agents/pi-tool-definition-adapter.ts", "withPersaiActiveTool"),
+);
+check("model-auth-env.ts honors request-scoped tool credentials", () =>
+  fileContains("src/agents/model-auth-env.ts", "resolvePersaiToolCredentialForEnvVars"),
+);
+check("image-generate-tool.ts mounts with explicit image_generate tool auth", () =>
+  fileContains("src/agents/tools/image-generate-tool.ts", 'toolName: "image_generate"'),
+);
 check("tavily config reads from context", () =>
   fileContains("extensions/tavily/src/config.ts", "getPersaiToolCredential"),
 );
 check("firecrawl config reads from context", () =>
   fileContains("extensions/firecrawl/src/config.ts", "getPersaiToolCredential"),
 );
-check("web-fetch reads from context", () =>
-  fileContains("src/agents/tools/web-fetch.ts", "getPersaiToolCredential"),
+check("web-search runtime reads from central runtime resolver", () =>
+  fileContains("src/web-search/runtime.ts", "resolvePersaiToolCredentialForEnvVars"),
+);
+check("web-fetch reads from central runtime resolver", () =>
+  fileContains("src/agents/tools/web-fetch.ts", "resolvePersaiToolCredentialForEnvVars"),
+);
+check("tts.ts reads from central runtime resolver", () =>
+  fileContains("src/tts/tts.ts", "resolvePersaiToolCredentialForEnvVars"),
+);
+check("OpenAI TTS provider reads from central runtime resolver", () =>
+  fileContains("src/tts/providers/openai.ts", "resolvePersaiToolCredentialForEnvVars"),
+);
+check("ElevenLabs TTS provider reads from central runtime resolver", () =>
+  fileContains("src/tts/providers/elevenlabs.ts", "resolvePersaiToolCredentialForEnvVars"),
 );
 
 console.log("\n[6] Plugin-sdk export");

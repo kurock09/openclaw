@@ -5,6 +5,7 @@ import type { Api, Model } from "@mariozechner/pi-ai";
 import { describe, expect, it } from "vitest";
 import { withEnvAsync } from "../test-utils/env.js";
 import { ensureAuthProfileStore } from "./auth-profiles.js";
+import { persaiRuntimeRequestContext } from "./persai-runtime-context.js";
 import {
   getApiKeyForModel,
   hasAvailableAuthForProvider,
@@ -505,6 +506,31 @@ describe("getApiKeyForModel", () => {
         expect(resolved?.source).toContain("VOLCANO_ENGINE_API_KEY");
       },
     );
+  });
+
+  it("resolveEnvApiKey('openai') honors PersAI image_generate runtime credentials", async () => {
+    const resolved = persaiRuntimeRequestContext.run(
+      {
+        toolCredentials: new Map([["OPENAI_IMAGE_GEN_API_KEY", "image-gen-test-key"]]),
+      },
+      () => resolveEnvApiKey("openai", process.env, { toolName: "image_generate" }),
+    );
+
+    expect(resolved?.apiKey).toBe("image-gen-test-key");
+    expect(resolved?.source).toBe("persai runtime credential: OPENAI_IMAGE_GEN_API_KEY");
+  });
+
+  it("resolveEnvApiKey('openai') honors active memory_search runtime credentials", async () => {
+    const resolved = persaiRuntimeRequestContext.run(
+      {
+        activeToolName: "memory_search",
+        toolCredentials: new Map([["OPENAI_EMBEDDINGS_API_KEY", "embeddings-test-key"]]),
+      },
+      () => resolveEnvApiKey("openai"),
+    );
+
+    expect(resolved?.apiKey).toBe("embeddings-test-key");
+    expect(resolved?.source).toBe("persai runtime credential: OPENAI_EMBEDDINGS_API_KEY");
   });
 
   it("resolveEnvApiKey('anthropic-vertex') uses the provided env snapshot", async () => {

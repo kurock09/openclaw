@@ -58,16 +58,37 @@ Before preserving or adding a higher-risk patch, confirm:
 **Introduced by:** `6cf3824e7` (feat: H3 workspace isolation) + `9d6173980` (fix: H8k)
 **Verify:** `grep -rl 'persaiRuntimeRequestContext' src/memory/` should return all 4 files
 
-### 4. Per-request tool credential isolation (H9)
+### 4. Per-request tool credential isolation (H9 + systemic follow-up)
 
 **Files:**
 
 - `extensions/tavily/src/config.ts` — import `getPersaiToolCredential`, call before `process.env.TAVILY_API_KEY`
 - `extensions/firecrawl/src/config.ts` — import `getPersaiToolCredential`, call before `process.env.FIRECRAWL_API_KEY`
-- `src/agents/tools/web-fetch.ts` — import `getPersaiToolCredential`, call before `process.env.FIRECRAWL_API_KEY`
+- `src/agents/persai-runtime-context.ts` — central `resolvePersaiToolCredentialForEnvVars()` helper plus request-local `activeToolName`
+- `src/agents/pi-tool-definition-adapter.ts` — wraps each server-side tool execute with `withPersaiActiveTool(...)`
+- `src/agents/model-auth-env.ts` — provider auth resolution now honors request-scoped PersAI tool credentials before global `process.env`
+- `src/agents/tools/model-config.helpers.ts` — tool mount-time auth inference accepts an explicit `toolName`
+- `src/agents/tools/image-generate-tool.ts` — image tool mounting resolves auth with `toolName: "image_generate"`
+- `src/web-search/runtime.ts` — provider credential detection uses the central helper and still prefers the credential-backed provider when runtime metadata is stale
+- `src/agents/tools/web-fetch.ts` — Firecrawl auth uses the central helper
+- `src/tts/tts.ts` — provider auto-pick resolves request-scoped TTS credentials
+- `src/tts/providers/openai.ts` — OpenAI TTS runtime auth uses the central helper
+- `src/tts/providers/elevenlabs.ts` — ElevenLabs TTS runtime auth uses the central helper
 
-**Introduced by:** `97706dbea` (feat: H9)
-**Verify:** `grep -rl 'getPersaiToolCredential' extensions/ src/agents/tools/` should return all 3 files
+**Why native patch is required:** PersAI can inject the right per-request tool secrets, but the final provider selection and provider auth resolution still happen inside OpenClaw runtime. A PersAI-only fix cannot force native `model-auth`, TTS providers, or `web_search` provider auto-detection to honor request-scoped tool credentials once the turn is already executing in OpenClaw.
+
+**Introduced by:** `97706dbea` (feat: H9) + follow-up systemic credential fix
+**Verify:**
+
+- `grep -c 'resolvePersaiToolCredentialForEnvVars' src/agents/persai-runtime-context.ts` should return >= 1
+- `grep -c 'withPersaiActiveTool' src/agents/pi-tool-definition-adapter.ts` should return >= 1
+- `grep -c 'resolvePersaiToolCredentialForEnvVars' src/agents/model-auth-env.ts` should return >= 1
+- `grep -c 'toolName: "image_generate"' src/agents/tools/image-generate-tool.ts` should return >= 1
+- `grep -c 'resolvePersaiToolCredentialForEnvVars' src/web-search/runtime.ts` should return >= 1
+- `grep -c 'resolvePersaiToolCredentialForEnvVars' src/agents/tools/web-fetch.ts` should return >= 1
+- `grep -c 'resolvePersaiToolCredentialForEnvVars' src/tts/tts.ts` should return >= 1
+- `grep -c 'resolvePersaiToolCredentialForEnvVars' src/tts/providers/openai.ts` should return >= 1
+- `grep -c 'resolvePersaiToolCredentialForEnvVars' src/tts/providers/elevenlabs.ts` should return >= 1
 
 ### 5. Plugin-sdk export for persai-credential
 

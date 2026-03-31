@@ -12,6 +12,7 @@ import {
   isToolWrappedWithBeforeToolCallHook,
   runBeforeToolCallHook,
 } from "./pi-tools.before-tool-call.js";
+import { withPersaiActiveTool } from "./persai-runtime-context.js";
 import { normalizeToolName } from "./tool-policy.js";
 import { jsonResult } from "./tools/common.js";
 
@@ -159,7 +160,9 @@ export function toToolDefinitions(tools: AnyAgentTool[]): ToolDefinition[] {
             }
             executeParams = hookOutcome.params;
           }
-          const rawResult = await tool.execute(toolCallId, executeParams, signal, onUpdate);
+          const rawResult = await withPersaiActiveTool(name, () =>
+            tool.execute(toolCallId, executeParams, signal, onUpdate),
+          );
           const result = normalizeToolExecutionResult({
             toolName: normalizedName,
             result: rawResult,

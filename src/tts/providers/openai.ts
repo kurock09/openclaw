@@ -1,4 +1,5 @@
 import type { SpeechProviderPlugin } from "../../plugins/types.js";
+import { resolvePersaiToolCredentialForEnvVars } from "../../agents/persai-runtime-context.js";
 import { OPENAI_TTS_MODELS, OPENAI_TTS_VOICES, openaiTTS } from "../tts-core.js";
 
 export function buildOpenAISpeechProvider(): SpeechProviderPlugin {
@@ -8,9 +9,25 @@ export function buildOpenAISpeechProvider(): SpeechProviderPlugin {
     models: OPENAI_TTS_MODELS,
     voices: OPENAI_TTS_VOICES,
     listVoices: async () => OPENAI_TTS_VOICES.map((voice) => ({ id: voice, name: voice })),
-    isConfigured: ({ config }) => Boolean(config.openai.apiKey || process.env.OPENAI_API_KEY),
+    isConfigured: ({ config }) =>
+      Boolean(
+        config.openai.apiKey ||
+          resolvePersaiToolCredentialForEnvVars({
+            envVars: ["OPENAI_API_KEY"],
+            provider: "openai",
+            toolName: "tts",
+          })?.value ||
+          process.env.OPENAI_API_KEY,
+      ),
     synthesize: async (req) => {
-      const apiKey = req.config.openai.apiKey || process.env.OPENAI_API_KEY;
+      const apiKey =
+        req.config.openai.apiKey ||
+        resolvePersaiToolCredentialForEnvVars({
+          envVars: ["OPENAI_API_KEY"],
+          provider: "openai",
+          toolName: "tts",
+        })?.value ||
+        process.env.OPENAI_API_KEY;
       if (!apiKey) {
         throw new Error("OpenAI API key missing");
       }
@@ -34,7 +51,14 @@ export function buildOpenAISpeechProvider(): SpeechProviderPlugin {
       };
     },
     synthesizeTelephony: async (req) => {
-      const apiKey = req.config.openai.apiKey || process.env.OPENAI_API_KEY;
+      const apiKey =
+        req.config.openai.apiKey ||
+        resolvePersaiToolCredentialForEnvVars({
+          envVars: ["OPENAI_API_KEY"],
+          provider: "openai",
+          toolName: "tts",
+        })?.value ||
+        process.env.OPENAI_API_KEY;
       if (!apiKey) {
         throw new Error("OpenAI API key missing");
       }

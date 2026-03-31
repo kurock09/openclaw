@@ -1,4 +1,5 @@
 import type { OpenClawConfig } from "../config/config.js";
+import { resolvePersaiToolCredentialForEnvVars } from "../agents/persai-runtime-context.js";
 import { normalizeResolvedSecretInputString } from "../config/types.secrets.js";
 import { logVerbose } from "../globals.js";
 import type {
@@ -51,6 +52,13 @@ export function resolveWebSearchEnabled(params: {
 }
 
 function readProviderEnvValue(envVars: string[]): string | undefined {
+  const fromPersai = resolvePersaiToolCredentialForEnvVars({
+    envVars,
+    toolName: "web_search",
+  });
+  if (fromPersai) {
+    return normalizeSecretInput(fromPersai.value) ?? undefined;
+  }
   for (const envVar of envVars) {
     const value = normalizeSecretInput(process.env[envVar]);
     if (value) {
@@ -78,6 +86,20 @@ function hasEntryCredential(
     }),
   );
   return Boolean(fromConfig || readProviderEnvValue(provider.envVars));
+}
+
+function resolveCredentialBackedProviderId(params: {
+  providers: PluginWebSearchProviderEntry[];
+  config?: OpenClawConfig;
+  search?: WebSearchConfig;
+}): string | null {
+  for (const provider of params.providers) {
+    if (!hasEntryCredential(provider, params.config, params.search)) {
+      continue;
+    }
+    return provider.id;
+  }
+  return null;
 }
 
 export function listWebSearchProviders(params?: {
@@ -122,14 +144,16 @@ export function resolveWebSearchProviderId(params: {
   }
 
   if (!raw) {
-    for (const provider of providers) {
-      if (!hasEntryCredential(provider, params.config, params.search)) {
-        continue;
-      }
+    const credentialBackedProviderId = resolveCredentialBackedProviderId({
+      providers,
+      config: params.config,
+      search: params.search,
+    });
+    if (credentialBackedProviderId) {
       logVerbose(
-        `web_search: no provider configured, auto-detected "${provider.id}" from available API keys`,
+        `web_search: no provider configured, auto-detected "${credentialBackedProviderId}" from available API keys`,
       );
-      return provider.id;
+      return credentialBackedProviderId;
     }
   }
 
@@ -159,10 +183,24 @@ export function resolveWebSearchDefinition(
     return null;
   }
 
+  const credentialBackedProviderId = resolveCredentialBackedProviderId({
+    providers,
+    config: options?.config,
+    search,
+  });
+  const runtimeSelectedProviderId =
+    options?.runtimeWebSearch?.selectedProvider ?? options?.runtimeWebSearch?.providerConfigured;
+  const runtimeSelectedProvider = runtimeSelectedProviderId
+    ? providers.find((entry) => entry.id === runtimeSelectedProviderId)
+    : undefined;
+  const runtimeSelectedHasCredential = runtimeSelectedProvider
+    ? hasEntryCredential(runtimeSelectedProvider, options?.config, search)
+    : false;
   const providerId =
     options?.providerId ??
-    options?.runtimeWebSearch?.selectedProvider ??
-    options?.runtimeWebSearch?.providerConfigured ??
+    (runtimeSelectedHasCredential
+      ? runtimeSelectedProviderId
+      : credentialBackedProviderId ?? runtimeSelectedProviderId) ??
     resolveWebSearchProviderId({ config: options?.config, search, providers });
   const provider =
     providers.find((entry) => entry.id === providerId) ??

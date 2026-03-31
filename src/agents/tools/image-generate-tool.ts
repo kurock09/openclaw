@@ -149,6 +149,7 @@ export function resolveImageGenerationModelConfigForTool(params: {
   return buildToolModelConfigFromCandidates({
     explicit,
     agentDir: params.agentDir,
+    toolName: "image_generate",
     candidates: resolveImageGenerationModelCandidates(params.cfg),
   });
 }

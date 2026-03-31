@@ -29,8 +29,12 @@ export function resolveDefaultModelRef(cfg?: OpenClawConfig): { provider: string
   return { provider: DEFAULT_PROVIDER, model: DEFAULT_MODEL };
 }
 
-export function hasAuthForProvider(params: { provider: string; agentDir?: string }): boolean {
-  if (resolveEnvApiKey(params.provider)?.apiKey) {
+export function hasAuthForProvider(params: {
+  provider: string;
+  agentDir?: string;
+  toolName?: string;
+}): boolean {
+  if (resolveEnvApiKey(params.provider, process.env, { toolName: params.toolName })?.apiKey) {
     return true;
   }
   const agentDir = params.agentDir?.trim();
@@ -55,6 +59,7 @@ export function coerceToolModelConfig(model?: AgentModelConfig): ToolModelConfig
 export function buildToolModelConfigFromCandidates(params: {
   explicit: ToolModelConfig;
   agentDir?: string;
+  toolName?: string;
   candidates: Array<string | null | undefined>;
 }): ToolModelConfig | null {
   if (hasToolModelConfig(params.explicit)) {
@@ -68,7 +73,11 @@ export function buildToolModelConfigFromCandidates(params: {
       continue;
     }
     const provider = trimmed.slice(0, trimmed.indexOf("/")).trim();
-    if (!provider || !hasAuthForProvider({ provider, agentDir: params.agentDir })) {
+    if (!provider || !hasAuthForProvider({
+      provider,
+      agentDir: params.agentDir,
+      toolName: params.toolName,
+    })) {
       continue;
     }
     if (!deduped.includes(trimmed)) {

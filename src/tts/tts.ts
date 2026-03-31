@@ -29,6 +29,7 @@ import {
   OPENAI_DEFAULT_TTS_MODEL as DEFAULT_OPENAI_MODEL,
   OPENAI_DEFAULT_TTS_VOICE as DEFAULT_OPENAI_VOICE,
 } from "../providers/openai-defaults.js";
+import { resolvePersaiToolCredentialForEnvVars } from "../agents/persai-runtime-context.js";
 import { CONFIG_DIR, resolveUserPath } from "../utils.js";
 import {
   getSpeechProvider,
@@ -541,10 +542,27 @@ export function resolveTtsApiKey(
 ): string | undefined {
   const normalizedProvider = normalizeSpeechProviderId(provider);
   if (normalizedProvider === "elevenlabs") {
-    return config.elevenlabs.apiKey || process.env.ELEVENLABS_API_KEY || process.env.XI_API_KEY;
+    return (
+      config.elevenlabs.apiKey ||
+      resolvePersaiToolCredentialForEnvVars({
+        envVars: ["ELEVENLABS_API_KEY", "XI_API_KEY"],
+        provider: "elevenlabs",
+        toolName: "tts",
+      })?.value ||
+      process.env.ELEVENLABS_API_KEY ||
+      process.env.XI_API_KEY
+    );
   }
   if (normalizedProvider === "openai") {
-    return config.openai.apiKey || process.env.OPENAI_API_KEY;
+    return (
+      config.openai.apiKey ||
+      resolvePersaiToolCredentialForEnvVars({
+        envVars: ["OPENAI_API_KEY"],
+        provider: "openai",
+        toolName: "tts",
+      })?.value ||
+      process.env.OPENAI_API_KEY
+    );
   }
   return undefined;
 }
