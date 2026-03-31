@@ -562,7 +562,12 @@ export function filterBootstrapFilesForSession(
   files: WorkspaceBootstrapFile[],
   sessionKey?: string,
 ): WorkspaceBootstrapFile[] {
-  if (!sessionKey || (!isSubagentSessionKey(sessionKey) && !isCronSessionKey(sessionKey))) {
+  const isHeartbeatSession =
+    typeof sessionKey === "string" && sessionKey.trim().toLowerCase().endsWith(":heartbeat");
+  if (
+    !sessionKey ||
+    (!isHeartbeatSession && !isSubagentSessionKey(sessionKey) && !isCronSessionKey(sessionKey))
+  ) {
     return files;
   }
   return files.filter((file) => MINIMAL_BOOTSTRAP_ALLOWLIST.has(file.name));

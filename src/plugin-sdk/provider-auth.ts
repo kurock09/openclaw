@@ -2,6 +2,11 @@
 
 export type { OpenClawConfig } from "../config/config.js";
 export type { SecretInput } from "../config/types.secrets.js";
+import { promptSecretRefForSetup as promptSecretRefForSetupImpl } from "../plugins/provider-auth-ref.js";
+import type { SecretRef } from "../config/types.secrets.js";
+import type { OpenClawConfig } from "../config/config.js";
+import type { WizardPrompter } from "../wizard/prompts.js";
+import type { SecretRefSetupPromptCopy } from "../plugins/provider-auth-ref.js";
 export type { ProviderAuthResult } from "../plugins/types.js";
 export type { ProviderAuthContext } from "../plugins/types.js";
 export type { AuthProfileStore, OAuthCredential } from "../agents/auth-profiles/types.js";
@@ -23,7 +28,6 @@ export {
 export {
   ensureApiKeyFromOptionEnvOrPrompt,
   normalizeSecretInputModeInput,
-  promptSecretRefForSetup,
   resolveSecretInputModeForEnvSelection,
 } from "../plugins/provider-auth-input.js";
 export {
@@ -45,3 +49,18 @@ export {
 } from "../secrets/provider-env-vars.js";
 export { buildOauthProviderAuthResult } from "./provider-auth-result.js";
 export { generatePkceVerifierChallenge, toFormUrlEncoded } from "./oauth-utils.js";
+
+export type SetupSecretRef = Omit<SecretRef, "source"> & {
+  source: "env" | "file" | "exec";
+};
+
+export async function promptSecretRefForSetup(params: {
+  provider: string;
+  config: OpenClawConfig;
+  prompter: WizardPrompter;
+  preferredEnvVar?: string;
+  copy?: SecretRefSetupPromptCopy;
+}): Promise<{ ref: SetupSecretRef; resolvedValue: string }> {
+  const resolved = await promptSecretRefForSetupImpl(params);
+  return resolved as { ref: SetupSecretRef; resolvedValue: string };
+}

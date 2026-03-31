@@ -2,6 +2,7 @@
 
 export type { OpenClawConfig } from "../config/config.js";
 export type { SecretInput } from "../config/types.secrets.js";
+export { promptSecretRefForSetup, type SetupSecretRef } from "./provider-auth.js";
 
 export { upsertAuthProfile } from "../agents/auth-profiles.js";
 export {
@@ -10,7 +11,6 @@ export {
   validateApiKeyInput,
   ensureApiKeyFromOptionEnvOrPrompt,
   normalizeSecretInputModeInput,
-  promptSecretRefForSetup,
   resolveSecretInputModeForEnvSelection,
 } from "../plugins/provider-auth-input.js";
 export { applyAuthProfileConfig, buildApiKeyCredential } from "../plugins/provider-auth-helpers.js";

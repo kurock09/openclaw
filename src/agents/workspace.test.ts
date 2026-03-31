@@ -276,4 +276,9 @@ describe("filterBootstrapFilesForSession", () => {
     const result = filterBootstrapFilesForSession(mockFiles, "agent:default:cron:daily-check");
     expectSubagentAllowedBootstrapNames(result);
   });
+
+  it("filters to allowlist for heartbeat sessions", () => {
+    const result = filterBootstrapFilesForSession(mockFiles, "agent:default:main:heartbeat");
+    expectSubagentAllowedBootstrapNames(result);
+  });
 });

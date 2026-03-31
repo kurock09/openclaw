@@ -20,6 +20,8 @@ const NEVER_OVERWRITE_FILES = new Set(["MEMORY.md"]);
 const MEMORY_FILE_NAME = "MEMORY.md";
 const LEGACY_MEMORY_FILE_NAME = "memory.md";
 const MEMORY_DIR_NAME = "memory";
+const BOOTSTRAP_FILE_NAME = "BOOTSTRAP.md";
+const BOOTSTRAP_CONSUMED_MARKER = ".persai-bootstrap-consumed";
 const EMPTY_MEMORY_FILE_CONTENT = "# MEMORY.md\n";
 
 export function resolvePersaiWorkspaceRoot(env: NodeJS.ProcessEnv = process.env): string {
@@ -77,6 +79,38 @@ export async function cleanupPersaiAssistantWorkspace(
   }
 }
 
+export async function consumePersaiAssistantBootstrapFile(
+  assistantId: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<{
+  workspaceDir: string;
+  bootstrapPath: string;
+  markerPath: string;
+  deleted: boolean;
+}> {
+  const workspaceDir = resolvePersaiAssistantWorkspaceDir(assistantId, env);
+  const bootstrapPath = path.join(workspaceDir, BOOTSTRAP_FILE_NAME);
+  const markerPath = path.join(workspaceDir, BOOTSTRAP_CONSUMED_MARKER);
+
+  try {
+    await fs.mkdir(workspaceDir, { recursive: true });
+    await fs.rm(bootstrapPath, { force: true });
+    await fs.writeFile(markerPath, "consumed\n", "utf-8");
+    log.debug("assistant bootstrap file consumed", { assistantId, workspaceDir, bootstrapPath });
+    return { workspaceDir, bootstrapPath, markerPath, deleted: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.debug("assistant bootstrap consume skipped", {
+      assistantId,
+      workspaceDir,
+      bootstrapPath,
+      markerPath,
+      error: message,
+    });
+    return { workspaceDir, bootstrapPath, markerPath, deleted: false };
+  }
+}
+
 export async function resetPersaiAssistantMemoryWorkspace(
   assistantId: string,
   env: NodeJS.ProcessEnv = process.env,
@@ -123,6 +157,11 @@ export async function writeBootstrapFilesToWorkspace(params: {
   }
 
   await fs.mkdir(dir, { recursive: true });
+  const bootstrapConsumedMarkerPath = path.join(dir, BOOTSTRAP_CONSUMED_MARKER);
+  const bootstrapAlreadyConsumed = await fs
+    .access(bootstrapConsumedMarkerPath)
+    .then(() => true)
+    .catch(() => false);
 
   for (const [docKey, content] of Object.entries(docs)) {
     const filename = BOOTSTRAP_FILE_MAP[docKey];
@@ -135,6 +174,11 @@ export async function writeBootstrapFilesToWorkspace(params: {
     const filePath = path.join(dir, filename);
 
     if (NEVER_OVERWRITE_FILES.has(filename)) {
+      skipped.push(filename);
+      continue;
+    }
+
+    if (filename === BOOTSTRAP_FILE_NAME && bootstrapAlreadyConsumed) {
       skipped.push(filename);
       continue;
     }

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as replyModule from "../auto-reply/reply.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { resolveAgentMainSessionKey, resolveMainSessionKey } from "../config/sessions.js";
+import { clearPersaiHeartbeatModelOverrideCache } from "../gateway/persai-runtime/persai-runtime-heartbeat-model.js";
 import { runHeartbeatOnce } from "./heartbeat-runner.js";
 import { seedSessionStore, withTempHeartbeatSandbox } from "./heartbeat-runner.test-utils.js";
 
@@ -43,6 +44,7 @@ async function withHeartbeatFixture(
 beforeEach(() => {});
 
 afterEach(() => {
+  clearPersaiHeartbeatModelOverrideCache();
   vi.restoreAllMocks();
 });
 
@@ -190,8 +192,73 @@ describe("runHeartbeatOnce – heartbeat model override", () => {
         sessionKey,
       });
 
-      expect(result.ctx?.SessionKey).toBe(sessionKey);
+      expect(result.ctx?.SessionKey).toBe(`${sessionKey}:heartbeat`);
     });
+  });
+
+  it("uses PersAI admin default model for heartbeat when no heartbeat model is configured", async () => {
+    const originalFetch = globalThis.fetch;
+    const originalToken = process.env.OPENCLAW_GATEWAY_TOKEN;
+    process.env.OPENCLAW_GATEWAY_TOKEN = "gateway-token";
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          mode: "global_settings",
+          primary: {
+            provider: "openai",
+            model: "gpt-4.1"
+          }
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        }
+      )
+    ) as unknown as typeof fetch;
+
+    try {
+      await withHeartbeatFixture(async ({ tmpDir, storePath, seedSession }) => {
+        const cfg: OpenClawConfig = {
+          agents: {
+            defaults: {
+              workspace: tmpDir,
+              heartbeat: {
+                every: "5m",
+                target: "whatsapp"
+              }
+            }
+          },
+          channels: { whatsapp: { allowFrom: ["*"] } },
+          session: { store: storePath },
+          secrets: {
+            providers: {
+              "persai-runtime": {
+                source: "persai",
+                baseUrl: "http://persai.test"
+              }
+            }
+          }
+        };
+        const sessionKey = resolveMainSessionKey(cfg);
+        const result = await runHeartbeatWithSeed({
+          seedSession,
+          cfg,
+          sessionKey
+        });
+
+        expect(result.replySpy).toHaveBeenCalledWith(
+          expect.any(Object),
+          expect.objectContaining({
+            isHeartbeat: true,
+            heartbeatModelOverride: "openai/gpt-4.1"
+          }),
+          cfg
+        );
+      });
+    } finally {
+      process.env.OPENCLAW_GATEWAY_TOKEN = originalToken;
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it("passes per-agent heartbeat model override (merged with defaults)", async () => {

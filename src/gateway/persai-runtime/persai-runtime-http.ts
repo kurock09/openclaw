@@ -29,6 +29,7 @@ import {
 } from "./persai-runtime-tool-policy.js";
 import {
   cleanupPersaiAssistantWorkspace,
+  consumePersaiAssistantBootstrapFile,
   resetPersaiAssistantMemoryWorkspace,
   resolvePersaiAssistantWorkspaceDir,
 } from "./persai-runtime-workspace.js";
@@ -37,6 +38,8 @@ export const RUNTIME_SPEC_APPLY_PATH = "/api/v1/runtime/spec/apply";
 export const RUNTIME_WORKSPACE_CLEANUP_PATH = "/api/v1/runtime/workspace/cleanup";
 export const RUNTIME_WORKSPACE_RESET_PATH = "/api/v1/runtime/workspace/reset";
 export const RUNTIME_WORKSPACE_MEMORY_RESET_PATH = "/api/v1/runtime/workspace/memory/reset";
+export const RUNTIME_WORKSPACE_BOOTSTRAP_CONSUME_PATH =
+  "/api/v1/runtime/workspace/bootstrap/consume";
 export const RUNTIME_CRON_CONTROL_PATH = "/api/v1/runtime/cron/control";
 export const RUNTIME_CHAT_WEB_PATH = "/api/v1/runtime/chat/web";
 export const RUNTIME_CHAT_WEB_STREAM_PATH = "/api/v1/runtime/chat/web/stream";
@@ -432,6 +435,65 @@ export async function handleRuntimeWorkspaceMemoryResetHttpRequest(params: {
     ...result,
     sessionStorePath: sessions.storePath,
     removedSessions: sessions.removedCount,
+  });
+  return true;
+}
+
+export async function handleRuntimeWorkspaceBootstrapConsumeHttpRequest(params: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  requestPath: string;
+  resolvedAuth: ResolvedGatewayAuth;
+  trustedProxies: string[];
+  allowRealIpFallback: boolean;
+}): Promise<boolean> {
+  const { req, res, requestPath, resolvedAuth, trustedProxies, allowRealIpFallback } = params;
+  if (requestPath !== RUNTIME_WORKSPACE_BOOTSTRAP_CONSUME_PATH) {
+    return false;
+  }
+
+  const method = (req.method ?? "GET").toUpperCase();
+  if (method !== "POST") {
+    res.statusCode = 405;
+    res.setHeader("Allow", "POST");
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.end("Method Not Allowed");
+    return true;
+  }
+
+  const bearerToken = getBearerToken(req);
+  const auth = await authorizeHttpGatewayConnect({
+    auth: resolvedAuth,
+    connectAuth: bearerToken ? { token: bearerToken, password: bearerToken } : null,
+    req,
+    trustedProxies,
+    allowRealIpFallback,
+  });
+  if (!auth.ok) {
+    sendGatewayAuthFailure(res, auth);
+    return true;
+  }
+
+  const parsed = await readJsonBody(req, MAX_RUNTIME_JSON_BYTES);
+  if (!parsed.ok) {
+    sendJson(res, 400, { ok: false, error: parsed.error });
+    return true;
+  }
+
+  const payload = isRecord(parsed.value) ? parsed.value : {};
+  const assistantId = typeof payload.assistantId === "string" ? payload.assistantId.trim() : "";
+  if (!assistantId) {
+    sendJson(res, 400, { ok: false, error: "assistantId is required." });
+    return true;
+  }
+
+  const result = await consumePersaiAssistantBootstrapFile(assistantId);
+  sendJson(res, 200, {
+    ok: true,
+    assistantId,
+    workspaceDir: result.workspaceDir,
+    bootstrapPath: result.bootstrapPath,
+    deleted: result.deleted,
   });
   return true;
 }

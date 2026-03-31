@@ -63,6 +63,7 @@ import {
   handleRuntimeChatWebHttpRequest,
   handleRuntimeChatWebStreamHttpRequest,
   handleRuntimeSpecApplyHttpRequest,
+  handleRuntimeWorkspaceBootstrapConsumeHttpRequest,
   handleRuntimeWorkspaceCleanupHttpRequest,
   handleRuntimeWorkspaceResetHttpRequest,
   handleRuntimeWorkspaceMemoryResetHttpRequest,
@@ -943,6 +944,18 @@ export function createGatewayHttpServer(opts: {
         name: "persai-runtime-workspace-memory-reset",
         run: () =>
           handleRuntimeWorkspaceMemoryResetHttpRequest({
+            req,
+            res,
+            requestPath,
+            resolvedAuth,
+            trustedProxies,
+            allowRealIpFallback,
+          }),
+      });
+      requestStages.push({
+        name: "persai-runtime-workspace-bootstrap-consume",
+        run: () =>
+          handleRuntimeWorkspaceBootstrapConsumeHttpRequest({
             req,
             res,
             requestPath,

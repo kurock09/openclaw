@@ -133,7 +133,10 @@ function providerHint(provider: SecretProviderConfig): string {
   if (provider.source === "file") {
     return `file (${provider.mode ?? "json"})`;
   }
-  return `exec (${provider.jsonOnly === false ? "json+text" : "json"})`;
+  if (provider.source === "exec") {
+    return `exec (${provider.jsonOnly === false ? "json+text" : "json"})`;
+  }
+  return `persai (${provider.baseUrl})`;
 }
 
 function toSourceChoices(config: OpenClawConfig): Array<{ value: SecretRefSource; label: string }> {

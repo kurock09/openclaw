@@ -48,6 +48,7 @@ import {
 } from "../routing/session-key.js";
 import { defaultRuntime, type RuntimeEnv } from "../runtime.js";
 import { escapeRegExp } from "../utils.js";
+import { resolvePersaiHeartbeatModelOverride } from "../gateway/persai-runtime/persai-runtime-heartbeat-model.js";
 import { formatErrorMessage, hasErrnoCode } from "./errors.js";
 import { isWithinActiveHours } from "./heartbeat-active-hours.js";
 import {
@@ -575,26 +576,25 @@ export async function runHeartbeatOnce(opts: {
   const { entry, sessionKey, storePath } = preflight.session;
   const previousUpdatedAt = entry?.updatedAt;
 
-  // When isolatedSession is enabled, create a fresh session via the same
-  // pattern as cron sessionTarget: "isolated". This gives the heartbeat
-  // a new session ID (empty transcript) each run, avoiding the cost of
-  // sending the full conversation history (~100K tokens) to the LLM.
-  // Delivery routing still uses the main session entry (lastChannel, lastTo).
+  // Heartbeats always run in a dedicated sibling session so background polling
+  // does not reuse or contaminate the main user-facing chat transcript.
+  // When isolatedSession is enabled we additionally force a fresh heartbeat
+  // session instance on each run.
   const useIsolatedSession = heartbeat?.isolatedSession === true;
-  let runSessionKey = sessionKey;
+  const heartbeatSessionKey = `${sessionKey}:heartbeat`;
+  let runSessionKey = heartbeatSessionKey;
   let runStorePath = storePath;
   if (useIsolatedSession) {
-    const isolatedKey = `${sessionKey}:heartbeat`;
     const cronSession = resolveCronSession({
       cfg,
-      sessionKey: isolatedKey,
+      sessionKey: heartbeatSessionKey,
       agentId,
       nowMs: startedAt,
       forceNew: true,
     });
-    cronSession.store[isolatedKey] = cronSession.sessionEntry;
+    cronSession.store[heartbeatSessionKey] = cronSession.sessionEntry;
     await saveSessionStore(cronSession.storePath, cronSession.store);
-    runSessionKey = isolatedKey;
+    runSessionKey = heartbeatSessionKey;
     runStorePath = cronSession.storePath;
   }
 
@@ -705,7 +705,8 @@ export async function runHeartbeatOnce(opts: {
       agentId,
     });
 
-    const heartbeatModelOverride = heartbeat?.model?.trim() || undefined;
+    const heartbeatModelOverride =
+      heartbeat?.model?.trim() || (await resolvePersaiHeartbeatModelOverride(cfg)) || undefined;
     const suppressToolErrorWarnings = heartbeat?.suppressToolErrorWarnings === true;
     const bootstrapContextMode: "lightweight" | undefined =
       heartbeat?.lightContext === true ? "lightweight" : undefined;

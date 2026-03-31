@@ -204,6 +204,28 @@ Before preserving or adding a higher-risk patch, confirm:
 - `grep -c 'persai-runtime-workspace-reset' src/gateway/server-http.ts` should return >= 1
 - `grep -c 'persai-runtime-workspace-memory-reset' src/gateway/server-http.ts` should return >= 1
 
+### 12. Bootstrap consume + heartbeat hygiene bridge
+
+**Risk:** Mostly lower-risk PersAI bridge files plus one small heartbeat/session isolation patch in native runtime
+
+**Files:**
+
+- `src/gateway/persai-runtime/persai-runtime-workspace.ts` — assistant bootstrap consume helper + consumed marker so ordinary future applies do not recreate `BOOTSTRAP.md`
+- `src/gateway/persai-runtime/persai-runtime-http.ts` — `POST /api/v1/runtime/workspace/bootstrap/consume`
+- `src/gateway/persai-runtime/persai-runtime-heartbeat-model.ts` — fetches PersAI admin global default model for background heartbeat
+- `src/gateway/server-http.ts` — registers bootstrap-consume route
+- `src/infra/heartbeat-runner.ts` — uses dedicated `:heartbeat` session and PersAI-derived default model when no explicit heartbeat model override exists
+- `src/agents/workspace.ts` — heartbeat sessions get reduced bootstrap-file allowlist (no `BOOTSTRAP.md` bleed-through)
+
+**Introduced by:** bootstrap/heartbeat hygiene fix
+**Verify:**
+
+- `grep -c 'consumePersaiAssistantBootstrapFile' src/gateway/persai-runtime/persai-runtime-workspace.ts` should return >= 1
+- `grep -c '/api/v1/runtime/workspace/bootstrap/consume' src/gateway/persai-runtime/persai-runtime-http.ts` should return >= 1
+- `grep -c 'persai-runtime-workspace-bootstrap-consume' src/gateway/server-http.ts` should return >= 1
+- `grep -c 'resolvePersaiHeartbeatModelOverride' src/infra/heartbeat-runner.ts` should return >= 1
+- `grep -c ':heartbeat' src/infra/heartbeat-runner.ts` should return >= 1
+
 ## Quick full verification
 
 Run `node scripts/verify-persai-patches.mjs` (see script in `scripts/`).

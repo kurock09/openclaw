@@ -246,6 +246,29 @@ check("pi-tools.before-tool-call.ts enforces PersAI tool limits", () =>
   fileContains("src/agents/pi-tools.before-tool-call.ts", "enforcePersaiRuntimeToolLimit"),
 );
 
+console.log("\n[14] Bootstrap consume + heartbeat hygiene");
+check("persai-runtime-workspace.ts exposes bootstrap consume helper", () =>
+  fileContains(
+    "src/gateway/persai-runtime/persai-runtime-workspace.ts",
+    "consumePersaiAssistantBootstrapFile",
+  ),
+);
+check("persai-runtime-http.ts exposes bootstrap consume route", () =>
+  fileContains(
+    "src/gateway/persai-runtime/persai-runtime-http.ts",
+    "/api/v1/runtime/workspace/bootstrap/consume",
+  ),
+);
+check("server-http.ts registers bootstrap consume stage", () =>
+  fileContains("src/gateway/server-http.ts", "persai-runtime-workspace-bootstrap-consume"),
+);
+check("heartbeat-runner.ts resolves PersAI heartbeat model override", () =>
+  fileContains("src/infra/heartbeat-runner.ts", "resolvePersaiHeartbeatModelOverride"),
+);
+check("heartbeat-runner.ts uses dedicated heartbeat session key", () =>
+  fileContains("src/infra/heartbeat-runner.ts", ":heartbeat"),
+);
+
 console.log(`\n--- Result: ${checks - failures}/${checks} passed ---`);
 if (failures > 0) {
   console.error(
