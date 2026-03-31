@@ -5,19 +5,10 @@ import * as path from "node:path";
 import { Bot, InputFile, webhookCallback } from "grammy";
 import { loadConfig } from "../../config/config.js";
 import type { ReadinessChecker } from "../server/readiness.js";
-import { runPersaiTelegramAgentTurn } from "./persai-runtime-agent-turn.js";
-import { extractPersonaInstructionsFromWorkspace } from "./persai-runtime-http.js";
-import { extractPersaiRuntimeModelOverride } from "./persai-runtime-provider-profile.js";
 import type {
   PersaiAppliedRuntimeSpec,
   PersaiRuntimeSpecStore,
 } from "./persai-runtime-spec-store.js";
-import {
-  buildToolDenyList,
-  extractToolCredentialRefs,
-  extractToolQuotaPolicy,
-  resolveToolCredentials,
-} from "./persai-runtime-tool-policy.js";
 import { resolvePersaiAssistantWorkspaceDir } from "./persai-runtime-workspace.js";
 
 type WebhookHandler = (req: IncomingMessage, res: ServerResponse) => Promise<void>;
@@ -669,13 +660,10 @@ export async function syncTelegramBotForAssistant(params: {
         username:
           "username" in ctx.chat && typeof ctx.chat.username === "string" ? ctx.chat.username : "",
       });
-      const reply = await runTelegramAgentTurn({
+      const reply = await requestPersaiTelegramTurn({
         assistantId,
         userMessage: ctx.message.text ?? "",
         chatId: String(ctx.chat.id),
-        bootstrap: currentManaged.state.bootstrap,
-        workspace: currentManaged.state.workspace,
-        workspaceDir: currentManaged.state.workspaceDir,
       });
       await sendTelegramReplyWithConfiguredParseMode(ctx, reply, currentConfig.parseMode);
     } catch (err) {
@@ -760,55 +748,50 @@ async function stopTelegramBot(assistantId: string): Promise<void> {
   console.log(`[persai-telegram] Bot stopped for ${assistantId} (${existing.mode})`);
 }
 
-async function runTelegramAgentTurn(params: {
+async function requestPersaiTelegramTurn(params: {
   assistantId: string;
   userMessage: string;
   chatId: string;
-  bootstrap: unknown;
-  workspace: unknown;
-  workspaceDir?: string;
 }): Promise<string> {
-  const { assistantId, userMessage, bootstrap, workspace, chatId } = params;
-  const extraSystemPrompt = extractPersonaInstructionsFromWorkspace(workspace) ?? undefined;
-  const runtimeOverride = extractPersaiRuntimeModelOverride(bootstrap);
-  const credentialRefs = extractToolCredentialRefs(bootstrap);
-  const quotaPolicy = extractToolQuotaPolicy(bootstrap);
-  const toolDenyList = buildToolDenyList(quotaPolicy);
-
-  let resolvedToolCredentials = new Map<string, string>();
-  if (credentialRefs.size > 0) {
-    try {
-      const cfg = loadConfig();
-      resolvedToolCredentials = await resolveToolCredentials(credentialRefs, cfg);
-    } catch {
-      // Non-fatal
-    }
+  const baseUrl = resolvePersaiInternalApiBaseUrl();
+  const token = process.env.OPENCLAW_GATEWAY_TOKEN?.trim();
+  if (!baseUrl || !token) {
+    return "I'm having trouble responding right now. Please try again.";
   }
 
-  const sessionKey = `agent:persai:${assistantId}:telegram:${chatId}`;
-  const cronWebhookUrl = (() => {
-    const baseUrl = resolvePersaiInternalApiBaseUrl();
-    return baseUrl
-      ? `${baseUrl}/api/v1/internal/cron-fire?assistantId=${encodeURIComponent(assistantId)}`
-      : undefined;
-  })();
+  try {
+    const response = await fetch(`${baseUrl}/api/v1/internal/runtime/turns/telegram`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        assistantId: params.assistantId,
+        threadId: params.chatId,
+        message: params.userMessage,
+      }),
+    });
+    if (!response.ok) {
+      return "I'm having trouble responding right now. Please try again.";
+    }
+    const payload = (await response.json()) as
+      | { ok?: true; assistantMessage?: string }
+      | { ok?: false; renderedMessage?: string };
+    if (payload && payload.ok === true && typeof payload.assistantMessage === "string") {
+      return payload.assistantMessage.trim() || "...";
+    }
+    if (payload && payload.ok === false && typeof payload.renderedMessage === "string") {
+      return (
+        payload.renderedMessage.trim() ||
+        "I'm having trouble responding right now. Please try again."
+      );
+    }
+  } catch (err) {
+    console.error(`[persai-telegram] PersAI turn gateway failed for ${params.assistantId}:`, err);
+  }
 
-  const result = await runPersaiTelegramAgentTurn({
-    assistantId,
-    userMessage,
-    sessionKey,
-    extraSystemPrompt,
-    providerOverride: runtimeOverride?.provider,
-    modelOverride: runtimeOverride?.model,
-    resolvedToolCredentials,
-    toolDenyList,
-    cronWebhookUrl,
-    workspaceDir: params.workspaceDir,
-  });
-
-  return result.ok
-    ? result.assistantMessage.trim() || "..."
-    : "I'm having trouble responding right now. Please try again.";
+  return "I'm having trouble responding right now. Please try again.";
 }
 
 async function notifyPersaiGroupUpdate(params: {

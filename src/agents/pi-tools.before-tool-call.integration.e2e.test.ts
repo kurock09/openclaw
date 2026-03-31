@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetDiagnosticSessionStateForTest } from "../logging/diagnostic-session-state.js";
 import { getGlobalHookRunner } from "../plugins/hook-runner-global.js";
+import { persaiRuntimeRequestContext } from "./persai-runtime-context.js";
 import { toClientToolDefinitions, toToolDefinitions } from "./pi-tool-definition-adapter.js";
 import { wrapToolWithAbortSignal } from "./pi-tools.abort.js";
 import {
@@ -12,6 +13,8 @@ import {
 vi.mock("../plugins/hook-runner-global.js");
 
 const mockGetGlobalHookRunner = vi.mocked(getGlobalHookRunner);
+const ORIGINAL_FETCH = global.fetch;
+const ORIGINAL_GATEWAY_TOKEN = process.env.OPENCLAW_GATEWAY_TOKEN;
 
 type HookRunnerMock = {
   hasHooks: ReturnType<typeof vi.fn>;
@@ -43,6 +46,15 @@ describe("before_tool_call hook integration", () => {
     resetDiagnosticSessionStateForTest();
     beforeToolCallTesting.adjustedParamsByToolCallId.clear();
     hookRunner = installMockHookRunner();
+  });
+
+  afterEach(() => {
+    global.fetch = ORIGINAL_FETCH;
+    if (ORIGINAL_GATEWAY_TOKEN === undefined) {
+      delete process.env.OPENCLAW_GATEWAY_TOKEN;
+    } else {
+      process.env.OPENCLAW_GATEWAY_TOKEN = ORIGINAL_GATEWAY_TOKEN;
+    }
   });
 
   it("executes tool normally when no hook is registered", async () => {
@@ -182,6 +194,75 @@ describe("before_tool_call hook integration", () => {
       marker: "B",
     });
     expect(consumeAdjustedParamsForToolCall(sharedToolCallId, "run-a")).toBeUndefined();
+  });
+
+  it("enforces PersAI runtime tool limits before execution", async () => {
+    hookRunner.hasHooks.mockReturnValue(false);
+    process.env.OPENCLAW_GATEWAY_TOKEN = "gateway-token";
+    global.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, currentCount: 1, limit: 2 }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    ) as typeof fetch;
+
+    const execute = vi.fn().mockResolvedValue({ content: [], details: { ok: true } });
+    // oxlint-disable-next-line typescript/no-explicit-any
+    const tool = wrapToolWithBeforeToolCallHook({ name: "web_search", execute } as any, {
+      agentId: "assistant-1",
+      sessionKey: "main",
+    });
+
+    await persaiRuntimeRequestContext.run(
+      {
+        assistantId: "assistant-1",
+        toolLimitWebhookUrl: "https://persai.test/api/v1/internal/runtime/tools/consume",
+        toolQuotaPolicy: new Map([["web_search", { toolCode: "web_search", dailyCallLimit: 2 }]]),
+      },
+      async () => {
+        await tool.execute("call-tool-limit", { query: "hello" }, undefined, undefined);
+      },
+    );
+
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks execution when PersAI runtime tool limit is exhausted", async () => {
+    hookRunner.hasHooks.mockReturnValue(false);
+    process.env.OPENCLAW_GATEWAY_TOKEN = "gateway-token";
+    global.fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: {
+            code: "tool_daily_limit_reached",
+            message: 'Daily tool usage limit reached for "web_search".',
+          },
+        }),
+        {
+          status: 409,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+    ) as typeof fetch;
+
+    const execute = vi.fn().mockResolvedValue({ content: [], details: { ok: true } });
+    // oxlint-disable-next-line typescript/no-explicit-any
+    const tool = wrapToolWithBeforeToolCallHook({ name: "web_search", execute } as any);
+
+    await expect(
+      persaiRuntimeRequestContext.run(
+        {
+          assistantId: "assistant-1",
+          toolLimitWebhookUrl: "https://persai.test/api/v1/internal/runtime/tools/consume",
+          toolQuotaPolicy: new Map([["web_search", { toolCode: "web_search", dailyCallLimit: 1 }]]),
+        },
+        async () =>
+          await tool.execute("call-tool-limit-denied", { query: "hello" }, undefined, undefined),
+      ),
+    ).rejects.toThrow('Daily tool usage limit reached for "web_search".');
+
+    expect(execute).not.toHaveBeenCalled();
   });
 });
 

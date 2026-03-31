@@ -8,11 +8,15 @@ import { readJsonBody } from "../hooks.js";
 import { sendGatewayAuthFailure } from "../http-common.js";
 import { getBearerToken } from "../http-utils.js";
 import {
+  runPersaiTelegramAgentTurn,
   runPersaiWebRuntimeAgentTurnStream,
   runPersaiWebRuntimeAgentTurnSync,
 } from "./persai-runtime-agent-turn.js";
 import { ensureSpecFreshness } from "./persai-runtime-freshness.js";
-import { applyPersaiRuntimeSpecLocally, PersaiRuntimeSpecApplyValidationError } from "./persai-runtime-local-apply.js";
+import {
+  applyPersaiRuntimeSpecLocally,
+  PersaiRuntimeSpecApplyValidationError,
+} from "./persai-runtime-local-apply.js";
 import { extractPersaiRuntimeModelOverride } from "./persai-runtime-provider-profile.js";
 import { cleanupPersaiAssistantSessions } from "./persai-runtime-session-cleanup.js";
 import { derivePersaiWebRuntimeSessionKey } from "./persai-runtime-session.js";
@@ -36,6 +40,7 @@ export const RUNTIME_WORKSPACE_MEMORY_RESET_PATH = "/api/v1/runtime/workspace/me
 export const RUNTIME_CRON_CONTROL_PATH = "/api/v1/runtime/cron/control";
 export const RUNTIME_CHAT_WEB_PATH = "/api/v1/runtime/chat/web";
 export const RUNTIME_CHAT_WEB_STREAM_PATH = "/api/v1/runtime/chat/web/stream";
+export const RUNTIME_CHAT_CHANNEL_PATH = "/api/v1/runtime/chat/channel";
 export const RUNTIME_WORKSPACE_AVATAR_PATH = "/api/v1/runtime/workspace/avatar";
 
 const MAX_RUNTIME_JSON_BYTES = 1_000_000;
@@ -68,6 +73,14 @@ function resolveCronWebhookUrl(assistantId: string): string | undefined {
     return undefined;
   }
   return `${baseUrl}/api/v1/internal/cron-fire?assistantId=${encodeURIComponent(assistantId)}`;
+}
+
+function resolveToolLimitWebhookUrl(): string | undefined {
+  const baseUrl = resolvePersaiInternalApiBaseUrl();
+  if (!baseUrl) {
+    return undefined;
+  }
+  return `${baseUrl}/api/v1/internal/runtime/tools/consume`;
 }
 
 /** P2: read persona instructions from materialized openclaw.workspace.v1 for native hydrate / echo hints. */
@@ -636,11 +649,20 @@ export async function handleRuntimeChatWebHttpRequest(params: {
       modelOverride: runtimeOverride?.model,
       resolvedToolCredentials,
       toolDenyList,
+      toolQuotaPolicy: quotaPolicy,
+      toolLimitWebhookUrl: resolveToolLimitWebhookUrl(),
       cronWebhookUrl: resolveCronWebhookUrl(assistantId),
       workspaceDir: applied.workspaceDir,
     });
     if (!agentOut.ok) {
-      sendJson(res, 500, { ok: false, error: agentOut.error });
+      sendJson(res, agentOut.error.status, {
+        ok: false,
+        error: {
+          code: agentOut.error.code,
+          category: agentOut.error.status === 409 ? "conflict" : "infra",
+          message: agentOut.error.message,
+        },
+      });
       return true;
     }
     const assistantMessage = agentOut.assistantMessage.trim() || "No response from OpenClaw.";
@@ -655,6 +677,156 @@ export async function handleRuntimeChatWebHttpRequest(params: {
   sendJson(res, 503, {
     ok: false,
     error: MISSING_APPLIED_SPEC_ERROR,
+  });
+  return true;
+}
+
+export async function handleRuntimeChatChannelHttpRequest(params: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  requestPath: string;
+  resolvedAuth: ResolvedGatewayAuth;
+  trustedProxies: string[];
+  allowRealIpFallback: boolean;
+  store: PersaiRuntimeSpecStore;
+}): Promise<boolean> {
+  const { req, res, requestPath, resolvedAuth, trustedProxies, allowRealIpFallback, store } =
+    params;
+  if (requestPath !== RUNTIME_CHAT_CHANNEL_PATH) {
+    return false;
+  }
+
+  const method = (req.method ?? "GET").toUpperCase();
+  if (method !== "POST") {
+    res.statusCode = 405;
+    res.setHeader("Allow", "POST");
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.end("Method Not Allowed");
+    return true;
+  }
+
+  const bearerToken = getBearerToken(req);
+  const auth = await authorizeHttpGatewayConnect({
+    auth: resolvedAuth,
+    connectAuth: bearerToken ? { token: bearerToken, password: bearerToken } : null,
+    req,
+    trustedProxies,
+    allowRealIpFallback,
+  });
+  if (!auth.ok) {
+    sendGatewayAuthFailure(res, auth);
+    return true;
+  }
+
+  const parsed = await readJsonBody(req, MAX_RUNTIME_JSON_BYTES);
+  if (!parsed.ok) {
+    const status =
+      parsed.error === "payload too large"
+        ? 413
+        : parsed.error === "request body timeout"
+          ? 408
+          : 400;
+    sendJson(res, status, { ok: false, error: parsed.error });
+    return true;
+  }
+
+  const payload = isRecord(parsed.value) ? parsed.value : {};
+  const assistantId = typeof payload.assistantId === "string" ? payload.assistantId.trim() : "";
+  const publishedVersionId =
+    typeof payload.publishedVersionId === "string" ? payload.publishedVersionId.trim() : "";
+  const surface = typeof payload.surface === "string" ? payload.surface.trim() : "";
+  const threadId = typeof payload.threadId === "string" ? payload.threadId.trim() : "";
+  const userMessage = typeof payload.userMessage === "string" ? payload.userMessage.trim() : "";
+  const userTimezone =
+    typeof payload.userTimezone === "string" ? payload.userTimezone.trim() : undefined;
+  const currentTimeIso =
+    typeof payload.currentTimeIso === "string" ? payload.currentTimeIso.trim() : undefined;
+
+  if (!assistantId || !publishedVersionId || !surface || !threadId || !userMessage) {
+    sendJson(res, 400, {
+      ok: false,
+      error:
+        "Invalid runtime channel chat payload. Required fields: assistantId, publishedVersionId, surface, threadId, userMessage.",
+    });
+    return true;
+  }
+
+  if (surface !== "telegram") {
+    sendJson(res, 400, {
+      ok: false,
+      error: `Unsupported runtime channel surface "${surface}".`,
+    });
+    return true;
+  }
+
+  let applied = await store.get(assistantId, publishedVersionId);
+  if (!applied) {
+    sendJson(res, 503, {
+      ok: false,
+      error: MISSING_APPLIED_SPEC_ERROR,
+    });
+    return true;
+  }
+
+  const freshness = await ensureSpecFreshness({
+    assistantId,
+    applied,
+    store,
+  });
+  if (freshness.rematerialized) {
+    applied = (await store.get(assistantId, publishedVersionId)) ?? applied;
+  }
+
+  const extraSystemPrompt = mergeSystemPrompt(
+    extractPersonaInstructionsFromWorkspace(applied.workspace) ?? undefined,
+    buildSchedulingContext({ currentTimeIso, userTimezone }),
+  );
+  const runtimeOverride = extractPersaiRuntimeModelOverride(applied.bootstrap);
+  const credentialRefs = extractToolCredentialRefs(applied.bootstrap);
+  const quotaPolicy = extractToolQuotaPolicy(applied.bootstrap);
+  const toolDenyList = buildToolDenyList(quotaPolicy);
+
+  let resolvedToolCredentials = new Map<string, string>();
+  if (credentialRefs.size > 0) {
+    try {
+      const cfg = loadConfig();
+      resolvedToolCredentials = await resolveToolCredentials(credentialRefs, cfg);
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  const agentOut = await runPersaiTelegramAgentTurn({
+    assistantId,
+    userMessage,
+    sessionKey: `agent:persai:${assistantId}:telegram:${threadId}`,
+    extraSystemPrompt,
+    providerOverride: runtimeOverride?.provider,
+    modelOverride: runtimeOverride?.model,
+    resolvedToolCredentials,
+    toolDenyList,
+    toolQuotaPolicy: quotaPolicy,
+    toolLimitWebhookUrl: resolveToolLimitWebhookUrl(),
+    cronWebhookUrl: resolveCronWebhookUrl(assistantId),
+    workspaceDir: applied.workspaceDir,
+  });
+  if (!agentOut.ok) {
+    sendJson(res, agentOut.error.status, {
+      ok: false,
+      error: {
+        code: agentOut.error.code,
+        category: agentOut.error.status === 409 ? "conflict" : "infra",
+        message: agentOut.error.message,
+      },
+    });
+    return true;
+  }
+
+  const assistantMessage = agentOut.assistantMessage.trim() || "No response from OpenClaw.";
+  sendJson(res, 200, {
+    ok: true,
+    assistantMessage,
+    respondedAt: new Date().toISOString(),
   });
   return true;
 }
@@ -800,6 +972,8 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
     modelOverride: runtimeOverride?.model,
     resolvedToolCredentials: streamResolvedToolCredentials,
     toolDenyList: streamToolDenyList,
+    toolQuotaPolicy: streamQuotaPolicy,
+    toolLimitWebhookUrl: resolveToolLimitWebhookUrl(),
     cronWebhookUrl: resolveCronWebhookUrl(assistantId),
     workspaceDir: applied.workspaceDir,
   });

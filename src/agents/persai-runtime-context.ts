@@ -3,6 +3,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 export interface PersaiRuntimeRequestCtx {
   assistantId?: string;
   toolDenyList?: string[];
+  toolQuotaPolicy?: Map<string, { toolCode: string; dailyCallLimit: number | null }>;
+  toolLimitWebhookUrl?: string;
   cronWebhookUrl?: string;
   workspaceDir?: string;
   /** Per-request resolved tool credentials (env var name → secret value). */

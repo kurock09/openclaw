@@ -121,6 +121,7 @@ Before preserving or adding a higher-risk patch, confirm:
 **Files:**
 
 - `src/gateway/persai-runtime/persai-runtime-telegram.ts` — `syncBotProfile()` helper: sets bot name, description, and profile photo from workspace persona on every `syncTelegramBotForAssistant` call; posts the latest inbound Telegram chat target back to PersAI so reminder delivery can reuse the correct `telegramChatId`; retries Telegram replies as plain text when `MarkdownV2` entity parsing fails
+- `src/gateway/persai-runtime/persai-runtime-telegram.ts` — inbound Telegram turns now call PersAI internal turn gateway (`POST /api/v1/internal/runtime/turns/telegram`) instead of deciding turn admission fully inside OpenClaw
 - `src/gateway/persai-runtime/persai-runtime-spec-store.ts` — persisted `telegramRuntime` metadata (transport/profile fingerprints + profile sync timestamps/errors)
 
 **Introduced by:** H8 Telegram bridge + H8-scale lifecycle hardening + Telegram markdown fallback follow-up
@@ -131,6 +132,29 @@ Before preserving or adding a higher-risk patch, confirm:
 - `grep -c 'telegramRuntime' src/gateway/persai-runtime/persai-runtime-spec-store.ts` should return >= 1
 - `grep -c '/api/v1/internal/runtime/telegram/chat-target' src/gateway/persai-runtime/persai-runtime-telegram.ts` should return >= 1
 - `grep -c 'sendTelegramReplyWithConfiguredParseMode' src/gateway/persai-runtime/persai-runtime-telegram.ts` should return >= 1
+- `grep -c '/api/v1/internal/runtime/turns/telegram' src/gateway/persai-runtime/persai-runtime-telegram.ts` should return >= 1
+
+### 12. Non-web runtime execute seam for PersAI-owned turn gateway (H13 core)
+
+**Risk:** Lower-risk PersAI-specific bridge files
+
+**Files:**
+
+- `src/gateway/persai-runtime/persai-runtime-http.ts` — exposes `POST /api/v1/runtime/chat/channel` so PersAI can execute Telegram turns through the same runtime bridge after backend policy checks
+- `src/gateway/persai-runtime/persai-runtime-http.ts` — derives PersAI `POST /api/v1/internal/runtime/tools/consume` callback URL and forwards `toolQuotaPolicy` metadata only for PersAI runtime turns
+- `src/gateway/persai-runtime/persai-runtime-agent-turn.ts` — passes PersAI tool quota metadata through request-local context and returns stable error payloads when runtime tool enforcement blocks a turn
+- `src/agents/persai-runtime-context.ts` — request context carries per-turn `toolQuotaPolicy` + `toolLimitWebhookUrl`
+- `src/agents/pi-tools.before-tool-call.ts` — reuses the existing `before_tool_call` seam to enforce PersAI daily tool limits before a runtime tool executes
+- `src/gateway/server-http.ts` — registers the `persai-runtime-chat-channel` request stage
+
+**Introduced by:** H13 core unified turn gateway
+**Verify:**
+
+- `grep -c '/api/v1/runtime/chat/channel' src/gateway/persai-runtime/persai-runtime-http.ts` should return >= 1
+- `grep -c '/api/v1/internal/runtime/tools/consume' src/gateway/persai-runtime/persai-runtime-http.ts` should return >= 1
+- `grep -c 'toolLimitWebhookUrl' src/agents/persai-runtime-context.ts` should return >= 1
+- `grep -c 'enforcePersaiRuntimeToolLimit' src/agents/pi-tools.before-tool-call.ts` should return >= 1
+- `grep -c 'persai-runtime-chat-channel' src/gateway/server-http.ts` should return >= 1
 
 ### 10. Cron callback bridge + task registry sync (H12)
 

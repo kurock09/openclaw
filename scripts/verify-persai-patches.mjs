@@ -145,7 +145,7 @@ check("server-http.ts registers workspace-avatar stage", () =>
   fileContains("src/gateway/server-http.ts", "persai-runtime-workspace-avatar"),
 );
 
-console.log("\n[9] Telegram bot profile sync");
+console.log("\n[9] Telegram bot profile sync + PersAI turn gateway");
 check(
   "persai-runtime-telegram.ts has syncBotProfile",
   () =>
@@ -158,6 +158,12 @@ check("persai-runtime-telegram.ts syncs inbound chat target back to PersAI", () 
     "/api/v1/internal/runtime/telegram/chat-target",
   ),
 );
+check("persai-runtime-telegram.ts calls PersAI internal turn gateway", () =>
+  fileContains(
+    "src/gateway/persai-runtime/persai-runtime-telegram.ts",
+    "/api/v1/internal/runtime/turns/telegram",
+  ),
+);
 
 console.log("\n[10] Gateway HTTP route registration");
 check(
@@ -166,6 +172,9 @@ check(
 );
 check("server-runtime-state.ts creates persai spec store", () =>
   fileContains("src/gateway/server-runtime-state.ts", "persaiRuntimeSpecStore"),
+);
+check("server-http.ts registers channel chat stage", () =>
+  fileContains("src/gateway/server-http.ts", "persai-runtime-chat-channel"),
 );
 
 console.log("\n[11] Cron callback bridge + task registry sync (H12)");
@@ -185,7 +194,7 @@ check("persai-runtime-http.ts exposes internal cron control route", () =>
   fileContains("src/gateway/persai-runtime/persai-runtime-http.ts", "/api/v1/runtime/cron/control"),
 );
 check("reminder-task-tool.ts exposes reminder_task", () =>
-  fileContains('src/agents/tools/reminder-task-tool.ts', 'name: "reminder_task"'),
+  fileContains("src/agents/tools/reminder-task-tool.ts", 'name: "reminder_task"'),
 );
 check("openclaw-tools.ts wires reminder_task into tool list", () =>
   fileContains("src/agents/openclaw-tools.ts", "createReminderTaskTool"),
@@ -218,6 +227,23 @@ check("server-http.ts registers workspace reset stage", () =>
 );
 check("server-http.ts registers workspace memory reset stage", () =>
   fileContains("src/gateway/server-http.ts", "persai-runtime-workspace-memory-reset"),
+);
+
+console.log("\n[13] Non-web runtime execute seam (H13 core)");
+check("persai-runtime-http.ts exposes runtime chat channel route", () =>
+  fileContains("src/gateway/persai-runtime/persai-runtime-http.ts", "/api/v1/runtime/chat/channel"),
+);
+check("persai-runtime-http.ts exposes PersAI tool limit consume callback", () =>
+  fileContains(
+    "src/gateway/persai-runtime/persai-runtime-http.ts",
+    "/api/v1/internal/runtime/tools/consume",
+  ),
+);
+check("persai-runtime-context.ts carries tool limit webhook url", () =>
+  fileContains("src/agents/persai-runtime-context.ts", "toolLimitWebhookUrl"),
+);
+check("pi-tools.before-tool-call.ts enforces PersAI tool limits", () =>
+  fileContains("src/agents/pi-tools.before-tool-call.ts", "enforcePersaiRuntimeToolLimit"),
 );
 
 console.log(`\n--- Result: ${checks - failures}/${checks} passed ---`);

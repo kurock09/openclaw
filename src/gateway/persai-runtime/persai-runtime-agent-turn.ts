@@ -1,12 +1,41 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { persaiRuntimeRequestContext } from "../../agents/openclaw-tools.js";
+import { PersaiRuntimeToolLimitError } from "../../agents/persai-runtime-tool-limits.js";
 import { createDefaultDeps } from "../../cli/deps.js";
 import { agentCommandFromIngress } from "../../commands/agent.js";
 import { onAgentEvent } from "../../infra/agent-events.js";
 import { logWarn } from "../../logger.js";
 import { defaultRuntime } from "../../runtime.js";
 import { resolveAssistantStreamDeltaText } from "../agent-event-assistant-text.js";
+
+type PersaiRuntimeTurnError = {
+  code: string;
+  message: string;
+  status: number;
+};
+
+function toPersaiRuntimeTurnError(error: unknown): PersaiRuntimeTurnError {
+  if (error instanceof PersaiRuntimeToolLimitError) {
+    return {
+      code: error.code,
+      message: error.message,
+      status: error.status,
+    };
+  }
+  if (error instanceof Error) {
+    return {
+      code: "assistant_turn_failed",
+      message: error.message,
+      status: 500,
+    };
+  }
+  return {
+    code: "assistant_turn_failed",
+    message: String(error),
+    status: 500,
+  };
+}
 
 function resolveAgentResponseText(result: unknown): string {
   const payloads = (result as { payloads?: Array<{ text?: string }> } | null)?.payloads;
@@ -57,9 +86,11 @@ export async function runPersaiWebRuntimeAgentTurnSync(params: {
   modelOverride?: string;
   resolvedToolCredentials?: Map<string, string>;
   toolDenyList?: string[];
+  toolQuotaPolicy?: Map<string, { toolCode: string; dailyCallLimit: number | null }>;
+  toolLimitWebhookUrl?: string;
   cronWebhookUrl?: string;
   workspaceDir?: string;
-}): Promise<{ ok: true; assistantMessage: string } | { ok: false; error: string }> {
+}): Promise<{ ok: true; assistantMessage: string } | { ok: false; error: PersaiRuntimeTurnError }> {
   const runId = randomUUID();
   const deps = createDefaultDeps();
   const commandInput = buildPersaiWebIngressCommandInput({
@@ -76,6 +107,8 @@ export async function runPersaiWebRuntimeAgentTurnSync(params: {
   const runtimeCtx = {
     assistantId: params.assistantId,
     toolDenyList: params.toolDenyList,
+    toolQuotaPolicy: params.toolQuotaPolicy,
+    toolLimitWebhookUrl: params.toolLimitWebhookUrl,
     cronWebhookUrl: params.cronWebhookUrl,
     workspaceDir: params.workspaceDir,
     toolCredentials: params.resolvedToolCredentials,
@@ -87,9 +120,9 @@ export async function runPersaiWebRuntimeAgentTurnSync(params: {
     );
     return { ok: true, assistantMessage: resolveAgentResponseText(result) };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    logWarn(`persai-runtime: sync agent turn failed: ${message}`);
-    return { ok: false, error: message };
+    const normalized = toPersaiRuntimeTurnError(err);
+    logWarn(`persai-runtime: sync agent turn failed: ${normalized.message}`);
+    return { ok: false, error: normalized };
   }
 }
 
@@ -103,9 +136,11 @@ export async function runPersaiTelegramAgentTurn(params: {
   modelOverride?: string;
   resolvedToolCredentials?: Map<string, string>;
   toolDenyList?: string[];
+  toolQuotaPolicy?: Map<string, { toolCode: string; dailyCallLimit: number | null }>;
+  toolLimitWebhookUrl?: string;
   cronWebhookUrl?: string;
   workspaceDir?: string;
-}): Promise<{ ok: true; assistantMessage: string } | { ok: false; error: string }> {
+}): Promise<{ ok: true; assistantMessage: string } | { ok: false; error: PersaiRuntimeTurnError }> {
   const runId = randomUUID();
   const deps = createDefaultDeps();
   const commandInput = {
@@ -126,6 +161,8 @@ export async function runPersaiTelegramAgentTurn(params: {
   const runtimeCtx = {
     assistantId: params.assistantId,
     toolDenyList: params.toolDenyList,
+    toolQuotaPolicy: params.toolQuotaPolicy,
+    toolLimitWebhookUrl: params.toolLimitWebhookUrl,
     cronWebhookUrl: params.cronWebhookUrl,
     workspaceDir: params.workspaceDir,
     toolCredentials: params.resolvedToolCredentials,
@@ -137,9 +174,9 @@ export async function runPersaiTelegramAgentTurn(params: {
     );
     return { ok: true, assistantMessage: resolveAgentResponseText(result) };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    logWarn(`persai-runtime: telegram agent turn failed: ${message}`);
-    return { ok: false, error: message };
+    const normalized = toPersaiRuntimeTurnError(err);
+    logWarn(`persai-runtime: telegram agent turn failed: ${normalized.message}`);
+    return { ok: false, error: normalized };
   }
 }
 
@@ -158,6 +195,8 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
   modelOverride?: string;
   resolvedToolCredentials?: Map<string, string>;
   toolDenyList?: string[];
+  toolQuotaPolicy?: Map<string, { toolCode: string; dailyCallLimit: number | null }>;
+  toolLimitWebhookUrl?: string;
   cronWebhookUrl?: string;
   workspaceDir?: string;
 }): Promise<void> {
@@ -176,6 +215,8 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
   const runtimeCtx = {
     assistantId: params.assistantId,
     toolDenyList: params.toolDenyList,
+    toolQuotaPolicy: params.toolQuotaPolicy,
+    toolLimitWebhookUrl: params.toolLimitWebhookUrl,
     cronWebhookUrl: params.cronWebhookUrl,
     workspaceDir: params.workspaceDir,
     toolCredentials: params.resolvedToolCredentials,
@@ -236,10 +277,16 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
           params.res.write(`${JSON.stringify({ type: "delta", delta: content })}\n`);
         }
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        logWarn(`persai-runtime: stream agent turn failed: ${message}`);
+        const normalized = toPersaiRuntimeTurnError(err);
+        logWarn(`persai-runtime: stream agent turn failed: ${normalized.message}`);
         if (!closed) {
-          params.res.write(`${JSON.stringify({ type: "delta", delta: `Error: ${message}` })}\n`);
+          params.res.write(
+            `${JSON.stringify({
+              type: "failed",
+              code: normalized.code,
+              message: normalized.message,
+            })}\n`,
+          );
         }
       } finally {
         if (!closed) {
