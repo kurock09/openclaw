@@ -341,6 +341,21 @@ Before preserving or adding a higher-risk patch, confirm:
 - `grep -c 'mediaBaseDir' src/agents/tools/image-generate-tool.ts` should return >= 2
 - `grep -c 'resolvePersaiWorkspaceRoot' src/gateway/persai-runtime/persai-runtime-media.ts` should return >= 1
 
+### 18. Fix stream race condition — media NDJSON event was never emitted
+
+**Risk:** Lower-risk — PersAI bridge file only
+
+**Files:**
+
+- `src/gateway/persai-runtime/persai-runtime-agent-turn.ts` — removed lifecycle `end` event handler that prematurely closed the HTTP response before `resolveAgentResponse` could extract and emit the `{ type: "media" }` NDJSON event
+
+**Why patch is required:** The `onAgentEvent` lifecycle `end` handler set `closed = true` and called `res.end()` before `agentCommandFromIngress` returned its result. The media extraction block was guarded by `if (closed) return`, so it was always skipped. The `finally` block already handled proper response closing, making the lifecycle handler redundant and harmful.
+
+**Introduced by:** M-series media stream delivery fix
+**Verify:**
+
+- `grep -c 'evt.stream === "lifecycle"' src/gateway/persai-runtime/persai-runtime-agent-turn.ts` should return 0 (lifecycle handler removed from stream function)
+
 ## Quick full verification
 
 Run `node scripts/verify-persai-patches.mjs` (see script in `scripts/`).

@@ -290,17 +290,6 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
       }
       return;
     }
-    if (evt.stream === "lifecycle") {
-      const phase = evt.data?.phase;
-      if (phase === "end" || phase === "error") {
-        closed = true;
-        unsubscribe();
-        params.res.write(
-          `${JSON.stringify({ type: "done", respondedAt: new Date().toISOString() })}\n`,
-        );
-        params.res.end();
-      }
-    }
   });
 
   params.req.on("close", () => {
