@@ -364,6 +364,17 @@ check("persai-runtime-context.ts has Yandex TTS env fallback", () =>
   fileContains("src/agents/persai-runtime-context.ts", "YANDEX_TTS_API_KEY"),
 );
 
+console.log("\n[19] Tool-generated media saves to user workspace (M-series M8 hotfix)");
+check("store.ts has baseDirOverride parameter", () =>
+  fileContainsCount("src/media/store.ts", "baseDirOverride") >= 2,
+);
+check("image-generate-tool.ts redirects saves to workspaceDir/media", () =>
+  fileContainsCount("src/agents/tools/image-generate-tool.ts", "mediaBaseDir") >= 2,
+);
+check("persai-runtime-media.ts imports resolvePersaiWorkspaceRoot", () =>
+  fileContains("src/gateway/persai-runtime/persai-runtime-media.ts", "resolvePersaiWorkspaceRoot"),
+);
+
 console.log(`\n--- Result: ${checks - failures}/${checks} passed ---`);
 if (failures > 0) {
   console.error(

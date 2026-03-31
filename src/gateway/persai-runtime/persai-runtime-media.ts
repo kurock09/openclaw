@@ -5,16 +5,25 @@ import * as path from "node:path";
 import { loadConfig } from "../../config/config.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { transcribeAudioFile } from "../../media-understanding/transcribe-audio.js";
-import { authorizeHttpGatewayConnect, type ResolvedGatewayAuth } from "../auth.js";
+import {
+  authorizeHttpGatewayConnect,
+  type ResolvedGatewayAuth,
+} from "../auth.js";
 import { sendGatewayAuthFailure } from "../http-common.js";
 import { getBearerToken } from "../http-utils.js";
-import { resolvePersaiAssistantWorkspaceDir } from "./persai-runtime-workspace.js";
+import {
+  resolvePersaiAssistantWorkspaceDir,
+  resolvePersaiWorkspaceRoot,
+} from "./persai-runtime-workspace.js";
 
 const log = createSubsystemLogger("persai-runtime-media");
 
-export const RUNTIME_WORKSPACE_MEDIA_UPLOAD_PATH = "/api/v1/runtime/workspace/media/upload";
-export const RUNTIME_WORKSPACE_MEDIA_DOWNLOAD_PATH = "/api/v1/runtime/workspace/media/download";
-export const RUNTIME_WORKSPACE_MEDIA_DELETE_PATH = "/api/v1/runtime/workspace/media/delete";
+export const RUNTIME_WORKSPACE_MEDIA_UPLOAD_PATH =
+  "/api/v1/runtime/workspace/media/upload";
+export const RUNTIME_WORKSPACE_MEDIA_DOWNLOAD_PATH =
+  "/api/v1/runtime/workspace/media/download";
+export const RUNTIME_WORKSPACE_MEDIA_DELETE_PATH =
+  "/api/v1/runtime/workspace/media/delete";
 export const RUNTIME_WORKSPACE_MEDIA_DELETE_CHAT_PATH =
   "/api/v1/runtime/workspace/media/delete-chat";
 export const RUNTIME_WORKSPACE_MEDIA_TRANSCRIBE_PATH =
@@ -52,13 +61,23 @@ function resolveMediaDir(assistantId: string): string {
   return path.join(workspaceDir, MEDIA_DIR_NAME);
 }
 
-function resolveMediaFilePath(assistantId: string, relativePath: string): string | null {
+function resolveMediaFilePath(
+  assistantId: string,
+  storagePath: string,
+): string | null {
   const mediaDir = resolveMediaDir(assistantId);
-  const resolved = path.resolve(mediaDir, relativePath);
-  if (!resolved.startsWith(mediaDir)) {
-    return null;
+  const resolved = path.resolve(mediaDir, storagePath);
+  if (resolved.startsWith(mediaDir + path.sep) || resolved === mediaDir) {
+    return resolved;
   }
-  return resolved;
+  const workspaceRoot = resolvePersaiWorkspaceRoot();
+  if (
+    resolved.startsWith(workspaceRoot + path.sep) ||
+    resolved === workspaceRoot
+  ) {
+    return resolved;
+  }
+  return null;
 }
 
 const MIME_EXT_MAP: Record<string, string> = {
@@ -100,7 +119,14 @@ export async function handleRuntimeWorkspaceMediaUploadHttpRequest(params: {
   trustedProxies: string[];
   allowRealIpFallback: boolean;
 }): Promise<boolean> {
-  const { req, res, requestPath, resolvedAuth, trustedProxies, allowRealIpFallback } = params;
+  const {
+    req,
+    res,
+    requestPath,
+    resolvedAuth,
+    trustedProxies,
+    allowRealIpFallback,
+  } = params;
   if (requestPath !== RUNTIME_WORKSPACE_MEDIA_UPLOAD_PATH) {
     return false;
   }
@@ -112,7 +138,9 @@ export async function handleRuntimeWorkspaceMediaUploadHttpRequest(params: {
   const bearerToken = getBearerToken(req);
   const auth = await authorizeHttpGatewayConnect({
     auth: resolvedAuth,
-    connectAuth: bearerToken ? { token: bearerToken, password: bearerToken } : null,
+    connectAuth: bearerToken
+      ? { token: bearerToken, password: bearerToken }
+      : null,
     req,
     trustedProxies,
     allowRealIpFallback,
@@ -126,10 +154,14 @@ export async function handleRuntimeWorkspaceMediaUploadHttpRequest(params: {
   const assistantId = url.searchParams.get("assistantId")?.trim();
   const chatId = url.searchParams.get("chatId")?.trim();
   const messageId = url.searchParams.get("messageId")?.trim();
-  const mimeType = (req.headers["content-type"] ?? "application/octet-stream").split(";")[0].trim();
+  const mimeType = (req.headers["content-type"] ?? "application/octet-stream")
+    .split(";")[0]
+    .trim();
 
   if (!assistantId || !chatId || !messageId) {
-    sendJson(res, 400, { error: "assistantId, chatId, and messageId are required." });
+    sendJson(res, 400, {
+      error: "assistantId, chatId, and messageId are required.",
+    });
     return true;
   }
 
@@ -177,7 +209,14 @@ export async function handleRuntimeWorkspaceMediaDownloadHttpRequest(params: {
   trustedProxies: string[];
   allowRealIpFallback: boolean;
 }): Promise<boolean> {
-  const { req, res, requestPath, resolvedAuth, trustedProxies, allowRealIpFallback } = params;
+  const {
+    req,
+    res,
+    requestPath,
+    resolvedAuth,
+    trustedProxies,
+    allowRealIpFallback,
+  } = params;
   if (requestPath !== RUNTIME_WORKSPACE_MEDIA_DOWNLOAD_PATH) {
     return false;
   }
@@ -189,7 +228,9 @@ export async function handleRuntimeWorkspaceMediaDownloadHttpRequest(params: {
   const bearerToken = getBearerToken(req);
   const auth = await authorizeHttpGatewayConnect({
     auth: resolvedAuth,
-    connectAuth: bearerToken ? { token: bearerToken, password: bearerToken } : null,
+    connectAuth: bearerToken
+      ? { token: bearerToken, password: bearerToken }
+      : null,
     req,
     trustedProxies,
     allowRealIpFallback,
@@ -238,7 +279,14 @@ export async function handleRuntimeWorkspaceMediaDeleteHttpRequest(params: {
   trustedProxies: string[];
   allowRealIpFallback: boolean;
 }): Promise<boolean> {
-  const { req, res, requestPath, resolvedAuth, trustedProxies, allowRealIpFallback } = params;
+  const {
+    req,
+    res,
+    requestPath,
+    resolvedAuth,
+    trustedProxies,
+    allowRealIpFallback,
+  } = params;
   if (requestPath !== RUNTIME_WORKSPACE_MEDIA_DELETE_PATH) {
     return false;
   }
@@ -250,7 +298,9 @@ export async function handleRuntimeWorkspaceMediaDeleteHttpRequest(params: {
   const bearerToken = getBearerToken(req);
   const auth = await authorizeHttpGatewayConnect({
     auth: resolvedAuth,
-    connectAuth: bearerToken ? { token: bearerToken, password: bearerToken } : null,
+    connectAuth: bearerToken
+      ? { token: bearerToken, password: bearerToken }
+      : null,
     req,
     trustedProxies,
     allowRealIpFallback,
@@ -293,7 +343,14 @@ export async function handleRuntimeWorkspaceMediaDeleteChatHttpRequest(params: {
   trustedProxies: string[];
   allowRealIpFallback: boolean;
 }): Promise<boolean> {
-  const { req, res, requestPath, resolvedAuth, trustedProxies, allowRealIpFallback } = params;
+  const {
+    req,
+    res,
+    requestPath,
+    resolvedAuth,
+    trustedProxies,
+    allowRealIpFallback,
+  } = params;
   if (requestPath !== RUNTIME_WORKSPACE_MEDIA_DELETE_CHAT_PATH) {
     return false;
   }
@@ -305,7 +362,9 @@ export async function handleRuntimeWorkspaceMediaDeleteChatHttpRequest(params: {
   const bearerToken = getBearerToken(req);
   const auth = await authorizeHttpGatewayConnect({
     auth: resolvedAuth,
-    connectAuth: bearerToken ? { token: bearerToken, password: bearerToken } : null,
+    connectAuth: bearerToken
+      ? { token: bearerToken, password: bearerToken }
+      : null,
     req,
     trustedProxies,
     allowRealIpFallback,
@@ -345,7 +404,14 @@ export async function handleRuntimeWorkspaceMediaTranscribeHttpRequest(params: {
   trustedProxies: string[];
   allowRealIpFallback: boolean;
 }): Promise<boolean> {
-  const { req, res, requestPath, resolvedAuth, trustedProxies, allowRealIpFallback } = params;
+  const {
+    req,
+    res,
+    requestPath,
+    resolvedAuth,
+    trustedProxies,
+    allowRealIpFallback,
+  } = params;
   if (requestPath !== RUNTIME_WORKSPACE_MEDIA_TRANSCRIBE_PATH) {
     return false;
   }
@@ -357,7 +423,9 @@ export async function handleRuntimeWorkspaceMediaTranscribeHttpRequest(params: {
   const bearerToken = getBearerToken(req);
   const auth = await authorizeHttpGatewayConnect({
     auth: resolvedAuth,
-    connectAuth: bearerToken ? { token: bearerToken, password: bearerToken } : null,
+    connectAuth: bearerToken
+      ? { token: bearerToken, password: bearerToken }
+      : null,
     req,
     trustedProxies,
     allowRealIpFallback,
@@ -394,11 +462,19 @@ export async function handleRuntimeWorkspaceMediaTranscribeHttpRequest(params: {
       cfg,
     });
     const text = result.text ?? "";
-    log.debug("audio transcribed", { assistantId, storagePath, textLength: text.length });
+    log.debug("audio transcribed", {
+      assistantId,
+      storagePath,
+      textLength: text.length,
+    });
     sendJson(res, 200, { ok: true, text });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    log.warn("audio transcription failed", { assistantId, storagePath, error: msg });
+    log.warn("audio transcription failed", {
+      assistantId,
+      storagePath,
+      error: msg,
+    });
     sendJson(res, 500, { ok: false, error: `Transcription failed: ${msg}` });
   }
   return true;

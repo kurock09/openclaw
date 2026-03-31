@@ -322,6 +322,25 @@ Before preserving or adding a higher-risk patch, confirm:
 - `grep -c 'yandex' src/secrets/runtime-config-collectors-tts.ts` should return >= 1
 - `grep -c 'YANDEX_TTS_API_KEY' src/agents/persai-runtime-context.ts` should return >= 1
 
+### 17. Tool-generated media saves to user workspace + download path fix (M-series M8 hotfix)
+
+**Risk:** Higher-risk — native OpenClaw `store.ts` and `image-generate-tool.ts` patched
+
+**Files:**
+
+- `src/media/store.ts` — `saveMediaBuffer` accepts optional `baseDirOverride` parameter to redirect media writes away from `.openclaw-state/media/` to a caller-chosen directory
+- `src/agents/tools/image-generate-tool.ts` — when `workspaceDir` is set, passes `workspaceDir/media` as `baseDirOverride` so generated images persist in the user workspace and are reachable by PersAI download handler
+- `src/gateway/persai-runtime/persai-runtime-media.ts` — `resolveMediaFilePath` now accepts paths under `PERSAI_WORKSPACE_ROOT` (not just `workspaceDir/media/`) as a safety net for tool-generated media
+
+**Why native patch is required:** `saveMediaBuffer` is a core OpenClaw media utility with a hardcoded save directory. PersAI needs tool-generated images to land in the per-user workspace so they survive cleanup and are served by the PersAI download handler. Without the `baseDirOverride` parameter, there is no way to redirect the save path from a PersAI-only fix.
+
+**Introduced by:** M-series M8 hotfix (tool media delivery)
+**Verify:**
+
+- `grep -c 'baseDirOverride' src/media/store.ts` should return >= 2
+- `grep -c 'mediaBaseDir' src/agents/tools/image-generate-tool.ts` should return >= 2
+- `grep -c 'resolvePersaiWorkspaceRoot' src/gateway/persai-runtime/persai-runtime-media.ts` should return >= 1
+
 ## Quick full verification
 
 Run `node scripts/verify-persai-patches.mjs` (see script in `scripts/`).
