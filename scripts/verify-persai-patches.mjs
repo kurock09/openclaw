@@ -388,6 +388,14 @@ check("run.ts has _effectiveOnBlockReply callback", () =>
   fileContainsCount("src/agents/pi-embedded-runner/run.ts", "_effectiveOnBlockReply") >= 2,
 );
 
+console.log("\n[22] Telegram agent turn includes media in response");
+check("persai-runtime-agent-turn.ts uses resolveAgentResponse in telegram turn", () =>
+  fileContainsCount("src/gateway/persai-runtime/persai-runtime-agent-turn.ts", "resolveAgentResponse(result)") >= 2,
+);
+check("persai-runtime-http.ts includes media in telegram channel response", () =>
+  fileContainsCount("src/gateway/persai-runtime/persai-runtime-http.ts", "media: agentOut.media") >= 2,
+);
+
 console.log(`\n--- Result: ${checks - failures}/${checks} passed ---`);
 if (failures > 0) {
   console.error(

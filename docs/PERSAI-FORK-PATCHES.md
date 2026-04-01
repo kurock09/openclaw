@@ -372,6 +372,23 @@ Before preserving or adding a higher-risk patch, confirm:
 - `grep -c '_capturedBlockReplyMedia' src/agents/pi-embedded-runner/run.ts` should return >= 4
 - `grep -c '_effectiveOnBlockReply' src/agents/pi-embedded-runner/run.ts` should return >= 2
 
+### 20. Include media in Telegram agent turn response
+
+**Risk:** Lower-risk — Telegram code path only, no effect on web
+
+**Files:**
+
+- `src/gateway/persai-runtime/persai-runtime-agent-turn.ts` — `runPersaiTelegramAgentTurn` now calls `resolveAgentResponse` (text + media) instead of `resolveAgentResponseText` (text only), and its return type includes the `media` field
+- `src/gateway/persai-runtime/persai-runtime-http.ts` — the Telegram channel HTTP handler now includes `media: agentOut.media` in the JSON response, matching the web sync endpoint
+
+**Why patch is required:** `runPersaiTelegramAgentTurn` used `resolveAgentResponseText` which discards the media array. The HTTP handler also omitted `media` from the response JSON. As a result, even though `_capturedBlockReplyMedia` (patch #19) successfully captured tool-generated images, the media never reached the OpenClaw Telegram polling handler's `deliverTelegramMedia` function. Images were generated and saved to disk but never sent to the Telegram chat.
+
+**Introduced by:** M-series Telegram media delivery fix
+**Verify:**
+
+- `grep -c 'resolveAgentResponse(result)' src/gateway/persai-runtime/persai-runtime-agent-turn.ts` should return >= 2 (web sync + telegram)
+- `grep -c 'media: agentOut.media' src/gateway/persai-runtime/persai-runtime-http.ts` should return >= 2 (web sync + telegram channel)
+
 ## Quick full verification
 
 Run `node scripts/verify-persai-patches.mjs` (see script in `scripts/`).
