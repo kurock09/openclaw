@@ -11,8 +11,7 @@ import {
 import path from "node:path";
 import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-payload";
 import type { ReplyPayload } from "../auto-reply/types.js";
-import { normalizeChannelId } from "../channels/plugins/index.js";
-import type { ChannelId } from "../channels/plugins/types.js";
+import { normalizeMessageChannel } from "../utils/message-channel.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { normalizeResolvedSecretInputString } from "../config/types.secrets.js";
 import type {
@@ -592,8 +591,8 @@ function resolveOutputFormat(channelId?: string | null) {
   return DEFAULT_OUTPUT;
 }
 
-function resolveChannelId(channel: string | undefined): ChannelId | null {
-  return channel ? normalizeChannelId(channel) : null;
+function resolveChannelId(channel: string | undefined): string | null {
+  return channel ? normalizeMessageChannel(channel) ?? null : null;
 }
 
 function resolveEdgeOutputFormat(config: ResolvedTtsConfig): string {
