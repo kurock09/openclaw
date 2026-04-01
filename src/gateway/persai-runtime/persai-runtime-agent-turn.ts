@@ -49,6 +49,23 @@ type AgentResponse = {
   media: PersaiMediaArtifact[];
 };
 
+const TTS_BLOCK_RE = /\[\[tts:text\]\]([\s\S]*?)\[\[\/tts:text\]\]/gi;
+const TTS_TECHNICAL_RE = /\[\[tts:\w+=\S*?\]\]/gi;
+const TTS_INLINE_RE = /\[\[tts:([^\]]*?)\]\]/gi;
+const TTS_BARE_RE = /\[\[tts\]\]/gi;
+const TTS_CLOSE_RE = /\[\[\/tts(?::text)?\]\]/gi;
+
+function stripTtsDirectivesForDisplay(text: string): string {
+  if (!text || !text.includes("[[tts")) return text;
+  return text
+    .replace(TTS_BLOCK_RE, "$1")
+    .replace(TTS_TECHNICAL_RE, "")
+    .replace(TTS_INLINE_RE, "$1")
+    .replace(TTS_BARE_RE, "")
+    .replace(TTS_CLOSE_RE, "")
+    .trim();
+}
+
 function inferMediaType(url: string): PersaiMediaArtifact["type"] {
   const lower = url.toLowerCase();
   if (/\.(png|jpe?g|gif|webp|svg|bmp)$/.test(lower)) return "image";
@@ -83,9 +100,9 @@ function resolveAgentResponse(result: unknown): AgentResponse {
     }
   }
 
-  const text =
+  const raw_text =
     textParts.filter(Boolean).join("\n\n") || "No response from OpenClaw.";
-  return { text, media };
+  return { text: stripTtsDirectivesForDisplay(raw_text), media };
 }
 
 function resolveAgentResponseText(result: unknown): string {
@@ -304,7 +321,8 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
       return;
     }
     if (evt.stream === "assistant") {
-      const content = resolveAssistantStreamDeltaText(evt) ?? "";
+      const rawContent = resolveAssistantStreamDeltaText(evt) ?? "";
+      const content = stripTtsDirectivesForDisplay(rawContent);
       if (content) {
         sawAssistantDelta = true;
         params.res.write(
