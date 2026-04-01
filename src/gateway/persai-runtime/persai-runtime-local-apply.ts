@@ -9,6 +9,9 @@ import {
   validateToolPolicyForApply,
 } from "./persai-runtime-tool-policy.js";
 import { writeBootstrapFilesToWorkspace } from "./persai-runtime-workspace.js";
+import { createSubsystemLogger } from "../../logging/subsystem.js";
+
+const log = createSubsystemLogger("persai-runtime");
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -148,7 +151,7 @@ export async function applyPersaiRuntimeSpecLocally(params: {
     store,
     workspaceDir: bootstrapFiles.workspaceDir,
   }).catch((err) => {
-    console.error(`[persai-runtime] Telegram bot sync failed for ${assistantId}:`, err);
+    log.error(`Telegram bot sync failed for ${assistantId}`, { error: err });
   });
 
   return {
