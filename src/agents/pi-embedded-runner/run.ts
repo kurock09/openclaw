@@ -1652,9 +1652,6 @@ export async function runEmbeddedPiAgent(
 
           // PersAI patch: merge tool-generated media captured from block replies
           // into result payloads when no external onBlockReply was provided.
-          if (!_hasExternalBlockReply) {
-            console.log(`[persai-media-merge] captured=${_capturedBlockReplyMedia.length} payloads=${payloads.length}`);
-          }
           if (!_hasExternalBlockReply && _capturedBlockReplyMedia.length > 0) {
             for (const captured of _capturedBlockReplyMedia) {
               if (!captured.mediaUrls.length) continue;
