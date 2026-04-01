@@ -1,5 +1,8 @@
 import type { SpeechProviderPlugin } from "../../plugins/types.js";
-import { resolvePersaiToolCredentialForEnvVars } from "../../agents/persai-runtime-context.js";
+import {
+  getPersaiToolCredential,
+  resolvePersaiToolCredentialForEnvVars,
+} from "../../agents/persai-runtime-context.js";
 
 const DEFAULT_YANDEX_TTS_URL =
   "https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize";
@@ -47,11 +50,8 @@ function resolveYandexApiKey(config: {
 
 function resolveYandexIamToken(): string | undefined {
   return (
-    resolvePersaiToolCredentialForEnvVars({
-      envVars: ["YANDEX_IAM_TOKEN"],
-      provider: "yandex",
-      toolName: "tts",
-    })?.value || process.env.YANDEX_IAM_TOKEN
+    getPersaiToolCredential("YANDEX_IAM_TOKEN") ||
+    process.env.YANDEX_IAM_TOKEN
   );
 }
 
@@ -60,11 +60,7 @@ function resolveYandexFolderId(config: {
 }): string | undefined {
   return (
     config.yandex?.folderId ||
-    resolvePersaiToolCredentialForEnvVars({
-      envVars: ["YANDEX_FOLDER_ID"],
-      provider: "yandex",
-      toolName: "tts",
-    })?.value ||
+    getPersaiToolCredential("YANDEX_FOLDER_ID") ||
     process.env.YANDEX_FOLDER_ID
   );
 }
