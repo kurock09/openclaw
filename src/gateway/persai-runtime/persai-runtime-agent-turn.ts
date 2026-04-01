@@ -186,7 +186,9 @@ export async function runPersaiTelegramAgentTurn(params: {
   toolLimitWebhookUrl?: string;
   cronWebhookUrl?: string;
   workspaceDir?: string;
-}): Promise<{ ok: true; assistantMessage: string } | { ok: false; error: PersaiRuntimeTurnError }> {
+}): Promise<
+  { ok: true; assistantMessage: string; media: PersaiMediaArtifact[] } | { ok: false; error: PersaiRuntimeTurnError }
+> {
   const runId = randomUUID();
   const deps = createDefaultDeps();
   const commandInput = {
@@ -218,7 +220,8 @@ export async function runPersaiTelegramAgentTurn(params: {
     const result = await persaiRuntimeRequestContext.run(runtimeCtx, () =>
       agentCommandFromIngress(commandInput, defaultRuntime, deps),
     );
-    return { ok: true, assistantMessage: resolveAgentResponseText(result) };
+    const response = resolveAgentResponse(result);
+    return { ok: true, assistantMessage: response.text, media: response.media };
   } catch (err) {
     const normalized = toPersaiRuntimeTurnError(err);
     logWarn(`persai-runtime: telegram agent turn failed: ${normalized.message}`);
