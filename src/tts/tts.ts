@@ -836,6 +836,7 @@ export async function synthesizeSpeech(params: {
 
   const errors: string[] = [];
 
+  logVerbose(`TTS: provider order: [${providers.join(", ")}], target=${target}`);
   for (const provider of providers) {
     const providerStart = Date.now();
     try {
@@ -846,8 +847,10 @@ export async function synthesizeSpeech(params: {
         errors,
       });
       if (!resolvedProvider) {
+        logVerbose(`TTS: provider ${provider} skipped (not configured or not registered)`);
         continue;
       }
+      logVerbose(`TTS: trying provider ${provider}...`);
       const synthesis = await resolvedProvider.synthesize({
         text: params.text,
         cfg: params.cfg,
@@ -855,6 +858,7 @@ export async function synthesizeSpeech(params: {
         target,
         overrides: params.overrides,
       });
+      logVerbose(`TTS: provider ${provider} succeeded in ${Date.now() - providerStart}ms, format=${synthesis.outputFormat}`);
       return {
         success: true,
         audioBuffer: synthesis.audioBuffer,
@@ -865,7 +869,9 @@ export async function synthesizeSpeech(params: {
         fileExtension: synthesis.fileExtension,
       };
     } catch (err) {
-      errors.push(formatTtsProviderError(provider, err));
+      const errMsg = formatTtsProviderError(provider, err);
+      logVerbose(`TTS: provider ${provider} failed after ${Date.now() - providerStart}ms: ${errMsg}`);
+      errors.push(errMsg);
     }
   }
 
