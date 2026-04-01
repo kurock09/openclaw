@@ -380,6 +380,14 @@ check("persai-runtime-agent-turn.ts has NO lifecycle handler in stream function"
   fileContainsCount("src/gateway/persai-runtime/persai-runtime-agent-turn.ts", 'evt.stream === "lifecycle"') === 0,
 );
 
+console.log("\n[21] Tool media capture fallback in runEmbeddedPiAgent");
+check("run.ts has _capturedBlockReplyMedia array", () =>
+  fileContainsCount("src/agents/pi-embedded-runner/run.ts", "_capturedBlockReplyMedia") >= 4,
+);
+check("run.ts has _effectiveOnBlockReply callback", () =>
+  fileContainsCount("src/agents/pi-embedded-runner/run.ts", "_effectiveOnBlockReply") >= 2,
+);
+
 console.log(`\n--- Result: ${checks - failures}/${checks} passed ---`);
 if (failures > 0) {
   console.error(

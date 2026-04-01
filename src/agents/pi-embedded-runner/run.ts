@@ -274,6 +274,24 @@ export async function runEmbeddedPiAgent(
   const enqueueSession =
     params.enqueue ?? ((task, opts) => enqueueCommandInLane(sessionLane, task, opts));
   const channelHint = params.messageChannel ?? params.messageProvider;
+
+  // PersAI patch: when no onBlockReply is provided (e.g. agentCommandFromIngress),
+  // tool-generated media from pendingToolMediaUrls is silently lost because
+  // emitBlockReplySafely returns early.  Capture media-bearing block replies
+  // so they can be merged into result.payloads after the run.
+  const _capturedBlockReplyMedia: Array<{ mediaUrls: string[]; audioAsVoice?: boolean }> = [];
+  const _hasExternalBlockReply = typeof params.onBlockReply === "function";
+  const _effectiveOnBlockReply = _hasExternalBlockReply
+    ? params.onBlockReply
+    : (payload: { mediaUrls?: string[]; audioAsVoice?: boolean }) => {
+        if (payload.mediaUrls && payload.mediaUrls.length > 0) {
+          _capturedBlockReplyMedia.push({
+            mediaUrls: [...payload.mediaUrls],
+            ...(payload.audioAsVoice ? { audioAsVoice: true } : {}),
+          });
+        }
+      };
+
   const resolvedToolResultFormat =
     params.toolResultFormat ??
     (channelHint
@@ -985,7 +1003,7 @@ export async function runEmbeddedPiAgent(
             shouldEmitToolOutput: params.shouldEmitToolOutput,
             onPartialReply: params.onPartialReply,
             onAssistantMessageStart: params.onAssistantMessageStart,
-            onBlockReply: params.onBlockReply,
+            onBlockReply: _effectiveOnBlockReply,
             onBlockReplyFlush: params.onBlockReplyFlush,
             blockReplyBreak: params.blockReplyBreak,
             blockReplyChunking: params.blockReplyChunking,
@@ -1631,6 +1649,31 @@ export async function runEmbeddedPiAgent(
             didSendViaMessagingTool: attempt.didSendViaMessagingTool,
             didSendDeterministicApprovalPrompt: attempt.didSendDeterministicApprovalPrompt,
           });
+
+          // PersAI patch: merge tool-generated media captured from block replies
+          // into result payloads when no external onBlockReply was provided.
+          if (!_hasExternalBlockReply && _capturedBlockReplyMedia.length > 0) {
+            for (const captured of _capturedBlockReplyMedia) {
+              if (!captured.mediaUrls.length) continue;
+              if (payloads.length > 0) {
+                const last = payloads[payloads.length - 1];
+                const merged = Array.from(
+                  new Set([...(last.mediaUrls ?? []), ...captured.mediaUrls]),
+                );
+                last.mediaUrls = merged;
+                last.mediaUrl = last.mediaUrl ?? captured.mediaUrls[0];
+                if (captured.audioAsVoice) last.audioAsVoice = true;
+              } else {
+                payloads.push({
+                  text: undefined,
+                  mediaUrls: captured.mediaUrls,
+                  mediaUrl: captured.mediaUrls[0],
+                  audioAsVoice: captured.audioAsVoice,
+                });
+              }
+            }
+            _capturedBlockReplyMedia.length = 0;
+          }
 
           // Timeout aborts can leave the run without any assistant payloads.
           // Emit an explicit timeout error instead of silently completing, so

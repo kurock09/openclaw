@@ -356,6 +356,22 @@ Before preserving or adding a higher-risk patch, confirm:
 
 - `grep -c 'evt.stream === "lifecycle"' src/gateway/persai-runtime/persai-runtime-agent-turn.ts` should return 0 (lifecycle handler removed from stream function)
 
+### 19. Capture tool-generated media into result payloads when onBlockReply is absent
+
+**Risk:** Lower-risk — no behavior change when `onBlockReply` is provided by the caller
+
+**Files:**
+
+- `src/agents/pi-embedded-runner/run.ts` — added a fallback `onBlockReply` that captures media-bearing block replies into a local array, then merges them into `result.payloads` after `buildEmbeddedRunPayloads`
+
+**Why patch is required:** `agentCommandFromIngress` (used by PersAI web/Telegram runtime) does not pass `onBlockReply` to `runEmbeddedPiAgent`. Tool-generated media (e.g. from `image_generate`) flows exclusively through the block-reply callback via `consumePendingToolMediaReply`. Without `onBlockReply`, `emitBlockReplySafely` returns early and the media URLs are silently lost. `buildEmbeddedRunPayloads` only extracts media from `MEDIA:` text directives in `assistantTexts`, not from `pendingToolMediaUrls`. This patch provides a minimal media-capture fallback so tool-generated media appears in `result.payloads` and reaches the PersAI NDJSON/Telegram delivery pipeline.
+
+**Introduced by:** M-series media delivery root-cause fix
+**Verify:**
+
+- `grep -c '_capturedBlockReplyMedia' src/agents/pi-embedded-runner/run.ts` should return >= 4
+- `grep -c '_effectiveOnBlockReply' src/agents/pi-embedded-runner/run.ts` should return >= 2
+
 ## Quick full verification
 
 Run `node scripts/verify-persai-patches.mjs` (see script in `scripts/`).

@@ -61,27 +61,11 @@ function resolveAgentResponse(result: unknown): AgentResponse {
   const raw = result as { payloads?: unknown[] } | null;
   const payloads = Array.isArray(raw?.payloads) ? raw.payloads : [];
 
-  console.log(
-    `[persai-media-debug] payloads count=${payloads.length}, keys=${JSON.stringify(payloads.map((p: Record<string, unknown>) => Object.keys(p)))}`,
-  );
-  for (const [i, p] of payloads.entries()) {
-    const pp = p as Record<string, unknown>;
-    if (pp.mediaUrls || pp.mediaUrl) {
-      console.log(
-        `[persai-media-debug] payload[${i}] mediaUrls=${JSON.stringify(pp.mediaUrls)} mediaUrl=${JSON.stringify(pp.mediaUrl)}`,
-      );
-    }
-  }
-
   if (payloads.length === 0) {
     return { text: "No response from OpenClaw.", media: [] };
   }
 
   const normalized = normalizeOutboundPayloads(payloads as never[]);
-
-  console.log(
-    `[persai-media-debug] normalized count=${normalized.length}, mediaUrls=${JSON.stringify(normalized.map((n) => n.mediaUrls))}`,
-  );
 
   const textParts: string[] = [];
   const media: PersaiMediaArtifact[] = [];
@@ -98,8 +82,6 @@ function resolveAgentResponse(result: unknown): AgentResponse {
       });
     }
   }
-
-  console.log(`[persai-media-debug] final media count=${media.length}`);
 
   const text = textParts.filter(Boolean).join("\n\n") || "No response from OpenClaw.";
   return { text, media };
