@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import path from "node:path";
 import { persaiRuntimeRequestContext } from "../../agents/openclaw-tools.js";
 import { PersaiRuntimeToolLimitError } from "../../agents/persai-runtime-tool-limits.js";
 import { createDefaultDeps } from "../../cli/deps.js";
@@ -149,19 +150,27 @@ function stripTtsDirectives(text: string): string {
  * Process the agent result through the TTS pipeline: `maybeApplyTtsToPayload`
  * parses `[[tts:…]]` directives, strips them from the display text, generates
  * audio when enabled, and returns a clean response with media artifacts.
+ *
+ * `workspaceDir` determines where audio files are written so that downstream
+ * delivery code (Telegram, web) can locate them on shared storage.
  */
 async function resolveAgentResponseWithTts(
   result: unknown,
   channel: string,
+  workspaceDir?: string,
 ): Promise<AgentResponse> {
   const response = resolveAgentResponse(result);
   try {
     const cfg = loadConfig();
+    const outputDir = workspaceDir
+      ? path.join(workspaceDir, "media", "tts")
+      : undefined;
     const ttsPayload = await maybeApplyTtsToPayload({
       payload: { text: response.text },
       cfg,
       channel,
       kind: "final",
+      outputDir,
     });
     const media = [...response.media];
     if (ttsPayload.mediaUrl) {
@@ -262,7 +271,9 @@ export async function runPersaiWebRuntimeAgentTurnSync(params: {
     const result = await persaiRuntimeRequestContext.run(runtimeCtx, () =>
       agentCommandFromIngress(commandInput, defaultRuntime, deps),
     );
-    const response = await resolveAgentResponseWithTts(result, "webchat");
+    const response = await persaiRuntimeRequestContext.run(runtimeCtx, () =>
+      resolveAgentResponseWithTts(result, "webchat", params.workspaceDir),
+    );
     return { ok: true, assistantMessage: response.text, media: response.media };
   } catch (err) {
     const normalized = toPersaiRuntimeTurnError(err);
@@ -327,7 +338,9 @@ export async function runPersaiTelegramAgentTurn(params: {
     const result = await persaiRuntimeRequestContext.run(runtimeCtx, () =>
       agentCommandFromIngress(commandInput, defaultRuntime, deps),
     );
-    const response = await resolveAgentResponseWithTts(result, "telegram");
+    const response = await persaiRuntimeRequestContext.run(runtimeCtx, () =>
+      resolveAgentResponseWithTts(result, "telegram", params.workspaceDir),
+    );
     return { ok: true, assistantMessage: response.text, media: response.media };
   } catch (err) {
     const normalized = toPersaiRuntimeTurnError(err);
@@ -439,7 +452,9 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
             `${JSON.stringify({ type: "delta", delta: flushed })}\n`,
           );
         }
-        const response = await resolveAgentResponseWithTts(result, "webchat");
+        const response = await persaiRuntimeRequestContext.run(runtimeCtx, () =>
+          resolveAgentResponseWithTts(result, "webchat", params.workspaceDir),
+        );
         if (!sawAssistantDelta) {
           params.res.write(
             `${JSON.stringify({ type: "delta", delta: response.text })}\n`,
