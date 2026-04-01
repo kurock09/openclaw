@@ -84,6 +84,9 @@ function resolveAgentResponse(result: unknown): AgentResponse {
   }
 
   const text = textParts.filter(Boolean).join("\n\n") || "No response from OpenClaw.";
+  if (media.length > 0) {
+    console.log(`[persai-media-resolve] media count=${media.length} urls=${JSON.stringify(media.map(m => m.url))}`);
+  }
   return { text, media };
 }
 
