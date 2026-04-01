@@ -431,6 +431,21 @@ Before preserving or adding a higher-risk patch, confirm:
 - `grep -c 'toolProviderOverrides' src/gateway/persai-runtime/persai-runtime-agent-turn.ts` should return >= 6
 - `grep -c 'YANDEX_TTS_API_KEY' src/tts/providers/yandex.ts` should return >= 2
 
+### 23. Explicit audio MIME type in transcribe handler
+
+**Risk:** Lower-risk — only changes how MIME is inferred in the PersAI transcribe endpoint
+
+**Files:**
+
+- `src/gateway/persai-runtime/persai-runtime-media.ts` — `handleRuntimeWorkspaceMediaTranscribeHttpRequest` now infers `audio/*` MIME from file extension before calling `transcribeAudioFile`, instead of relying on content-type sniffing which misclassified `.webm` as video
+
+**Why patch is required:** OpenClaw's `resolveAttachmentKind()` checks video extensions before audio, and `.webm` is a valid video container extension. When the transcribe handler passed no explicit MIME, the system classified webm voice recordings as "video" and skipped audio transcription entirely.
+
+**Introduced by:** Web voice transcription fix
+**Verify:**
+
+- `grep -c 'AUDIO_MIME_BY_EXT' src/gateway/persai-runtime/persai-runtime-media.ts` should return >= 2
+
 ## Quick full verification
 
 Run `node scripts/verify-persai-patches.mjs` (see script in `scripts/`).
