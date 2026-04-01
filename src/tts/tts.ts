@@ -703,18 +703,26 @@ export async function textToSpeech(params: {
   channel?: string;
   overrides?: TtsDirectiveOverrides;
   disableFallback?: boolean;
+  outputDir?: string;
 }): Promise<TtsResult> {
   const synthesis = await synthesizeSpeech(params);
   if (!synthesis.success || !synthesis.audioBuffer || !synthesis.fileExtension) {
     return buildTtsFailureResult([synthesis.error ?? "TTS conversion failed"]);
   }
 
-  const tempRoot = resolvePreferredOpenClawTmpDir();
-  mkdirSync(tempRoot, { recursive: true, mode: 0o700 });
-  const tempDir = mkdtempSync(path.join(tempRoot, "tts-"));
-  const audioPath = path.join(tempDir, `voice-${Date.now()}${synthesis.fileExtension}`);
-  writeFileSync(audioPath, synthesis.audioBuffer);
-  scheduleCleanup(tempDir);
+  let audioPath: string;
+  if (params.outputDir) {
+    mkdirSync(params.outputDir, { recursive: true });
+    audioPath = path.join(params.outputDir, `voice-${Date.now()}${synthesis.fileExtension}`);
+    writeFileSync(audioPath, synthesis.audioBuffer);
+  } else {
+    const tempRoot = resolvePreferredOpenClawTmpDir();
+    mkdirSync(tempRoot, { recursive: true, mode: 0o700 });
+    const tempDir = mkdtempSync(path.join(tempRoot, "tts-"));
+    audioPath = path.join(tempDir, `voice-${Date.now()}${synthesis.fileExtension}`);
+    writeFileSync(audioPath, synthesis.audioBuffer);
+    scheduleCleanup(tempDir);
+  }
 
   return {
     success: true,

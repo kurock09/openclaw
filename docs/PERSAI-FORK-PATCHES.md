@@ -389,6 +389,24 @@ Before preserving or adding a higher-risk patch, confirm:
 - `grep -c 'resolveAgentResponse(result)' src/gateway/persai-runtime/persai-runtime-agent-turn.ts` should return >= 2 (web sync + telegram)
 - `grep -c 'media: agentOut.media' src/gateway/persai-runtime/persai-runtime-http.ts` should return >= 2 (web sync + telegram channel)
 
+### 21. Redirect TTS audio output to user workspace
+
+**Risk:** Lower-risk — only changes save location when `workspaceDir` is set
+
+**Files:**
+
+- `src/agents/openclaw-tools.ts` — passes `workspaceDir` to `createTtsTool`
+- `src/agents/tools/tts-tool.ts` — accepts `workspaceDir`, computes `outputDir` as `workspaceDir/media/tts`
+- `src/tts/tts.ts` — `textToSpeech` accepts optional `outputDir`; when provided, saves audio there instead of ephemeral `/tmp/openclaw/tts-*`
+
+**Why patch is required:** TTS audio was saved to `/tmp/openclaw/` which is ephemeral and not accessible by PersAI's media download handler. PersAI API logs showed `Tool media not found on storage: /tmp/openclaw/tts-*/voice-*.mp3`. Same root cause as image_generate (patch #17).
+
+**Introduced by:** M-series TTS media delivery fix
+**Verify:**
+
+- `grep -c 'outputDir' src/tts/tts.ts` should return >= 3
+- `grep -c 'workspaceDir' src/agents/tools/tts-tool.ts` should return >= 2
+
 ## Quick full verification
 
 Run `node scripts/verify-persai-patches.mjs` (see script in `scripts/`).

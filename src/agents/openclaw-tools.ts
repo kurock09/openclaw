@@ -178,6 +178,7 @@ export function createOpenClawTools(
     createTtsTool({
       agentChannel: options?.agentChannel,
       config: options?.config,
+      workspaceDir,
     }),
     ...(imageGenerateTool ? [imageGenerateTool] : []),
     createGatewayTool({

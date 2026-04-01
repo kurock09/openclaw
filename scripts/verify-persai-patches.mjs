@@ -396,6 +396,14 @@ check("persai-runtime-http.ts includes media in telegram channel response", () =
   fileContainsCount("src/gateway/persai-runtime/persai-runtime-http.ts", "media: agentOut.media") >= 2,
 );
 
+console.log("\n[23] TTS audio output redirected to user workspace");
+check("tts.ts accepts outputDir parameter", () =>
+  fileContainsCount("src/tts/tts.ts", "outputDir") >= 3,
+);
+check("tts-tool.ts passes workspaceDir to textToSpeech", () =>
+  fileContainsCount("src/agents/tools/tts-tool.ts", "workspaceDir") >= 2,
+);
+
 console.log(`\n--- Result: ${checks - failures}/${checks} passed ---`);
 if (failures > 0) {
   console.error(
