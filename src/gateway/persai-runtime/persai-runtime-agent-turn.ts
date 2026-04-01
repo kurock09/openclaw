@@ -54,14 +54,52 @@ type AgentResponse = {
 const TTS_DIRECTIVE_RE = /\[\[\/?(tts(?::[^\]]*)?)\]\]/gi;
 
 /**
- * Lightweight regex strip for stream deltas — removes `[[tts:…]]` syntax so
- * partial chunks don't leak raw directives into the UI.  Full TTS processing
- * (audio generation + proper text cleaning) runs via `maybeApplyTtsToPayload`
- * once the agent turn completes.
+ * Stateful TTS directive stripper for streaming deltas.  Buffers text that
+ * looks like the start of a `[[tts:…]]` directive until enough tokens arrive
+ * to decide whether it's a complete directive (strip) or a false positive
+ * (flush as regular text).
  */
-function stripTtsFromDelta(text: string): string {
-  if (!text.includes("[[tts")) return text;
-  return text.replace(TTS_DIRECTIVE_RE, "");
+function createTtsDeltaStripper(): (text: string) => string {
+  let buffer = "";
+  return (text: string): string => {
+    buffer += text;
+    if (!buffer.includes("[[")) {
+      const out = buffer;
+      buffer = "";
+      return out;
+    }
+    let result = "";
+    let i = 0;
+    while (i < buffer.length) {
+      const openIdx = buffer.indexOf("[[", i);
+      if (openIdx === -1) {
+        result += buffer.slice(i);
+        i = buffer.length;
+        break;
+      }
+      result += buffer.slice(i, openIdx);
+      const afterOpen = buffer.slice(openIdx);
+      const match = afterOpen.match(/^\[\[\/?(tts(?::[^\]]*)?)\]\]/i);
+      if (match) {
+        i = openIdx + match[0].length;
+        continue;
+      }
+      if (/^\[\[\/?(tts[^\]]*)?$/i.test(afterOpen)) {
+        buffer = afterOpen;
+        return result;
+      }
+      result += "[[";
+      i = openIdx + 2;
+    }
+    buffer = "";
+    return result;
+  };
+}
+
+function flushTtsDeltaStripper(
+  stripper: (text: string) => string,
+): string {
+  return stripper("");
 }
 
 function inferMediaType(url: string): PersaiMediaArtifact["type"] {
@@ -103,6 +141,10 @@ function resolveAgentResponse(result: unknown): AgentResponse {
   return { text, media };
 }
 
+function stripTtsDirectives(text: string): string {
+  return text.replace(TTS_DIRECTIVE_RE, "").trim();
+}
+
 /**
  * Process the agent result through the TTS pipeline: `maybeApplyTtsToPayload`
  * parses `[[tts:…]]` directives, strips them from the display text, generates
@@ -129,12 +171,15 @@ async function resolveAgentResponseWithTts(
         audioAsVoice: ttsPayload.audioAsVoice ?? false,
       });
     }
-    return { text: ttsPayload.text?.trim() || response.text, media };
+    const cleaned = ttsPayload.text?.trim();
+    const fallback = stripTtsDirectives(response.text) || response.text;
+    return { text: cleaned || fallback, media };
   } catch (err) {
     logWarn(
       `persai-runtime: TTS processing failed, returning raw text: ${err instanceof Error ? err.message : String(err)}`,
     );
-    return response;
+    const fallback = stripTtsDirectives(response.text) || response.text;
+    return { text: fallback, media: response.media };
   }
 }
 
@@ -344,6 +389,7 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
 
   let closed = false;
   let sawAssistantDelta = false;
+  const stripDelta = createTtsDeltaStripper();
 
   const unsubscribe = onAgentEvent((evt) => {
     if (evt.runId !== runId || closed) {
@@ -351,7 +397,7 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
     }
     if (evt.stream === "assistant") {
       const rawContent = resolveAssistantStreamDeltaText(evt) ?? "";
-      const content = stripTtsFromDelta(rawContent);
+      const content = stripDelta(rawContent);
       if (content) {
         sawAssistantDelta = true;
         params.res.write(
@@ -385,6 +431,13 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
         );
         if (closed) {
           return;
+        }
+        const flushed = flushTtsDeltaStripper(stripDelta);
+        if (flushed) {
+          sawAssistantDelta = true;
+          params.res.write(
+            `${JSON.stringify({ type: "delta", delta: flushed })}\n`,
+          );
         }
         const response = await resolveAgentResponseWithTts(result, "webchat");
         if (!sawAssistantDelta) {
