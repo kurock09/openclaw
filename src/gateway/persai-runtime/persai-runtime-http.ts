@@ -116,6 +116,24 @@ export function extractPersonaInstructionsFromWorkspace(
   return ins.trim().slice(0, 4000);
 }
 
+const VALID_GENDERS = new Set(["male", "female", "neutral"]);
+
+export function extractAssistantGenderFromWorkspace(
+  workspace: unknown,
+): string | null {
+  if (!isRecord(workspace)) {
+    return null;
+  }
+  const persona = workspace.persona;
+  if (!isRecord(persona)) {
+    return null;
+  }
+  const g = typeof persona.assistantGender === "string"
+    ? persona.assistantGender.trim().toLowerCase()
+    : null;
+  return g && VALID_GENDERS.has(g) ? g : null;
+}
+
 function buildSchedulingContext(params: {
   currentTimeIso?: string;
   userTimezone?: string;
@@ -921,6 +939,7 @@ export async function handleRuntimeChatWebHttpRequest(params: {
       toolLimitWebhookUrl: resolveToolLimitWebhookUrl(),
       cronWebhookUrl: resolveCronWebhookUrl(assistantId),
       workspaceDir: applied.workspaceDir,
+      assistantGender: extractAssistantGenderFromWorkspace(applied.workspace),
     });
     if (!agentOut.ok) {
       sendJson(res, agentOut.error.status, {
@@ -1114,6 +1133,7 @@ export async function handleRuntimeChatChannelHttpRequest(params: {
     toolLimitWebhookUrl: resolveToolLimitWebhookUrl(),
     cronWebhookUrl: resolveCronWebhookUrl(assistantId),
     workspaceDir: applied.workspaceDir,
+    assistantGender: extractAssistantGenderFromWorkspace(applied.workspace),
   });
   if (!agentOut.ok) {
     sendJson(res, agentOut.error.status, {
@@ -1315,6 +1335,7 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
     toolLimitWebhookUrl: resolveToolLimitWebhookUrl(),
     cronWebhookUrl: resolveCronWebhookUrl(assistantId),
     workspaceDir: applied.workspaceDir,
+    assistantGender: extractAssistantGenderFromWorkspace(applied.workspace),
   });
   return true;
 }

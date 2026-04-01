@@ -15,6 +15,8 @@ export interface PersaiRuntimeRequestCtx {
   toolCredentials?: Map<string, string>;
   /** Per-request tool provider overrides (tool code → provider id, e.g. "tts" → "yandex"). */
   toolProviderOverrides?: Map<string, string>;
+  /** Persona gender from the materialized workspace spec ("male" | "female" | "neutral"). */
+  assistantGender?: string | null;
 }
 
 /**
@@ -75,6 +77,10 @@ export function withPersaiActiveTool<T>(toolName: string, run: () => T): T {
     },
     run,
   );
+}
+
+export function getPersaiAssistantGender(): string | null | undefined {
+  return persaiRuntimeRequestContext.getStore()?.assistantGender;
 }
 
 export function getPersaiToolProviderOverride(

@@ -1,8 +1,14 @@
 import type { SpeechProviderPlugin } from "../../plugins/types.js";
 import {
+  getPersaiAssistantGender,
   getPersaiToolCredential,
   resolvePersaiToolCredentialForEnvVars,
 } from "../../agents/persai-runtime-context.js";
+
+const YANDEX_GENDER_VOICES: Record<string, string> = {
+  male: "filipp",
+  female: "alena",
+};
 
 const DEFAULT_YANDEX_TTS_URL =
   "https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize";
@@ -166,7 +172,8 @@ export function buildYandexSpeechProvider(): SpeechProviderPlugin {
 
       const folderId = resolveYandexFolderId({ yandex });
       const format = req.target === "voice-note" ? "oggopus" : "mp3";
-      const voice = yandex?.voice || "alena";
+      const genderVoice = YANDEX_GENDER_VOICES[getPersaiAssistantGender() ?? ""];
+      const voice = yandex?.voice || genderVoice || "alena";
       const lang = yandex?.lang || "ru-RU";
       const emotion = yandex?.emotion || "neutral";
       const speed = yandex?.speed ?? 1.0;

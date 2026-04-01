@@ -1,6 +1,14 @@
 import type { SpeechProviderPlugin } from "../../plugins/types.js";
-import { resolvePersaiToolCredentialForEnvVars } from "../../agents/persai-runtime-context.js";
+import {
+  getPersaiAssistantGender,
+  resolvePersaiToolCredentialForEnvVars,
+} from "../../agents/persai-runtime-context.js";
 import { OPENAI_TTS_MODELS, OPENAI_TTS_VOICES, openaiTTS } from "../tts-core.js";
+
+const OPENAI_GENDER_VOICES: Record<string, string> = {
+  male: "onyx",
+  female: "nova",
+};
 
 export function buildOpenAISpeechProvider(): SpeechProviderPlugin {
   return {
@@ -32,12 +40,13 @@ export function buildOpenAISpeechProvider(): SpeechProviderPlugin {
         throw new Error("OpenAI API key missing");
       }
       const responseFormat = req.target === "voice-note" ? "opus" : "mp3";
+      const genderVoice = OPENAI_GENDER_VOICES[getPersaiAssistantGender() ?? ""];
       const audioBuffer = await openaiTTS({
         text: req.text,
         apiKey,
         baseUrl: req.config.openai.baseUrl,
         model: req.overrides?.openai?.model ?? req.config.openai.model,
-        voice: req.overrides?.openai?.voice ?? req.config.openai.voice,
+        voice: req.overrides?.openai?.voice ?? genderVoice ?? req.config.openai.voice,
         speed: req.overrides?.openai?.speed ?? req.config.openai.speed,
         instructions: req.config.openai.instructions,
         responseFormat,

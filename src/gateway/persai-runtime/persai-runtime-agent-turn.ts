@@ -137,6 +137,7 @@ export async function runPersaiWebRuntimeAgentTurnSync(params: {
   toolLimitWebhookUrl?: string;
   cronWebhookUrl?: string;
   workspaceDir?: string;
+  assistantGender?: string | null;
 }): Promise<
   | { ok: true; assistantMessage: string; media: PersaiMediaArtifact[] }
   | { ok: false; error: PersaiRuntimeTurnError }
@@ -163,6 +164,7 @@ export async function runPersaiWebRuntimeAgentTurnSync(params: {
     workspaceDir: params.workspaceDir,
     toolCredentials: params.resolvedToolCredentials,
     toolProviderOverrides: params.toolProviderOverrides,
+    assistantGender: params.assistantGender,
   };
 
   try {
@@ -196,6 +198,7 @@ export async function runPersaiTelegramAgentTurn(params: {
   toolLimitWebhookUrl?: string;
   cronWebhookUrl?: string;
   workspaceDir?: string;
+  assistantGender?: string | null;
 }): Promise<
   | { ok: true; assistantMessage: string; media: PersaiMediaArtifact[] }
   | { ok: false; error: PersaiRuntimeTurnError }
@@ -226,6 +229,7 @@ export async function runPersaiTelegramAgentTurn(params: {
     workspaceDir: params.workspaceDir,
     toolCredentials: params.resolvedToolCredentials,
     toolProviderOverrides: params.toolProviderOverrides,
+    assistantGender: params.assistantGender,
   };
 
   try {
@@ -266,6 +270,7 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
   toolLimitWebhookUrl?: string;
   cronWebhookUrl?: string;
   workspaceDir?: string;
+  assistantGender?: string | null;
 }): Promise<void> {
   const runId = randomUUID();
   const deps = createDefaultDeps();
@@ -288,6 +293,7 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
     workspaceDir: params.workspaceDir,
     toolCredentials: params.resolvedToolCredentials,
     toolProviderOverrides: params.toolProviderOverrides,
+    assistantGender: params.assistantGender,
   };
 
   let closed = false;
