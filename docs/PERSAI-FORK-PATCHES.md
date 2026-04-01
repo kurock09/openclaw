@@ -407,6 +407,30 @@ Before preserving or adding a higher-risk patch, confirm:
 - `grep -c 'outputDir' src/tts/tts.ts` should return >= 3
 - `grep -c 'workspaceDir' src/agents/tools/tts-tool.ts` should return >= 2
 
+### 22. TTS provider selection from PersAI admin override
+
+**Risk:** Lower-risk — extends existing PersAI bridge context, minimal native change in `tts.ts`
+
+**Files:**
+
+- `src/agents/persai-runtime-context.ts` — added `toolProviderOverrides` field to `PersaiRuntimeRequestCtx`, added `getPersaiToolProviderOverride()` helper
+- `src/gateway/persai-runtime/persai-runtime-tool-policy.ts` — added `extractToolProviderOverrides()` that extracts `providerId` from `toolCredentialRefs`
+- `src/gateway/persai-runtime/persai-runtime-agent-turn.ts` — all three turn functions (`sync`, `telegram`, `stream`) accept and propagate `toolProviderOverrides` into runtime context
+- `src/gateway/persai-runtime/persai-runtime-http.ts` — all three HTTP handlers extract provider overrides from bootstrap and pass to agent turn
+- `src/tts/tts.ts` — `getTtsProvider()` checks PersAI context override first (highest priority), added `YANDEX_TTS_API_KEY` to primary Yandex key lookup
+- `src/tts/providers/yandex.ts` — `resolveYandexApiKey()` added `YANDEX_TTS_API_KEY` to primary env var lookup
+
+**Why patch is required:** `getTtsProvider()` resolves the active TTS provider from config file or filesystem prefs — neither of which PersAI populates. When admin selects "yandex" in PersAI, the `providerId` is stored in `toolCredentialRefs` but never reaches the TTS provider selector. The API key resolves correctly, but the wrong provider (openai) is used because `OPENAI_API_KEY` exists globally. The fix propagates PersAI's `providerId` through the request context so `getTtsProvider()` sees it first.
+
+**Introduced by:** TTS provider selection fix
+**Verify:**
+
+- `grep -c 'toolProviderOverrides' src/agents/persai-runtime-context.ts` should return >= 2
+- `grep -c 'getPersaiToolProviderOverride' src/tts/tts.ts` should return >= 1
+- `grep -c 'extractToolProviderOverrides' src/gateway/persai-runtime/persai-runtime-http.ts` should return >= 3
+- `grep -c 'toolProviderOverrides' src/gateway/persai-runtime/persai-runtime-agent-turn.ts` should return >= 6
+- `grep -c 'YANDEX_TTS_API_KEY' src/tts/providers/yandex.ts` should return >= 2
+
 ## Quick full verification
 
 Run `node scripts/verify-persai-patches.mjs` (see script in `scripts/`).

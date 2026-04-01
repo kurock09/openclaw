@@ -44,7 +44,10 @@ const PROVIDER_ENV_OVERRIDES: Record<string, Record<string, string>> = {
   },
 };
 
-function resolveCredentialEnvVar(secretId: string, providerId?: string): string | undefined {
+function resolveCredentialEnvVar(
+  secretId: string,
+  providerId?: string,
+): string | undefined {
   if (providerId) {
     const overrides = PROVIDER_ENV_OVERRIDES[secretId];
     if (overrides?.[providerId]) {
@@ -63,7 +66,9 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 }
 
 function asNonEmptyString(value: unknown): string | null {
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : null;
 }
 
 export class PersaiToolPolicyValidationError extends Error {
@@ -85,7 +90,10 @@ function parseCredentialRefRow(
   const provider = asNonEmptyString(secretRefObj.provider);
   const id = asNonEmptyString(secretRefObj.id);
   if (
-    (source !== "env" && source !== "file" && source !== "exec" && source !== "persai") ||
+    (source !== "env" &&
+      source !== "file" &&
+      source !== "exec" &&
+      source !== "persai") ||
     !provider ||
     !id
   ) {
@@ -93,7 +101,12 @@ function parseCredentialRefRow(
   }
 
   const providerId = asNonEmptyString(row.providerId) ?? undefined;
-  return { toolCode, secretRef: { source, provider, id }, configured, providerId };
+  return {
+    toolCode,
+    secretRef: { source, provider, id },
+    configured,
+    providerId,
+  };
 }
 
 export function extractToolCredentialRefs(
@@ -129,6 +142,18 @@ export function extractToolCredentialRefs(
   return result;
 }
 
+export function extractToolProviderOverrides(
+  credentialRefs: Map<string, PersaiToolCredentialRef>,
+): Map<string, string> {
+  const overrides = new Map<string, string>();
+  for (const ref of credentialRefs.values()) {
+    if (ref.providerId && ref.configured) {
+      overrides.set(ref.toolCode, ref.providerId);
+    }
+  }
+  return overrides;
+}
+
 export function extractToolQuotaPolicy(
   bootstrap: unknown,
 ): Map<string, PersaiToolQuotaEntry> {
@@ -155,7 +180,8 @@ export function extractToolQuotaPolicy(
         : "inactive";
 
     const dailyCallLimit =
-      typeof row.dailyCallLimit === "number" && Number.isFinite(row.dailyCallLimit)
+      typeof row.dailyCallLimit === "number" &&
+      Number.isFinite(row.dailyCallLimit)
         ? row.dailyCallLimit
         : null;
 
@@ -181,10 +207,18 @@ export async function resolveToolCredentials(
   credentialRefs: Map<string, PersaiToolCredentialRef>,
   config: OpenClawConfig,
 ): Promise<Map<string, string>> {
-  const configuredRefs: { toolCode: string; ref: SecretRef; providerId?: string }[] = [];
+  const configuredRefs: {
+    toolCode: string;
+    ref: SecretRef;
+    providerId?: string;
+  }[] = [];
   for (const entry of credentialRefs.values()) {
     if (entry.configured) {
-      configuredRefs.push({ toolCode: entry.toolCode, ref: entry.secretRef, providerId: entry.providerId });
+      configuredRefs.push({
+        toolCode: entry.toolCode,
+        ref: entry.secretRef,
+        providerId: entry.providerId,
+      });
     }
   }
 
@@ -193,7 +227,10 @@ export async function resolveToolCredentials(
   }
 
   const secretRefs = configuredRefs.map((r) => r.ref);
-  const resolved = await resolveSecretRefValues(secretRefs, { config, env: process.env });
+  const resolved = await resolveSecretRefValues(secretRefs, {
+    config,
+    env: process.env,
+  });
 
   const credentials = new Map<string, string>();
   for (const { ref, providerId } of configuredRefs) {
@@ -219,7 +256,12 @@ export async function validateToolPolicyForApply(
   for (const entry of credentialRefs.values()) {
     if (!entry.configured) continue;
     const ref = entry.secretRef;
-    if (ref.source !== "persai" && ref.source !== "env" && ref.source !== "file" && ref.source !== "exec") {
+    if (
+      ref.source !== "persai" &&
+      ref.source !== "env" &&
+      ref.source !== "file" &&
+      ref.source !== "exec"
+    ) {
       throw new PersaiToolPolicyValidationError(
         `Tool credential ref for "${entry.toolCode}" has unsupported source "${ref.source}".`,
       );
@@ -227,7 +269,10 @@ export async function validateToolPolicyForApply(
   }
 
   for (const entry of quotaPolicy.values()) {
-    if (entry.activationStatus !== "active" && entry.activationStatus !== "inactive") {
+    if (
+      entry.activationStatus !== "active" &&
+      entry.activationStatus !== "inactive"
+    ) {
       throw new PersaiToolPolicyValidationError(
         `Tool quota policy for "${entry.toolCode}" has invalid activationStatus "${String(entry.activationStatus)}".`,
       );

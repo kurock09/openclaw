@@ -404,6 +404,26 @@ check("tts-tool.ts passes workspaceDir to textToSpeech", () =>
   fileContainsCount("src/agents/tools/tts-tool.ts", "workspaceDir") >= 2,
 );
 
+console.log("\n[24] TTS provider selection from PersAI admin override");
+check("persai-runtime-context.ts has toolProviderOverrides", () =>
+  fileContainsCount("src/agents/persai-runtime-context.ts", "toolProviderOverrides") >= 2,
+);
+check("persai-runtime-context.ts has getPersaiToolProviderOverride", () =>
+  fileContains("src/agents/persai-runtime-context.ts", "getPersaiToolProviderOverride"),
+);
+check("tts.ts uses getPersaiToolProviderOverride", () =>
+  fileContains("src/tts/tts.ts", "getPersaiToolProviderOverride"),
+);
+check("persai-runtime-http.ts extracts toolProviderOverrides", () =>
+  fileContainsCount("src/gateway/persai-runtime/persai-runtime-http.ts", "extractToolProviderOverrides") >= 3,
+);
+check("persai-runtime-agent-turn.ts propagates toolProviderOverrides", () =>
+  fileContainsCount("src/gateway/persai-runtime/persai-runtime-agent-turn.ts", "toolProviderOverrides") >= 6,
+);
+check("yandex.ts has YANDEX_TTS_API_KEY in primary lookup", () =>
+  fileContainsCount("src/tts/providers/yandex.ts", "YANDEX_TTS_API_KEY") >= 2,
+);
+
 console.log(`\n--- Result: ${checks - failures}/${checks} passed ---`);
 if (failures > 0) {
   console.error(

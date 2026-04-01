@@ -1,7 +1,8 @@
 import type { SpeechProviderPlugin } from "../../plugins/types.js";
 import { resolvePersaiToolCredentialForEnvVars } from "../../agents/persai-runtime-context.js";
 
-const DEFAULT_YANDEX_TTS_URL = "https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize";
+const DEFAULT_YANDEX_TTS_URL =
+  "https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize";
 
 const YANDEX_VOICES = [
   "alena",
@@ -24,14 +25,21 @@ const YANDEX_VOICES = [
   "john",
 ] as const;
 
-function resolveYandexApiKey(config: { yandex?: { apiKey?: string } }): string | undefined {
+function resolveYandexApiKey(config: {
+  yandex?: { apiKey?: string };
+}): string | undefined {
   return (
     config.yandex?.apiKey ||
     resolvePersaiToolCredentialForEnvVars({
-      envVars: ["YANDEX_SPEECHKIT_API_KEY", "YANDEX_API_KEY"],
+      envVars: [
+        "YANDEX_TTS_API_KEY",
+        "YANDEX_SPEECHKIT_API_KEY",
+        "YANDEX_API_KEY",
+      ],
       provider: "yandex",
       toolName: "tts",
     })?.value ||
+    process.env.YANDEX_TTS_API_KEY ||
     process.env.YANDEX_SPEECHKIT_API_KEY ||
     process.env.YANDEX_API_KEY
   );
@@ -47,7 +55,9 @@ function resolveYandexIamToken(): string | undefined {
   );
 }
 
-function resolveYandexFolderId(config: { yandex?: { folderId?: string } }): string | undefined {
+function resolveYandexFolderId(config: {
+  yandex?: { folderId?: string };
+}): string | undefined {
   return (
     config.yandex?.folderId ||
     resolvePersaiToolCredentialForEnvVars({
@@ -133,11 +143,24 @@ export function buildYandexSpeechProvider(): SpeechProviderPlugin {
 
     isConfigured: ({ config }) => {
       const yandex = (config as { yandex?: { apiKey?: string } }).yandex;
-      return Boolean(resolveYandexApiKey({ yandex }) || resolveYandexIamToken());
+      return Boolean(
+        resolveYandexApiKey({ yandex }) || resolveYandexIamToken(),
+      );
     },
 
     synthesize: async (req) => {
-      const yandex = (req.config as { yandex?: { apiKey?: string; folderId?: string; voice?: string; lang?: string; emotion?: string; speed?: number } }).yandex;
+      const yandex = (
+        req.config as {
+          yandex?: {
+            apiKey?: string;
+            folderId?: string;
+            voice?: string;
+            lang?: string;
+            emotion?: string;
+            speed?: number;
+          };
+        }
+      ).yandex;
 
       const apiKey = resolveYandexApiKey({ yandex });
       const iamToken = resolveYandexIamToken();

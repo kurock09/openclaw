@@ -83,7 +83,8 @@ function resolveAgentResponse(result: unknown): AgentResponse {
     }
   }
 
-  const text = textParts.filter(Boolean).join("\n\n") || "No response from OpenClaw.";
+  const text =
+    textParts.filter(Boolean).join("\n\n") || "No response from OpenClaw.";
   return { text, media };
 }
 
@@ -127,8 +128,12 @@ export async function runPersaiWebRuntimeAgentTurnSync(params: {
   providerOverride?: string;
   modelOverride?: string;
   resolvedToolCredentials?: Map<string, string>;
+  toolProviderOverrides?: Map<string, string>;
   toolDenyList?: string[];
-  toolQuotaPolicy?: Map<string, { toolCode: string; dailyCallLimit: number | null }>;
+  toolQuotaPolicy?: Map<
+    string,
+    { toolCode: string; dailyCallLimit: number | null }
+  >;
   toolLimitWebhookUrl?: string;
   cronWebhookUrl?: string;
   workspaceDir?: string;
@@ -157,6 +162,7 @@ export async function runPersaiWebRuntimeAgentTurnSync(params: {
     cronWebhookUrl: params.cronWebhookUrl,
     workspaceDir: params.workspaceDir,
     toolCredentials: params.resolvedToolCredentials,
+    toolProviderOverrides: params.toolProviderOverrides,
   };
 
   try {
@@ -181,13 +187,18 @@ export async function runPersaiTelegramAgentTurn(params: {
   providerOverride?: string;
   modelOverride?: string;
   resolvedToolCredentials?: Map<string, string>;
+  toolProviderOverrides?: Map<string, string>;
   toolDenyList?: string[];
-  toolQuotaPolicy?: Map<string, { toolCode: string; dailyCallLimit: number | null }>;
+  toolQuotaPolicy?: Map<
+    string,
+    { toolCode: string; dailyCallLimit: number | null }
+  >;
   toolLimitWebhookUrl?: string;
   cronWebhookUrl?: string;
   workspaceDir?: string;
 }): Promise<
-  { ok: true; assistantMessage: string; media: PersaiMediaArtifact[] } | { ok: false; error: PersaiRuntimeTurnError }
+  | { ok: true; assistantMessage: string; media: PersaiMediaArtifact[] }
+  | { ok: false; error: PersaiRuntimeTurnError }
 > {
   const runId = randomUUID();
   const deps = createDefaultDeps();
@@ -214,6 +225,7 @@ export async function runPersaiTelegramAgentTurn(params: {
     cronWebhookUrl: params.cronWebhookUrl,
     workspaceDir: params.workspaceDir,
     toolCredentials: params.resolvedToolCredentials,
+    toolProviderOverrides: params.toolProviderOverrides,
   };
 
   try {
@@ -224,7 +236,9 @@ export async function runPersaiTelegramAgentTurn(params: {
     return { ok: true, assistantMessage: response.text, media: response.media };
   } catch (err) {
     const normalized = toPersaiRuntimeTurnError(err);
-    logWarn(`persai-runtime: telegram agent turn failed: ${normalized.message}`);
+    logWarn(
+      `persai-runtime: telegram agent turn failed: ${normalized.message}`,
+    );
     return { ok: false, error: normalized };
   }
 }
@@ -243,8 +257,12 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
   providerOverride?: string;
   modelOverride?: string;
   resolvedToolCredentials?: Map<string, string>;
+  toolProviderOverrides?: Map<string, string>;
   toolDenyList?: string[];
-  toolQuotaPolicy?: Map<string, { toolCode: string; dailyCallLimit: number | null }>;
+  toolQuotaPolicy?: Map<
+    string,
+    { toolCode: string; dailyCallLimit: number | null }
+  >;
   toolLimitWebhookUrl?: string;
   cronWebhookUrl?: string;
   workspaceDir?: string;
@@ -269,6 +287,7 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
     cronWebhookUrl: params.cronWebhookUrl,
     workspaceDir: params.workspaceDir,
     toolCredentials: params.resolvedToolCredentials,
+    toolProviderOverrides: params.toolProviderOverrides,
   };
 
   let closed = false;
@@ -282,7 +301,9 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
       const content = resolveAssistantStreamDeltaText(evt) ?? "";
       if (content) {
         sawAssistantDelta = true;
-        params.res.write(`${JSON.stringify({ type: "delta", delta: content })}\n`);
+        params.res.write(
+          `${JSON.stringify({ type: "delta", delta: content })}\n`,
+        );
       }
       return;
     }
@@ -290,7 +311,9 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
       const delta = typeof evt.data?.delta === "string" ? evt.data.delta : "";
       const text = typeof evt.data?.text === "string" ? evt.data.text : "";
       if (delta && text) {
-        params.res.write(`${JSON.stringify({ type: "thinking", delta, text })}\n`);
+        params.res.write(
+          `${JSON.stringify({ type: "thinking", delta, text })}\n`,
+        );
       }
       return;
     }
@@ -312,7 +335,9 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
         }
         const response = resolveAgentResponse(result);
         if (!sawAssistantDelta) {
-          params.res.write(`${JSON.stringify({ type: "delta", delta: response.text })}\n`);
+          params.res.write(
+            `${JSON.stringify({ type: "delta", delta: response.text })}\n`,
+          );
         }
         if (response.media.length > 0) {
           params.res.write(
@@ -321,7 +346,9 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
         }
       } catch (err) {
         const normalized = toPersaiRuntimeTurnError(err);
-        logWarn(`persai-runtime: stream agent turn failed: ${normalized.message}`);
+        logWarn(
+          `persai-runtime: stream agent turn failed: ${normalized.message}`,
+        );
         if (!closed) {
           params.res.write(
             `${JSON.stringify({

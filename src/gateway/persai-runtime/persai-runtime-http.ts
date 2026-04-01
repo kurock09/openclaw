@@ -3,7 +3,10 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import * as path from "node:path";
 import { createCronTool } from "../../agents/tools/cron-tool.js";
 import { loadConfig } from "../../config/config.js";
-import { authorizeHttpGatewayConnect, type ResolvedGatewayAuth } from "../auth.js";
+import {
+  authorizeHttpGatewayConnect,
+  type ResolvedGatewayAuth,
+} from "../auth.js";
 import { readJsonBody } from "../hooks.js";
 import { sendGatewayAuthFailure } from "../http-common.js";
 import { getBearerToken } from "../http-utils.js";
@@ -27,6 +30,7 @@ import type { PersaiRuntimeSpecStore } from "./persai-runtime-spec-store.js";
 import {
   buildToolDenyList,
   extractToolCredentialRefs,
+  extractToolProviderOverrides,
   extractToolQuotaPolicy,
   resolveToolCredentials,
 } from "./persai-runtime-tool-policy.js";
@@ -38,14 +42,17 @@ import {
 } from "./persai-runtime-workspace.js";
 
 export const RUNTIME_SPEC_APPLY_PATH = "/api/v1/runtime/spec/apply";
-export const RUNTIME_WORKSPACE_CLEANUP_PATH = "/api/v1/runtime/workspace/cleanup";
+export const RUNTIME_WORKSPACE_CLEANUP_PATH =
+  "/api/v1/runtime/workspace/cleanup";
 export const RUNTIME_WORKSPACE_RESET_PATH = "/api/v1/runtime/workspace/reset";
-export const RUNTIME_WORKSPACE_MEMORY_RESET_PATH = "/api/v1/runtime/workspace/memory/reset";
+export const RUNTIME_WORKSPACE_MEMORY_RESET_PATH =
+  "/api/v1/runtime/workspace/memory/reset";
 export const RUNTIME_WORKSPACE_BOOTSTRAP_CONSUME_PATH =
   "/api/v1/runtime/workspace/bootstrap/consume";
 export const RUNTIME_CRON_CONTROL_PATH = "/api/v1/runtime/cron/control";
 export const RUNTIME_CHAT_WEB_PATH = "/api/v1/runtime/chat/web";
-export const RUNTIME_CHAT_WEB_SESSION_DELETE_PATH = "/api/v1/runtime/chat/web/session/delete";
+export const RUNTIME_CHAT_WEB_SESSION_DELETE_PATH =
+  "/api/v1/runtime/chat/web/session/delete";
 export const RUNTIME_CHAT_WEB_STREAM_PATH = "/api/v1/runtime/chat/web/stream";
 export const RUNTIME_CHAT_CHANNEL_PATH = "/api/v1/runtime/chat/channel";
 export const RUNTIME_WORKSPACE_AVATAR_PATH = "/api/v1/runtime/workspace/avatar";
@@ -91,7 +98,9 @@ function resolveToolLimitWebhookUrl(): string | undefined {
 }
 
 /** P2: read persona instructions from materialized openclaw.workspace.v1 for native hydrate / echo hints. */
-export function extractPersonaInstructionsFromWorkspace(workspace: unknown): string | null {
+export function extractPersonaInstructionsFromWorkspace(
+  workspace: unknown,
+): string | null {
   if (!isRecord(workspace)) {
     return null;
   }
@@ -118,7 +127,10 @@ function buildSchedulingContext(params: {
     return null;
   }
 
-  const lines = ["# Scheduling Context", `- Current UTC time: ${params.currentTimeIso}`];
+  const lines = [
+    "# Scheduling Context",
+    `- Current UTC time: ${params.currentTimeIso}`,
+  ];
   if (params.userTimezone) {
     lines.push(`- User timezone: ${params.userTimezone}`);
     try {
@@ -138,7 +150,10 @@ function buildSchedulingContext(params: {
   return lines.join("\n");
 }
 
-function mergeSystemPrompt(base: string | undefined, addition: string | null): string | undefined {
+function mergeSystemPrompt(
+  base: string | undefined,
+  addition: string | null,
+): string | undefined {
   if (!addition) {
     return base;
   }
@@ -154,8 +169,15 @@ export async function handleRuntimeSpecApplyHttpRequest(params: {
   allowRealIpFallback: boolean;
   store: PersaiRuntimeSpecStore;
 }): Promise<boolean> {
-  const { req, res, requestPath, resolvedAuth, trustedProxies, allowRealIpFallback, store } =
-    params;
+  const {
+    req,
+    res,
+    requestPath,
+    resolvedAuth,
+    trustedProxies,
+    allowRealIpFallback,
+    store,
+  } = params;
   if (requestPath !== RUNTIME_SPEC_APPLY_PATH) {
     return false;
   }
@@ -172,7 +194,9 @@ export async function handleRuntimeSpecApplyHttpRequest(params: {
   const bearerToken = getBearerToken(req);
   const auth = await authorizeHttpGatewayConnect({
     auth: resolvedAuth,
-    connectAuth: bearerToken ? { token: bearerToken, password: bearerToken } : null,
+    connectAuth: bearerToken
+      ? { token: bearerToken, password: bearerToken }
+      : null,
     req,
     trustedProxies,
     allowRealIpFallback,
@@ -195,10 +219,14 @@ export async function handleRuntimeSpecApplyHttpRequest(params: {
   }
 
   const payload = isRecord(parsed.value) ? parsed.value : {};
-  const assistantId = typeof payload.assistantId === "string" ? payload.assistantId.trim() : "";
+  const assistantId =
+    typeof payload.assistantId === "string" ? payload.assistantId.trim() : "";
   const publishedVersionId =
-    typeof payload.publishedVersionId === "string" ? payload.publishedVersionId.trim() : "";
-  const contentHash = typeof payload.contentHash === "string" ? payload.contentHash.trim() : "";
+    typeof payload.publishedVersionId === "string"
+      ? payload.publishedVersionId.trim()
+      : "";
+  const contentHash =
+    typeof payload.contentHash === "string" ? payload.contentHash.trim() : "";
   const reapply = payload.reapply === true;
   const spec = payload.spec;
   const specOk =
@@ -264,8 +292,15 @@ export async function handleRuntimeWorkspaceCleanupHttpRequest(params: {
   allowRealIpFallback: boolean;
   store: PersaiRuntimeSpecStore;
 }): Promise<boolean> {
-  const { req, res, requestPath, resolvedAuth, trustedProxies, allowRealIpFallback, store } =
-    params;
+  const {
+    req,
+    res,
+    requestPath,
+    resolvedAuth,
+    trustedProxies,
+    allowRealIpFallback,
+    store,
+  } = params;
   if (requestPath !== RUNTIME_WORKSPACE_CLEANUP_PATH) {
     return false;
   }
@@ -282,7 +317,9 @@ export async function handleRuntimeWorkspaceCleanupHttpRequest(params: {
   const bearerToken = getBearerToken(req);
   const auth = await authorizeHttpGatewayConnect({
     auth: resolvedAuth,
-    connectAuth: bearerToken ? { token: bearerToken, password: bearerToken } : null,
+    connectAuth: bearerToken
+      ? { token: bearerToken, password: bearerToken }
+      : null,
     req,
     trustedProxies,
     allowRealIpFallback,
@@ -299,14 +336,16 @@ export async function handleRuntimeWorkspaceCleanupHttpRequest(params: {
   }
 
   const payload = isRecord(parsed.value) ? parsed.value : {};
-  const assistantId = typeof payload.assistantId === "string" ? payload.assistantId.trim() : "";
+  const assistantId =
+    typeof payload.assistantId === "string" ? payload.assistantId.trim() : "";
 
   if (!assistantId) {
     sendJson(res, 400, { ok: false, error: "assistantId is required." });
     return true;
   }
 
-  const { workspaceDir, deleted } = await cleanupPersaiAssistantWorkspace(assistantId);
+  const { workspaceDir, deleted } =
+    await cleanupPersaiAssistantWorkspace(assistantId);
   await store.remove(assistantId);
 
   sendJson(res, 200, { ok: true, assistantId, workspaceDir, deleted });
@@ -322,8 +361,15 @@ export async function handleRuntimeWorkspaceResetHttpRequest(params: {
   allowRealIpFallback: boolean;
   store: PersaiRuntimeSpecStore;
 }): Promise<boolean> {
-  const { req, res, requestPath, resolvedAuth, trustedProxies, allowRealIpFallback, store } =
-    params;
+  const {
+    req,
+    res,
+    requestPath,
+    resolvedAuth,
+    trustedProxies,
+    allowRealIpFallback,
+    store,
+  } = params;
   if (requestPath !== RUNTIME_WORKSPACE_RESET_PATH) {
     return false;
   }
@@ -340,7 +386,9 @@ export async function handleRuntimeWorkspaceResetHttpRequest(params: {
   const bearerToken = getBearerToken(req);
   const auth = await authorizeHttpGatewayConnect({
     auth: resolvedAuth,
-    connectAuth: bearerToken ? { token: bearerToken, password: bearerToken } : null,
+    connectAuth: bearerToken
+      ? { token: bearerToken, password: bearerToken }
+      : null,
     req,
     trustedProxies,
     allowRealIpFallback,
@@ -357,7 +405,8 @@ export async function handleRuntimeWorkspaceResetHttpRequest(params: {
   }
 
   const payload = isRecord(parsed.value) ? parsed.value : {};
-  const assistantId = typeof payload.assistantId === "string" ? payload.assistantId.trim() : "";
+  const assistantId =
+    typeof payload.assistantId === "string" ? payload.assistantId.trim() : "";
 
   if (!assistantId) {
     sendJson(res, 400, { ok: false, error: "assistantId is required." });
@@ -391,7 +440,14 @@ export async function handleRuntimeWorkspaceMemoryResetHttpRequest(params: {
   trustedProxies: string[];
   allowRealIpFallback: boolean;
 }): Promise<boolean> {
-  const { req, res, requestPath, resolvedAuth, trustedProxies, allowRealIpFallback } = params;
+  const {
+    req,
+    res,
+    requestPath,
+    resolvedAuth,
+    trustedProxies,
+    allowRealIpFallback,
+  } = params;
   if (requestPath !== RUNTIME_WORKSPACE_MEMORY_RESET_PATH) {
     return false;
   }
@@ -408,7 +464,9 @@ export async function handleRuntimeWorkspaceMemoryResetHttpRequest(params: {
   const bearerToken = getBearerToken(req);
   const auth = await authorizeHttpGatewayConnect({
     auth: resolvedAuth,
-    connectAuth: bearerToken ? { token: bearerToken, password: bearerToken } : null,
+    connectAuth: bearerToken
+      ? { token: bearerToken, password: bearerToken }
+      : null,
     req,
     trustedProxies,
     allowRealIpFallback,
@@ -425,7 +483,8 @@ export async function handleRuntimeWorkspaceMemoryResetHttpRequest(params: {
   }
 
   const payload = isRecord(parsed.value) ? parsed.value : {};
-  const assistantId = typeof payload.assistantId === "string" ? payload.assistantId.trim() : "";
+  const assistantId =
+    typeof payload.assistantId === "string" ? payload.assistantId.trim() : "";
   if (!assistantId) {
     sendJson(res, 400, { ok: false, error: "assistantId is required." });
     return true;
@@ -451,7 +510,14 @@ export async function handleRuntimeWorkspaceBootstrapConsumeHttpRequest(params: 
   trustedProxies: string[];
   allowRealIpFallback: boolean;
 }): Promise<boolean> {
-  const { req, res, requestPath, resolvedAuth, trustedProxies, allowRealIpFallback } = params;
+  const {
+    req,
+    res,
+    requestPath,
+    resolvedAuth,
+    trustedProxies,
+    allowRealIpFallback,
+  } = params;
   if (requestPath !== RUNTIME_WORKSPACE_BOOTSTRAP_CONSUME_PATH) {
     return false;
   }
@@ -468,7 +534,9 @@ export async function handleRuntimeWorkspaceBootstrapConsumeHttpRequest(params: 
   const bearerToken = getBearerToken(req);
   const auth = await authorizeHttpGatewayConnect({
     auth: resolvedAuth,
-    connectAuth: bearerToken ? { token: bearerToken, password: bearerToken } : null,
+    connectAuth: bearerToken
+      ? { token: bearerToken, password: bearerToken }
+      : null,
     req,
     trustedProxies,
     allowRealIpFallback,
@@ -485,7 +553,8 @@ export async function handleRuntimeWorkspaceBootstrapConsumeHttpRequest(params: 
   }
 
   const payload = isRecord(parsed.value) ? parsed.value : {};
-  const assistantId = typeof payload.assistantId === "string" ? payload.assistantId.trim() : "";
+  const assistantId =
+    typeof payload.assistantId === "string" ? payload.assistantId.trim() : "";
   if (!assistantId) {
     sendJson(res, 400, { ok: false, error: "assistantId is required." });
     return true;
@@ -510,7 +579,14 @@ export async function handleRuntimeChatWebSessionDeleteHttpRequest(params: {
   trustedProxies: string[];
   allowRealIpFallback: boolean;
 }): Promise<boolean> {
-  const { req, res, requestPath, resolvedAuth, trustedProxies, allowRealIpFallback } = params;
+  const {
+    req,
+    res,
+    requestPath,
+    resolvedAuth,
+    trustedProxies,
+    allowRealIpFallback,
+  } = params;
   if (requestPath !== RUNTIME_CHAT_WEB_SESSION_DELETE_PATH) {
     return false;
   }
@@ -527,7 +603,9 @@ export async function handleRuntimeChatWebSessionDeleteHttpRequest(params: {
   const bearerToken = getBearerToken(req);
   const auth = await authorizeHttpGatewayConnect({
     auth: resolvedAuth,
-    connectAuth: bearerToken ? { token: bearerToken, password: bearerToken } : null,
+    connectAuth: bearerToken
+      ? { token: bearerToken, password: bearerToken }
+      : null,
     req,
     trustedProxies,
     allowRealIpFallback,
@@ -544,10 +622,14 @@ export async function handleRuntimeChatWebSessionDeleteHttpRequest(params: {
   }
 
   const payload = isRecord(parsed.value) ? parsed.value : {};
-  const assistantId = typeof payload.assistantId === "string" ? payload.assistantId.trim() : "";
-  const chatId = typeof payload.chatId === "string" ? payload.chatId.trim() : "";
+  const assistantId =
+    typeof payload.assistantId === "string" ? payload.assistantId.trim() : "";
+  const chatId =
+    typeof payload.chatId === "string" ? payload.chatId.trim() : "";
   const surfaceThreadKey =
-    typeof payload.surfaceThreadKey === "string" ? payload.surfaceThreadKey.trim() : "";
+    typeof payload.surfaceThreadKey === "string"
+      ? payload.surfaceThreadKey.trim()
+      : "";
 
   if (!assistantId || !chatId || !surfaceThreadKey) {
     sendJson(res, 400, {
@@ -580,7 +662,14 @@ export async function handleRuntimeCronControlHttpRequest(params: {
   trustedProxies: string[];
   allowRealIpFallback: boolean;
 }): Promise<boolean> {
-  const { req, res, requestPath, resolvedAuth, trustedProxies, allowRealIpFallback } = params;
+  const {
+    req,
+    res,
+    requestPath,
+    resolvedAuth,
+    trustedProxies,
+    allowRealIpFallback,
+  } = params;
   if (requestPath !== RUNTIME_CRON_CONTROL_PATH) {
     return false;
   }
@@ -597,7 +686,9 @@ export async function handleRuntimeCronControlHttpRequest(params: {
   const bearerToken = getBearerToken(req);
   const auth = await authorizeHttpGatewayConnect({
     auth: resolvedAuth,
-    connectAuth: bearerToken ? { token: bearerToken, password: bearerToken } : null,
+    connectAuth: bearerToken
+      ? { token: bearerToken, password: bearerToken }
+      : null,
     req,
     trustedProxies,
     allowRealIpFallback,
@@ -614,10 +705,14 @@ export async function handleRuntimeCronControlHttpRequest(params: {
   }
 
   const payload = isRecord(parsed.value) ? parsed.value : {};
-  const action = typeof payload.action === "string" ? payload.action.trim() : "";
-  const sessionKey = typeof payload.sessionKey === "string" ? payload.sessionKey.trim() : "";
+  const action =
+    typeof payload.action === "string" ? payload.action.trim() : "";
+  const sessionKey =
+    typeof payload.sessionKey === "string" ? payload.sessionKey.trim() : "";
   const contextSessionKey =
-    typeof payload.contextSessionKey === "string" ? payload.contextSessionKey.trim() : "";
+    typeof payload.contextSessionKey === "string"
+      ? payload.contextSessionKey.trim()
+      : "";
   const args = isRecord(payload.args) ? payload.args : {};
   if (action !== "add" && action !== "update" && action !== "remove") {
     sendJson(res, 400, {
@@ -636,7 +731,10 @@ export async function handleRuntimeCronControlHttpRequest(params: {
       : undefined,
   );
   if (!cronTool.execute) {
-    sendJson(res, 500, { ok: false, error: "cron tool execute handler is unavailable." });
+    sendJson(res, 500, {
+      ok: false,
+      error: "cron tool execute handler is unavailable.",
+    });
     return true;
   }
 
@@ -666,8 +764,15 @@ export async function handleRuntimeChatWebHttpRequest(params: {
   allowRealIpFallback: boolean;
   store: PersaiRuntimeSpecStore;
 }): Promise<boolean> {
-  const { req, res, requestPath, resolvedAuth, trustedProxies, allowRealIpFallback, store } =
-    params;
+  const {
+    req,
+    res,
+    requestPath,
+    resolvedAuth,
+    trustedProxies,
+    allowRealIpFallback,
+    store,
+  } = params;
   if (requestPath !== RUNTIME_CHAT_WEB_PATH) {
     return false;
   }
@@ -684,7 +789,9 @@ export async function handleRuntimeChatWebHttpRequest(params: {
   const bearerToken = getBearerToken(req);
   const auth = await authorizeHttpGatewayConnect({
     auth: resolvedAuth,
-    connectAuth: bearerToken ? { token: bearerToken, password: bearerToken } : null,
+    connectAuth: bearerToken
+      ? { token: bearerToken, password: bearerToken }
+      : null,
     req,
     trustedProxies,
     allowRealIpFallback,
@@ -707,19 +814,32 @@ export async function handleRuntimeChatWebHttpRequest(params: {
   }
 
   const payload = isRecord(parsed.value) ? parsed.value : {};
-  const assistantId = typeof payload.assistantId === "string" ? payload.assistantId.trim() : "";
+  const assistantId =
+    typeof payload.assistantId === "string" ? payload.assistantId.trim() : "";
   const publishedVersionId =
-    typeof payload.publishedVersionId === "string" ? payload.publishedVersionId.trim() : "";
-  const chatId = typeof payload.chatId === "string" ? payload.chatId.trim() : "";
+    typeof payload.publishedVersionId === "string"
+      ? payload.publishedVersionId.trim()
+      : "";
+  const chatId =
+    typeof payload.chatId === "string" ? payload.chatId.trim() : "";
   const surfaceThreadKey =
-    typeof payload.surfaceThreadKey === "string" ? payload.surfaceThreadKey.trim() : "";
+    typeof payload.surfaceThreadKey === "string"
+      ? payload.surfaceThreadKey.trim()
+      : "";
   const userMessageId =
-    typeof payload.userMessageId === "string" ? payload.userMessageId.trim() : "";
-  const userMessage = typeof payload.userMessage === "string" ? payload.userMessage.trim() : "";
+    typeof payload.userMessageId === "string"
+      ? payload.userMessageId.trim()
+      : "";
+  const userMessage =
+    typeof payload.userMessage === "string" ? payload.userMessage.trim() : "";
   const userTimezone =
-    typeof payload.userTimezone === "string" ? payload.userTimezone.trim() : undefined;
+    typeof payload.userTimezone === "string"
+      ? payload.userTimezone.trim()
+      : undefined;
   const currentTimeIso =
-    typeof payload.currentTimeIso === "string" ? payload.currentTimeIso.trim() : undefined;
+    typeof payload.currentTimeIso === "string"
+      ? payload.currentTimeIso.trim()
+      : undefined;
 
   if (
     !assistantId ||
@@ -759,17 +879,23 @@ export async function handleRuntimeChatWebHttpRequest(params: {
       extractPersonaInstructionsFromWorkspace(applied.workspace) ?? undefined,
       buildSchedulingContext({ currentTimeIso, userTimezone }),
     );
-    const runtimeOverride = extractPersaiRuntimeModelOverride(applied.bootstrap);
+    const runtimeOverride = extractPersaiRuntimeModelOverride(
+      applied.bootstrap,
+    );
 
     const credentialRefs = extractToolCredentialRefs(applied.bootstrap);
     const quotaPolicy = extractToolQuotaPolicy(applied.bootstrap);
     const toolDenyList = buildToolDenyList(quotaPolicy);
+    const toolProviderOverrides = extractToolProviderOverrides(credentialRefs);
 
     let resolvedToolCredentials = new Map<string, string>();
     if (credentialRefs.size > 0) {
       try {
         const cfg = loadConfig();
-        resolvedToolCredentials = await resolveToolCredentials(credentialRefs, cfg);
+        resolvedToolCredentials = await resolveToolCredentials(
+          credentialRefs,
+          cfg,
+        );
       } catch {
         // Non-fatal: tools will fall back to existing env vars
       }
@@ -783,6 +909,7 @@ export async function handleRuntimeChatWebHttpRequest(params: {
       providerOverride: runtimeOverride?.provider,
       modelOverride: runtimeOverride?.model,
       resolvedToolCredentials,
+      toolProviderOverrides,
       toolDenyList,
       toolQuotaPolicy: quotaPolicy,
       toolLimitWebhookUrl: resolveToolLimitWebhookUrl(),
@@ -800,7 +927,8 @@ export async function handleRuntimeChatWebHttpRequest(params: {
       });
       return true;
     }
-    const assistantMessage = agentOut.assistantMessage.trim() || "No response from OpenClaw.";
+    const assistantMessage =
+      agentOut.assistantMessage.trim() || "No response from OpenClaw.";
     sendJson(res, 200, {
       ok: true,
       assistantMessage,
@@ -826,8 +954,15 @@ export async function handleRuntimeChatChannelHttpRequest(params: {
   allowRealIpFallback: boolean;
   store: PersaiRuntimeSpecStore;
 }): Promise<boolean> {
-  const { req, res, requestPath, resolvedAuth, trustedProxies, allowRealIpFallback, store } =
-    params;
+  const {
+    req,
+    res,
+    requestPath,
+    resolvedAuth,
+    trustedProxies,
+    allowRealIpFallback,
+    store,
+  } = params;
   if (requestPath !== RUNTIME_CHAT_CHANNEL_PATH) {
     return false;
   }
@@ -844,7 +979,9 @@ export async function handleRuntimeChatChannelHttpRequest(params: {
   const bearerToken = getBearerToken(req);
   const auth = await authorizeHttpGatewayConnect({
     auth: resolvedAuth,
-    connectAuth: bearerToken ? { token: bearerToken, password: bearerToken } : null,
+    connectAuth: bearerToken
+      ? { token: bearerToken, password: bearerToken }
+      : null,
     req,
     trustedProxies,
     allowRealIpFallback,
@@ -867,18 +1004,34 @@ export async function handleRuntimeChatChannelHttpRequest(params: {
   }
 
   const payload = isRecord(parsed.value) ? parsed.value : {};
-  const assistantId = typeof payload.assistantId === "string" ? payload.assistantId.trim() : "";
+  const assistantId =
+    typeof payload.assistantId === "string" ? payload.assistantId.trim() : "";
   const publishedVersionId =
-    typeof payload.publishedVersionId === "string" ? payload.publishedVersionId.trim() : "";
-  const surface = typeof payload.surface === "string" ? payload.surface.trim() : "";
-  const threadId = typeof payload.threadId === "string" ? payload.threadId.trim() : "";
-  const userMessage = typeof payload.userMessage === "string" ? payload.userMessage.trim() : "";
+    typeof payload.publishedVersionId === "string"
+      ? payload.publishedVersionId.trim()
+      : "";
+  const surface =
+    typeof payload.surface === "string" ? payload.surface.trim() : "";
+  const threadId =
+    typeof payload.threadId === "string" ? payload.threadId.trim() : "";
+  const userMessage =
+    typeof payload.userMessage === "string" ? payload.userMessage.trim() : "";
   const userTimezone =
-    typeof payload.userTimezone === "string" ? payload.userTimezone.trim() : undefined;
+    typeof payload.userTimezone === "string"
+      ? payload.userTimezone.trim()
+      : undefined;
   const currentTimeIso =
-    typeof payload.currentTimeIso === "string" ? payload.currentTimeIso.trim() : undefined;
+    typeof payload.currentTimeIso === "string"
+      ? payload.currentTimeIso.trim()
+      : undefined;
 
-  if (!assistantId || !publishedVersionId || !surface || !threadId || !userMessage) {
+  if (
+    !assistantId ||
+    !publishedVersionId ||
+    !surface ||
+    !threadId ||
+    !userMessage
+  ) {
     sendJson(res, 400, {
       ok: false,
       error:
@@ -921,12 +1074,16 @@ export async function handleRuntimeChatChannelHttpRequest(params: {
   const credentialRefs = extractToolCredentialRefs(applied.bootstrap);
   const quotaPolicy = extractToolQuotaPolicy(applied.bootstrap);
   const toolDenyList = buildToolDenyList(quotaPolicy);
+  const tgToolProviderOverrides = extractToolProviderOverrides(credentialRefs);
 
   let resolvedToolCredentials = new Map<string, string>();
   if (credentialRefs.size > 0) {
     try {
       const cfg = loadConfig();
-      resolvedToolCredentials = await resolveToolCredentials(credentialRefs, cfg);
+      resolvedToolCredentials = await resolveToolCredentials(
+        credentialRefs,
+        cfg,
+      );
     } catch {
       // Non-fatal
     }
@@ -940,6 +1097,7 @@ export async function handleRuntimeChatChannelHttpRequest(params: {
     providerOverride: runtimeOverride?.provider,
     modelOverride: runtimeOverride?.model,
     resolvedToolCredentials,
+    toolProviderOverrides: tgToolProviderOverrides,
     toolDenyList,
     toolQuotaPolicy: quotaPolicy,
     toolLimitWebhookUrl: resolveToolLimitWebhookUrl(),
@@ -958,7 +1116,8 @@ export async function handleRuntimeChatChannelHttpRequest(params: {
     return true;
   }
 
-  const assistantMessage = agentOut.assistantMessage.trim() || "No response from OpenClaw.";
+  const assistantMessage =
+    agentOut.assistantMessage.trim() || "No response from OpenClaw.";
   sendJson(res, 200, {
     ok: true,
     assistantMessage,
@@ -977,8 +1136,15 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
   allowRealIpFallback: boolean;
   store: PersaiRuntimeSpecStore;
 }): Promise<boolean> {
-  const { req, res, requestPath, resolvedAuth, trustedProxies, allowRealIpFallback, store } =
-    params;
+  const {
+    req,
+    res,
+    requestPath,
+    resolvedAuth,
+    trustedProxies,
+    allowRealIpFallback,
+    store,
+  } = params;
   if (requestPath !== RUNTIME_CHAT_WEB_STREAM_PATH) {
     return false;
   }
@@ -995,7 +1161,9 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
   const bearerToken = getBearerToken(req);
   const auth = await authorizeHttpGatewayConnect({
     auth: resolvedAuth,
-    connectAuth: bearerToken ? { token: bearerToken, password: bearerToken } : null,
+    connectAuth: bearerToken
+      ? { token: bearerToken, password: bearerToken }
+      : null,
     req,
     trustedProxies,
     allowRealIpFallback,
@@ -1018,19 +1186,32 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
   }
 
   const payload = isRecord(parsed.value) ? parsed.value : {};
-  const assistantId = typeof payload.assistantId === "string" ? payload.assistantId.trim() : "";
+  const assistantId =
+    typeof payload.assistantId === "string" ? payload.assistantId.trim() : "";
   const publishedVersionId =
-    typeof payload.publishedVersionId === "string" ? payload.publishedVersionId.trim() : "";
-  const chatId = typeof payload.chatId === "string" ? payload.chatId.trim() : "";
+    typeof payload.publishedVersionId === "string"
+      ? payload.publishedVersionId.trim()
+      : "";
+  const chatId =
+    typeof payload.chatId === "string" ? payload.chatId.trim() : "";
   const surfaceThreadKey =
-    typeof payload.surfaceThreadKey === "string" ? payload.surfaceThreadKey.trim() : "";
+    typeof payload.surfaceThreadKey === "string"
+      ? payload.surfaceThreadKey.trim()
+      : "";
   const userMessageId =
-    typeof payload.userMessageId === "string" ? payload.userMessageId.trim() : "";
-  const userMessage = typeof payload.userMessage === "string" ? payload.userMessage.trim() : "";
+    typeof payload.userMessageId === "string"
+      ? payload.userMessageId.trim()
+      : "";
+  const userMessage =
+    typeof payload.userMessage === "string" ? payload.userMessage.trim() : "";
   const userTimezone =
-    typeof payload.userTimezone === "string" ? payload.userTimezone.trim() : undefined;
+    typeof payload.userTimezone === "string"
+      ? payload.userTimezone.trim()
+      : undefined;
   const currentTimeIso =
-    typeof payload.currentTimeIso === "string" ? payload.currentTimeIso.trim() : undefined;
+    typeof payload.currentTimeIso === "string"
+      ? payload.currentTimeIso.trim()
+      : undefined;
 
   if (
     !assistantId ||
@@ -1086,12 +1267,17 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
   const streamCredentialRefs = extractToolCredentialRefs(applied.bootstrap);
   const streamQuotaPolicy = extractToolQuotaPolicy(applied.bootstrap);
   const streamToolDenyList = buildToolDenyList(streamQuotaPolicy);
+  const streamToolProviderOverrides =
+    extractToolProviderOverrides(streamCredentialRefs);
 
   let streamResolvedToolCredentials = new Map<string, string>();
   if (streamCredentialRefs.size > 0) {
     try {
       const cfg = loadConfig();
-      streamResolvedToolCredentials = await resolveToolCredentials(streamCredentialRefs, cfg);
+      streamResolvedToolCredentials = await resolveToolCredentials(
+        streamCredentialRefs,
+        cfg,
+      );
     } catch {
       // Non-fatal: tools will fall back to existing env vars
     }
@@ -1107,6 +1293,7 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
     providerOverride: runtimeOverride?.provider,
     modelOverride: runtimeOverride?.model,
     resolvedToolCredentials: streamResolvedToolCredentials,
+    toolProviderOverrides: streamToolProviderOverrides,
     toolDenyList: streamToolDenyList,
     toolQuotaPolicy: streamQuotaPolicy,
     toolLimitWebhookUrl: resolveToolLimitWebhookUrl(),
@@ -1117,7 +1304,13 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
 }
 
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
-const AVATAR_ALLOWED_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp"]);
+const AVATAR_ALLOWED_EXTENSIONS = new Set([
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "webp",
+]);
 
 function readRawBody(req: IncomingMessage, limit: number): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -1145,7 +1338,14 @@ export async function handleRuntimeWorkspaceAvatarHttpRequest(params: {
   trustedProxies: string[];
   allowRealIpFallback: boolean;
 }): Promise<boolean> {
-  const { req, res, requestPath, resolvedAuth, trustedProxies, allowRealIpFallback } = params;
+  const {
+    req,
+    res,
+    requestPath,
+    resolvedAuth,
+    trustedProxies,
+    allowRealIpFallback,
+  } = params;
   if (!requestPath.startsWith(RUNTIME_WORKSPACE_AVATAR_PATH)) {
     return false;
   }
@@ -1153,7 +1353,9 @@ export async function handleRuntimeWorkspaceAvatarHttpRequest(params: {
   const bearerToken = getBearerToken(req);
   const auth = await authorizeHttpGatewayConnect({
     auth: resolvedAuth,
-    connectAuth: bearerToken ? { token: bearerToken, password: bearerToken } : null,
+    connectAuth: bearerToken
+      ? { token: bearerToken, password: bearerToken }
+      : null,
     req,
     trustedProxies,
     allowRealIpFallback,
@@ -1212,7 +1414,9 @@ export async function handleRuntimeWorkspaceAvatarHttpRequest(params: {
       return true;
     }
 
-    const files = fs.readdirSync(workspaceDir).filter((f) => f.startsWith("avatar."));
+    const files = fs
+      .readdirSync(workspaceDir)
+      .filter((f) => f.startsWith("avatar."));
     if (files.length === 0) {
       sendJson(res, 404, { error: "No avatar found." });
       return true;

@@ -3,13 +3,18 @@ import { AsyncLocalStorage } from "node:async_hooks";
 export interface PersaiRuntimeRequestCtx {
   assistantId?: string;
   toolDenyList?: string[];
-  toolQuotaPolicy?: Map<string, { toolCode: string; dailyCallLimit: number | null }>;
+  toolQuotaPolicy?: Map<
+    string,
+    { toolCode: string; dailyCallLimit: number | null }
+  >;
   toolLimitWebhookUrl?: string;
   cronWebhookUrl?: string;
   workspaceDir?: string;
   activeToolName?: string;
   /** Per-request resolved tool credentials (env var name → secret value). */
   toolCredentials?: Map<string, string>;
+  /** Per-request tool provider overrides (tool code → provider id, e.g. "tts" → "yandex"). */
+  toolProviderOverrides?: Map<string, string>;
 }
 
 /**
@@ -21,7 +26,8 @@ export interface PersaiRuntimeRequestCtx {
  * workspace resolution, extension credential resolvers) can read the store
  * without pulling in the full openclaw-tools graph.
  */
-export const persaiRuntimeRequestContext = new AsyncLocalStorage<PersaiRuntimeRequestCtx>();
+export const persaiRuntimeRequestContext =
+  new AsyncLocalStorage<PersaiRuntimeRequestCtx>();
 
 const TOOL_PROVIDER_ENV_FALLBACKS: Record<string, Record<string, string[]>> = {
   image_generate: {
@@ -29,7 +35,11 @@ const TOOL_PROVIDER_ENV_FALLBACKS: Record<string, Record<string, string[]>> = {
   },
   tts: {
     openai: ["OPENAI_TTS_API_KEY"],
-    yandex: ["YANDEX_TTS_API_KEY", "YANDEX_SPEECHKIT_API_KEY", "YANDEX_API_KEY"],
+    yandex: [
+      "YANDEX_TTS_API_KEY",
+      "YANDEX_SPEECHKIT_API_KEY",
+      "YANDEX_API_KEY",
+    ],
   },
   memory_search: {
     openai: ["OPENAI_EMBEDDINGS_API_KEY"],
@@ -67,6 +77,14 @@ export function withPersaiActiveTool<T>(toolName: string, run: () => T): T {
   );
 }
 
+export function getPersaiToolProviderOverride(
+  toolCode: string,
+): string | undefined {
+  return persaiRuntimeRequestContext
+    .getStore()
+    ?.toolProviderOverrides?.get(toolCode);
+}
+
 export function resolvePersaiToolCredentialForEnvVars(params: {
   envVars: readonly string[];
   provider?: string;
@@ -90,7 +108,8 @@ export function resolvePersaiToolCredentialForEnvVars(params: {
     return null;
   }
 
-  const fallbackEnvVars = TOOL_PROVIDER_ENV_FALLBACKS[toolName]?.[provider] ?? [];
+  const fallbackEnvVars =
+    TOOL_PROVIDER_ENV_FALLBACKS[toolName]?.[provider] ?? [];
   for (const envVar of fallbackEnvVars) {
     const value = store.toolCredentials.get(envVar);
     if (typeof value === "string" && value.trim().length > 0) {
