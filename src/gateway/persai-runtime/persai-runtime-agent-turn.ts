@@ -143,7 +143,10 @@ function resolveAgentResponse(result: unknown): AgentResponse {
 }
 
 function stripTtsDirectives(text: string): string {
-  return text.replace(TTS_DIRECTIVE_RE, "").trim();
+  return text
+    .replace(/\[\[tts:([^\]]*)\]\]/gi, "$1")
+    .replace(TTS_DIRECTIVE_RE, "")
+    .trim();
 }
 
 /**
