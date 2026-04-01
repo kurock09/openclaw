@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import * as path from "node:path";
 import { createCronTool } from "../../agents/tools/cron-tool.js";
 import { loadConfig } from "../../config/config.js";
+import { logInfo, logWarn } from "../../logger.js";
 import {
   authorizeHttpGatewayConnect,
   type ResolvedGatewayAuth,
@@ -896,10 +897,15 @@ export async function handleRuntimeChatWebHttpRequest(params: {
           credentialRefs,
           cfg,
         );
-      } catch {
-        // Non-fatal: tools will fall back to existing env vars
+      } catch (credErr) {
+        logWarn(
+          `persai-runtime: resolveToolCredentials failed: ${credErr instanceof Error ? credErr.message : String(credErr)}`,
+        );
       }
     }
+    logInfo(
+      `persai-runtime: web turn credentials=${[...resolvedToolCredentials.keys()].join(",")||"none"} overrides=${[...toolProviderOverrides.entries()].map(([k,v])=>`${k}=${v}`).join(",")||"none"}`,
+    );
 
     const agentOut = await runPersaiWebRuntimeAgentTurnSync({
       assistantId,
@@ -1084,10 +1090,15 @@ export async function handleRuntimeChatChannelHttpRequest(params: {
         credentialRefs,
         cfg,
       );
-    } catch {
-      // Non-fatal
+    } catch (credErr) {
+      logWarn(
+        `persai-runtime: resolveToolCredentials failed (tg): ${credErr instanceof Error ? credErr.message : String(credErr)}`,
+      );
     }
   }
+  logInfo(
+    `persai-runtime: tg turn credentials=${[...resolvedToolCredentials.keys()].join(",")||"none"} overrides=${[...tgToolProviderOverrides.entries()].map(([k,v])=>`${k}=${v}`).join(",")||"none"}`,
+  );
 
   const agentOut = await runPersaiTelegramAgentTurn({
     assistantId,
@@ -1278,10 +1289,15 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
         streamCredentialRefs,
         cfg,
       );
-    } catch {
-      // Non-fatal: tools will fall back to existing env vars
+    } catch (credErr) {
+      logWarn(
+        `persai-runtime: resolveToolCredentials failed (stream): ${credErr instanceof Error ? credErr.message : String(credErr)}`,
+      );
     }
   }
+  logInfo(
+    `persai-runtime: stream turn credentials=${[...streamResolvedToolCredentials.keys()].join(",")||"none"} overrides=${[...streamToolProviderOverrides.entries()].map(([k,v])=>`${k}=${v}`).join(",")||"none"}`,
+  );
 
   await runPersaiWebRuntimeAgentTurnStream({
     req,
