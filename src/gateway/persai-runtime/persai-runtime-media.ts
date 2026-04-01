@@ -455,11 +455,27 @@ export async function handleRuntimeWorkspaceMediaTranscribeHttpRequest(params: {
     return true;
   }
 
+  const ext = path.extname(filePath).slice(1).toLowerCase();
+  const AUDIO_MIME_BY_EXT: Record<string, string> = {
+    webm: "audio/webm",
+    ogg: "audio/ogg",
+    opus: "audio/opus",
+    mp3: "audio/mpeg",
+    wav: "audio/wav",
+    m4a: "audio/mp4",
+    aac: "audio/aac",
+    flac: "audio/flac",
+    caf: "audio/x-caf",
+    mp4: "audio/mp4",
+  };
+  const mime = AUDIO_MIME_BY_EXT[ext] ?? `audio/${ext}`;
+
   const cfg = loadConfig();
   try {
     const result = await transcribeAudioFile({
       filePath,
       cfg,
+      mime,
     });
     const text = result.text ?? "";
     log.debug("audio transcribed", {
