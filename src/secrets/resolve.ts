@@ -189,6 +189,12 @@ function toProviderKey(source: SecretRefSource, provider: string): string {
 function resolveConfiguredProvider(ref: SecretRef, config: OpenClawConfig): SecretProviderConfig {
   const providerConfig = config.secrets?.providers?.[ref.provider];
   if (!providerConfig) {
+    if (ref.source === "persai") {
+      const baseUrl = process.env.PERSAI_API_BASE_URL?.trim();
+      if (baseUrl) {
+        return { source: "persai", baseUrl };
+      }
+    }
     if (ref.source === "env" && ref.provider === resolveDefaultSecretProviderAlias(config, "env")) {
       return { source: "env" };
     }

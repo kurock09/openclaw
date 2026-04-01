@@ -446,6 +446,36 @@ Before preserving or adding a higher-risk patch, confirm:
 
 - `grep -c 'AUDIO_MIME_BY_EXT' src/gateway/persai-runtime/persai-runtime-media.ts` should return >= 2
 
+---
+
+### Patch #24 — Auto-configure persai secret provider from PERSAI_API_BASE_URL
+
+**Files:**
+
+- `src/secrets/resolve.ts` — `resolveConfiguredProvider` now auto-creates a `PersaiSecretProviderConfig` from `PERSAI_API_BASE_URL` when a persai-source secret ref is encountered but no explicit `secrets.providers` config exists
+
+**Why patch is required:** PersAI runtime deploys do not write an OpenClaw `config.json`. Without explicit `secrets.providers["persai-runtime"]` config, `resolveSecretRefValues` throws "not configured" for persai-source refs, which is silently caught. This leaves `resolvedToolCredentials` empty — all per-provider API keys (Yandex TTS, etc.) are invisible to tool code, causing silent fallback to default providers.
+
+**Introduced by:** Yandex TTS credential resolution fix
+**Verify:**
+
+- `grep -c 'PERSAI_API_BASE_URL' src/secrets/resolve.ts` should return >= 1
+
+---
+
+### Patch #25 — TTS provider fallback diagnostic logging
+
+**Files:**
+
+- `src/tts/tts.ts` — `synthesizeSpeech` now logs provider order, per-provider attempt/skip/success/failure with latency and error details via `logVerbose`
+
+**Why patch is required:** TTS provider fallback chain silently swallows errors, making it impossible to diagnose why a configured provider (e.g. Yandex) is not used.
+
+**Introduced by:** TTS provider debugging
+**Verify:**
+
+- `grep -c 'TTS: provider' src/tts/tts.ts` should return >= 4
+
 ## Quick full verification
 
 Run `node scripts/verify-persai-patches.mjs` (see script in `scripts/`).
