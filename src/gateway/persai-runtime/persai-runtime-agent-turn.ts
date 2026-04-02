@@ -1,16 +1,13 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import path from "node:path";
 import { persaiRuntimeRequestContext } from "../../agents/openclaw-tools.js";
 import { PersaiRuntimeToolLimitError } from "../../agents/persai-runtime-tool-limits.js";
 import { createDefaultDeps } from "../../cli/deps.js";
 import { agentCommandFromIngress } from "../../commands/agent.js";
-import { loadConfig } from "../../config/config.js";
 import { onAgentEvent } from "../../infra/agent-events.js";
 import { normalizeOutboundPayloads } from "../../infra/outbound/payloads.js";
 import { logWarn } from "../../logger.js";
 import { defaultRuntime } from "../../runtime.js";
-import { maybeApplyTtsToPayload } from "../../tts/tts.js";
 import { resolveAssistantStreamDeltaText } from "../agent-event-assistant-text.js";
 
 type PersaiRuntimeTurnError = {
@@ -52,57 +49,6 @@ type AgentResponse = {
   media: PersaiMediaArtifact[];
 };
 
-const TTS_DIRECTIVE_RE = /\[\[\/?(tts(?::[^\]]*)?)\]\]/gi;
-
-/**
- * Stateful TTS directive stripper for streaming deltas.  Buffers text that
- * looks like the start of a `[[tts:…]]` directive until enough tokens arrive
- * to decide whether it's a complete directive (strip) or a false positive
- * (flush as regular text).
- */
-function createTtsDeltaStripper(): (text: string) => string {
-  let buffer = "";
-  return (text: string): string => {
-    buffer += text;
-    if (!buffer.includes("[[")) {
-      const out = buffer;
-      buffer = "";
-      return out;
-    }
-    let result = "";
-    let i = 0;
-    while (i < buffer.length) {
-      const openIdx = buffer.indexOf("[[", i);
-      if (openIdx === -1) {
-        result += buffer.slice(i);
-        i = buffer.length;
-        break;
-      }
-      result += buffer.slice(i, openIdx);
-      const afterOpen = buffer.slice(openIdx);
-      const match = afterOpen.match(/^\[\[\/?(tts(?::[^\]]*)?)\]\]/i);
-      if (match) {
-        i = openIdx + match[0].length;
-        continue;
-      }
-      if (/^\[\[\/?(tts[^\]]*)?$/i.test(afterOpen)) {
-        buffer = afterOpen;
-        return result;
-      }
-      result += "[[";
-      i = openIdx + 2;
-    }
-    buffer = "";
-    return result;
-  };
-}
-
-function flushTtsDeltaStripper(
-  stripper: (text: string) => string,
-): string {
-  return stripper("");
-}
-
 function inferMediaType(url: string): PersaiMediaArtifact["type"] {
   const lower = url.toLowerCase();
   if (/\.(png|jpe?g|gif|webp|svg|bmp)$/.test(lower)) return "image";
@@ -140,75 +86,6 @@ function resolveAgentResponse(result: unknown): AgentResponse {
   const text =
     textParts.filter(Boolean).join("\n\n") || "No response from OpenClaw.";
   return { text, media };
-}
-
-function stripTtsDirectives(text: string): string {
-  return text
-    .replace(/\[\[tts:([^\]]*)\]\]/gi, "$1")
-    .replace(TTS_DIRECTIVE_RE, "")
-    .trim();
-}
-
-/**
- * Convert shorthand `[[tts:content]]` (no key=value pairs) to the block form
- * `[[tts:text]]content[[/tts:text]]` that parseTtsDirectives understands as
- * speech text rather than parameter directives.
- */
-function normalizeTtsDirectives(text: string): string {
-  return text.replace(
-    /\[\[tts:([^\]]+)\]\]/gi,
-    (_match, body: string) => {
-      if (body.includes("=")) return _match;
-      return `[[tts:text]]${body}[[/tts:text]]`;
-    },
-  );
-}
-
-/**
- * Process the agent result through the TTS pipeline: `maybeApplyTtsToPayload`
- * parses `[[tts:…]]` directives, strips them from the display text, generates
- * audio when enabled, and returns a clean response with media artifacts.
- *
- * `workspaceDir` determines where audio files are written so that downstream
- * delivery code (Telegram, web) can locate them on shared storage.
- */
-async function resolveAgentResponseWithTts(
-  result: unknown,
-  channel: string,
-  workspaceDir?: string,
-): Promise<AgentResponse> {
-  const response = resolveAgentResponse(result);
-  try {
-    const cfg = loadConfig();
-    const outputDir = workspaceDir
-      ? path.join(workspaceDir, "media", "tts")
-      : undefined;
-    const normalizedText = normalizeTtsDirectives(response.text);
-    const ttsPayload = await maybeApplyTtsToPayload({
-      payload: { text: normalizedText },
-      cfg,
-      channel,
-      kind: "final",
-      outputDir,
-    });
-    const media = [...response.media];
-    if (ttsPayload.mediaUrl) {
-      media.push({
-        url: ttsPayload.mediaUrl,
-        type: "audio" as const,
-        audioAsVoice: ttsPayload.audioAsVoice ?? false,
-      });
-    }
-    const cleaned = ttsPayload.text?.trim();
-    const fallback = stripTtsDirectives(response.text) || response.text;
-    return { text: cleaned || fallback, media };
-  } catch (err) {
-    logWarn(
-      `persai-runtime: TTS processing failed, returning raw text: ${err instanceof Error ? err.message : String(err)}`,
-    );
-    const fallback = stripTtsDirectives(response.text) || response.text;
-    return { text: fallback, media: response.media };
-  }
 }
 
 function buildPersaiWebIngressCommandInput(params: {
@@ -290,9 +167,7 @@ export async function runPersaiWebRuntimeAgentTurnSync(params: {
     const result = await persaiRuntimeRequestContext.run(runtimeCtx, () =>
       agentCommandFromIngress(commandInput, defaultRuntime, deps),
     );
-    const response = await persaiRuntimeRequestContext.run(runtimeCtx, () =>
-      resolveAgentResponseWithTts(result, "webchat", params.workspaceDir),
-    );
+    const response = resolveAgentResponse(result);
     return { ok: true, assistantMessage: response.text, media: response.media };
   } catch (err) {
     const normalized = toPersaiRuntimeTurnError(err);
@@ -357,9 +232,7 @@ export async function runPersaiTelegramAgentTurn(params: {
     const result = await persaiRuntimeRequestContext.run(runtimeCtx, () =>
       agentCommandFromIngress(commandInput, defaultRuntime, deps),
     );
-    const response = await persaiRuntimeRequestContext.run(runtimeCtx, () =>
-      resolveAgentResponseWithTts(result, "telegram", params.workspaceDir),
-    );
+    const response = resolveAgentResponse(result);
     return { ok: true, assistantMessage: response.text, media: response.media };
   } catch (err) {
     const normalized = toPersaiRuntimeTurnError(err);
@@ -421,15 +294,13 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
 
   let closed = false;
   let sawAssistantDelta = false;
-  const stripDelta = createTtsDeltaStripper();
 
   const unsubscribe = onAgentEvent((evt) => {
     if (evt.runId !== runId || closed) {
       return;
     }
     if (evt.stream === "assistant") {
-      const rawContent = resolveAssistantStreamDeltaText(evt) ?? "";
-      const content = stripDelta(rawContent);
+      const content = resolveAssistantStreamDeltaText(evt) ?? "";
       if (content) {
         sawAssistantDelta = true;
         params.res.write(
@@ -464,16 +335,7 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
         if (closed) {
           return;
         }
-        const flushed = flushTtsDeltaStripper(stripDelta);
-        if (flushed) {
-          sawAssistantDelta = true;
-          params.res.write(
-            `${JSON.stringify({ type: "delta", delta: flushed })}\n`,
-          );
-        }
-        const response = await persaiRuntimeRequestContext.run(runtimeCtx, () =>
-          resolveAgentResponseWithTts(result, "webchat", params.workspaceDir),
-        );
+        const response = resolveAgentResponse(result);
         if (!sawAssistantDelta) {
           params.res.write(
             `${JSON.stringify({ type: "delta", delta: response.text })}\n`,

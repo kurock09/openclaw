@@ -399,6 +399,8 @@ Before preserving or adding a higher-risk patch, confirm:
 - `src/agents/tools/tts-tool.ts` — accepts `workspaceDir`, computes `outputDir` as `workspaceDir/media/tts`
 - `src/tts/tts.ts` — `textToSpeech` accepts optional `outputDir`; when provided, saves audio there instead of ephemeral `/tmp/openclaw/tts-*`
 
+**Note:** `maybeApplyTtsToPayload` previously had an `outputDir` pass-through (commit `9a4d8a9d56`), but it was removed when the directive pipeline was replaced by tool-call-only TTS (`tts.auto: "off"`). The `textToSpeech` `outputDir` remains — it is used by the TTS tool-call path.
+
 **Why patch is required:** TTS audio was saved to `/tmp/openclaw/` which is ephemeral and not accessible by PersAI's media download handler. PersAI API logs showed `Tool media not found on storage: /tmp/openclaw/tts-*/voice-*.mp3`. Same root cause as image_generate (patch #17).
 
 **Introduced by:** M-series TTS media delivery fix

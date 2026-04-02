@@ -972,7 +972,6 @@ export async function maybeApplyTtsToPayload(params: {
   kind?: "tool" | "block" | "final";
   inboundAudio?: boolean;
   ttsAuto?: string;
-  outputDir?: string;
 }): Promise<ReplyPayload> {
   // Compaction notices are informational UI signals — never synthesise them as speech.
   if (params.payload.isCompactionNotice) {
@@ -1089,7 +1088,6 @@ export async function maybeApplyTtsToPayload(params: {
     prefsPath,
     channel: params.channel,
     overrides: directives.overrides,
-    outputDir: params.outputDir,
   });
 
   if (result.success && result.audioPath) {
