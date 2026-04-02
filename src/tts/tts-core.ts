@@ -138,11 +138,6 @@ export function parseTtsDirectives(
   cleanedText = cleanedText.replace(directiveRegex, (_match, body: string) => {
     hasDirective = true;
     const tokens = body.split(/\s+/).filter(Boolean);
-    const hasAnyKeyValue = tokens.some((t) => t.indexOf("=") !== -1);
-    if (!hasAnyKeyValue && body.trim().length > 0 && overrides.ttsText == null) {
-      overrides.ttsText = body.trim();
-      return "";
-    }
     for (const token of tokens) {
       const eqIndex = token.indexOf("=");
       if (eqIndex === -1) {
