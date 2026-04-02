@@ -150,6 +150,21 @@ function stripTtsDirectives(text: string): string {
 }
 
 /**
+ * Convert shorthand `[[tts:content]]` (no key=value pairs) to the block form
+ * `[[tts:text]]content[[/tts:text]]` that parseTtsDirectives understands as
+ * speech text rather than parameter directives.
+ */
+function normalizeTtsDirectives(text: string): string {
+  return text.replace(
+    /\[\[tts:([^\]]+)\]\]/gi,
+    (_match, body: string) => {
+      if (body.includes("=")) return _match;
+      return `[[tts:text]]${body}[[/tts:text]]`;
+    },
+  );
+}
+
+/**
  * Process the agent result through the TTS pipeline: `maybeApplyTtsToPayload`
  * parses `[[tts:…]]` directives, strips them from the display text, generates
  * audio when enabled, and returns a clean response with media artifacts.
@@ -168,8 +183,9 @@ async function resolveAgentResponseWithTts(
     const outputDir = workspaceDir
       ? path.join(workspaceDir, "media", "tts")
       : undefined;
+    const normalizedText = normalizeTtsDirectives(response.text);
     const ttsPayload = await maybeApplyTtsToPayload({
-      payload: { text: response.text },
+      payload: { text: normalizedText },
       cfg,
       channel,
       kind: "final",
