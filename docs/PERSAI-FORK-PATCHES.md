@@ -23,6 +23,7 @@ Before preserving or adding a higher-risk patch, confirm:
 - **PersAI-only files** (zero merge risk — upstream doesn't have them):
   - `src/gateway/persai-runtime/` (15 files, including new `persai-runtime-media.ts`)
   - `src/agents/persai-runtime-context.ts`
+  - `src/agents/tools/persai-tool-quota-status-tool.ts` (runtime tool: live quota read)
   - `src/plugin-sdk/persai-credential.ts`
   - `src/tts/providers/yandex.ts` (new in M7)
 
@@ -39,12 +40,12 @@ Before preserving or adding a higher-risk patch, confirm:
 **Introduced by:** `acbb22f53` (feat: add persai secret source)
 **Verify:** `grep -c '"persai"' src/config/types.secrets.ts` should return >= 4
 
-### 2. Tool deny list via AsyncLocalStorage
+### 2. Tool deny list via AsyncLocalStorage (+ PersAI quota status tool)
 
 **File:** `src/agents/openclaw-tools.ts`
-**Change:** Import `persaiRuntimeRequestContext`, re-export it. After tool assembly, read `toolDenyList` from context (then fallback to `process.env.PERSAI_TOOL_DENY`).
-**Introduced by:** `5c4153daf` (fix: credential refs Object parsing, eliminate process.env race)
-**Verify:** `grep -c 'persaiRuntimeRequestContext' src/agents/openclaw-tools.ts` should return >= 2
+**Change:** Import `persaiRuntimeRequestContext`, re-export it. After tool assembly, read `toolDenyList` from context (then fallback to `process.env.PERSAI_TOOL_DENY`). When the request store has a PersAI `assistantId`, also append `persai_tool_quota_status` (from `createPersaiToolQuotaStatusTool()`) so the model can read live daily usage vs current plan caps from PersAI `POST /api/v1/internal/runtime/tools/check` instead of guessing from chat history.
+**Introduced by:** `5c4153daf` (fix: credential refs Object parsing, eliminate process.env race); quota-status tool added later (see `persai-tool-quota-status-tool.ts`)
+**Verify:** `grep -c 'persaiRuntimeRequestContext' src/agents/openclaw-tools.ts` should return >= 2; `grep -c 'createPersaiToolQuotaStatusTool' src/agents/openclaw-tools.ts` should return >= 1
 
 ### 3. Memory workspace override via AsyncLocalStorage
 

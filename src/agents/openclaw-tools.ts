@@ -18,6 +18,7 @@ import { createImageTool } from "./tools/image-tool.js";
 import { createMessageTool } from "./tools/message-tool.js";
 import { createNodesTool } from "./tools/nodes-tool.js";
 import { createPdfTool } from "./tools/pdf-tool.js";
+import { createPersaiToolQuotaStatusTool } from "./tools/persai-tool-quota-status-tool.js";
 import { createReminderTaskTool } from "./tools/reminder-task-tool.js";
 import { createSessionStatusTool } from "./tools/session-status-tool.js";
 import { createSessionsHistoryTool } from "./tools/sessions-history-tool.js";
@@ -134,6 +135,7 @@ export function createOpenClawTools(
     sandboxed: options?.sandboxed,
     runtimeFirecrawl: runtimeWebTools?.fetch.firecrawl,
   });
+  const persaiToolQuotaStatusTool = createPersaiToolQuotaStatusTool();
   const messageTool = options?.disableMessageTool
     ? null
     : createMessageTool({
@@ -230,6 +232,7 @@ export function createOpenClawTools(
       config: options?.config,
       sandboxed: options?.sandboxed,
     }),
+    ...(persaiToolQuotaStatusTool ? [persaiToolQuotaStatusTool] : []),
     ...(webSearchTool ? [webSearchTool] : []),
     ...(webFetchTool ? [webFetchTool] : []),
     ...(imageTool ? [imageTool] : []),

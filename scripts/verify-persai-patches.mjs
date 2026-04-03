@@ -81,6 +81,12 @@ check("openclaw-tools.ts imports persaiRuntimeRequestContext", () =>
 check("openclaw-tools.ts re-exports persaiRuntimeRequestContext", () =>
   fileContains("src/agents/openclaw-tools.ts", "export { persaiRuntimeRequestContext }"),
 );
+check("persai-tool-quota-status-tool.ts exists", () =>
+  fileExists("src/agents/tools/persai-tool-quota-status-tool.ts"),
+);
+check("openclaw-tools.ts registers PersAI quota status tool", () =>
+  fileContains("src/agents/openclaw-tools.ts", "createPersaiToolQuotaStatusTool"),
+);
 
 console.log("\n[4] Memory workspace override");
 check("backend-config.ts has persaiRuntimeRequestContext", () =>
