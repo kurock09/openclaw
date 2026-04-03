@@ -62,6 +62,27 @@ export function extractBootstrapDocuments(workspace: unknown): Record<string, st
   return Object.keys(result).length > 0 ? result : null;
 }
 
+async function clearDirectoryContents(dir: string): Promise<boolean> {
+  let entries: string[];
+  try {
+    entries = await fs.readdir(dir);
+  } catch (err) {
+    const code =
+      err instanceof Error && "code" in err ? (err as NodeJS.ErrnoException).code : undefined;
+    if (code === "ENOENT") {
+      return false;
+    }
+    throw err;
+  }
+
+  let deleted = false;
+  for (const entry of entries) {
+    await fs.rm(path.join(dir, entry), { recursive: true, force: true });
+    deleted = true;
+  }
+  return deleted;
+}
+
 export async function cleanupPersaiAssistantWorkspace(
   assistantId: string,
   env: NodeJS.ProcessEnv = process.env,
@@ -69,9 +90,14 @@ export async function cleanupPersaiAssistantWorkspace(
   const dir = resolvePersaiAssistantWorkspaceDir(assistantId, env);
 
   try {
-    await fs.rm(dir, { recursive: true, force: true });
-    log.debug("assistant workspace directory deleted", { assistantId, dir });
-    return { workspaceDir: dir, deleted: true };
+    await fs.mkdir(dir, { recursive: true });
+    const deleted = await clearDirectoryContents(dir);
+    log.debug("assistant workspace directory cleaned (root preserved)", {
+      assistantId,
+      dir,
+      deleted,
+    });
+    return { workspaceDir: dir, deleted };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.debug("workspace cleanup skipped (may not exist)", { assistantId, dir, error: message });

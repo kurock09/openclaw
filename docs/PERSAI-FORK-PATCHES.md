@@ -283,6 +283,23 @@ Before preserving or adding a higher-risk patch, confirm:
 - `grep -c 'PersaiMediaArtifact' src/gateway/persai-runtime/persai-runtime-agent-turn.ts` should return >= 1
 - `grep -c '"media"' src/gateway/persai-runtime/persai-runtime-agent-turn.ts` should return >= 1
 
+### 14a. Workspace cleanup preserves assistant workspace root
+
+**Risk:** Lower-risk PersAI-specific bridge change
+
+**Files:**
+
+- `src/gateway/persai-runtime/persai-runtime-workspace.ts` — `cleanupPersaiAssistantWorkspace()` clears assistant workspace contents but preserves the workspace root directory; avoids crashing live runs that already `chdir(workspaceDir)` when assistant recreate/reset/preview cleanup happens
+- `src/gateway/persai-runtime/persai-runtime-workspace.test.ts` — regression test asserts cleanup removes contents but keeps the root directory
+
+**Why native patch is required:** The unsafe `rm -rf workspaceRoot` happens inside the OpenClaw PersAI runtime bridge. PersAI-only changes cannot prevent a live OpenClaw run from losing its current working directory once this cleanup endpoint is called.
+
+**Introduced by:** runtime workspace root preservation hotfix
+**Verify:**
+
+- `grep -c 'root preserved' src/gateway/persai-runtime/persai-runtime-workspace.ts` should return >= 1
+- `grep -c 'preserves the workspace root' src/gateway/persai-runtime/persai-runtime-workspace.test.ts` should return >= 1
+
 ### 15. Telegram inbound/outbound media (M-series M5/M6)
 
 **Risk:** Lower-risk PersAI-specific bridge changes

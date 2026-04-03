@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  cleanupPersaiAssistantWorkspace,
   consumePersaiAssistantBootstrapFile,
   resolvePersaiAssistantWorkspaceDir,
   writeBootstrapFilesToWorkspace,
@@ -74,5 +75,21 @@ describe("persai runtime workspace bootstrap hygiene", () => {
     await expect(fs.access(path.join(workspaceDir, "BOOTSTRAP.md"))).rejects.toMatchObject({
       code: "ENOENT",
     });
+  });
+
+  it("cleans workspace contents but preserves the workspace root", async () => {
+    env = await makeTempEnv();
+    const assistantId = "assistant-2";
+    const workspaceDir = resolvePersaiAssistantWorkspaceDir(assistantId, env);
+
+    await fs.mkdir(path.join(workspaceDir, "memory"), { recursive: true });
+    await fs.writeFile(path.join(workspaceDir, "AGENTS.md"), "# test\n", "utf-8");
+    await fs.writeFile(path.join(workspaceDir, "memory", "note.md"), "hello\n", "utf-8");
+
+    const result = await cleanupPersaiAssistantWorkspace(assistantId, env);
+
+    await expect(fs.access(workspaceDir)).resolves.toBeUndefined();
+    await expect(fs.readdir(workspaceDir)).resolves.toEqual([]);
+    expect(result.deleted).toBe(true);
   });
 });
