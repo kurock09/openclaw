@@ -683,10 +683,14 @@ export async function syncTelegramBotForAssistant(params: {
         userMessage: ctx.message.text ?? "",
         chatId: String(ctx.chat.id),
       });
-      await sendTelegramReplyWithConfiguredParseMode(ctx, turnResult.text, currentConfig.parseMode);
-      if (turnResult.media.length > 0) {
-        await deliverTelegramMedia(bot, ctx.chat.id, assistantId, turnResult.media);
-      }
+      await sendTelegramAssistantTurnReply(
+        ctx,
+        bot,
+        ctx.chat.id,
+        assistantId,
+        turnResult,
+        currentConfig.parseMode,
+      );
     } catch (err) {
       console.error(`[persai-telegram] Agent turn failed for ${assistantId}:`, err);
       await ctx.reply("Sorry, I encountered an error. Please try again.").catch(() => {});
@@ -736,10 +740,14 @@ export async function syncTelegramBotForAssistant(params: {
           },
         ],
       });
-      await sendTelegramReplyWithConfiguredParseMode(ctx, turnResult.text, currentConfig.parseMode);
-      if (turnResult.media.length > 0) {
-        await deliverTelegramMedia(bot, ctx.chat.id, assistantId, turnResult.media);
-      }
+      await sendTelegramAssistantTurnReply(
+        ctx,
+        bot,
+        ctx.chat.id,
+        assistantId,
+        turnResult,
+        currentConfig.parseMode,
+      );
     } catch (err) {
       console.error(`[persai-telegram] Voice turn failed for ${assistantId}:`, err);
       await ctx.reply("Sorry, I couldn't process your voice message. Please try again.").catch(() => {});
@@ -780,10 +788,14 @@ export async function syncTelegramBotForAssistant(params: {
           },
         ],
       });
-      await sendTelegramReplyWithConfiguredParseMode(ctx, turnResult.text, currentConfig.parseMode);
-      if (turnResult.media.length > 0) {
-        await deliverTelegramMedia(bot, ctx.chat.id, assistantId, turnResult.media);
-      }
+      await sendTelegramAssistantTurnReply(
+        ctx,
+        bot,
+        ctx.chat.id,
+        assistantId,
+        turnResult,
+        currentConfig.parseMode,
+      );
     } catch (err) {
       console.error(`[persai-telegram] Photo turn failed for ${assistantId}:`, err);
       await ctx.reply("Sorry, I couldn't process your photo. Please try again.").catch(() => {});
@@ -826,10 +838,14 @@ export async function syncTelegramBotForAssistant(params: {
           },
         ],
       });
-      await sendTelegramReplyWithConfiguredParseMode(ctx, turnResult.text, currentConfig.parseMode);
-      if (turnResult.media.length > 0) {
-        await deliverTelegramMedia(bot, ctx.chat.id, assistantId, turnResult.media);
-      }
+      await sendTelegramAssistantTurnReply(
+        ctx,
+        bot,
+        ctx.chat.id,
+        assistantId,
+        turnResult,
+        currentConfig.parseMode,
+      );
     } catch (err) {
       console.error(`[persai-telegram] Document turn failed for ${assistantId}:`, err);
       await ctx.reply("Sorry, I couldn't process your file. Please try again.").catch(() => {});
@@ -1096,6 +1112,27 @@ async function deliverTelegramMedia(
     } catch (err) {
       console.warn(`[persai-telegram] Failed to send media to ${chatId}:`, err);
     }
+  }
+}
+
+function persaiTelegramTurnHasVoiceNote(media: PersaiTurnMedia[]): boolean {
+  return media.some((m) => m.type === "audio" && m.audioAsVoice === true);
+}
+
+/** Voice-note replies: Telegram UX is voice-only (no duplicate text). Other media still sent in full. */
+async function sendTelegramAssistantTurnReply(
+  ctx: Parameters<typeof sendTelegramReplyWithConfiguredParseMode>[0],
+  bot: Bot,
+  chatId: string | number,
+  assistantId: string,
+  turnResult: PersaiTelegramTurnResult,
+  parseMode: string,
+): Promise<void> {
+  if (!persaiTelegramTurnHasVoiceNote(turnResult.media)) {
+    await sendTelegramReplyWithConfiguredParseMode(ctx, turnResult.text, parseMode);
+  }
+  if (turnResult.media.length > 0) {
+    await deliverTelegramMedia(bot, chatId, assistantId, turnResult.media);
   }
 }
 
