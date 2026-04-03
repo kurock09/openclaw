@@ -14,6 +14,134 @@ export { TELEGRAM_BOT_API_MAX_MESSAGE_LENGTH };
 const STASH_OPEN = "\uE000";
 const STASH_CLOSE = "\uE001";
 
+/** First line after ``` is a language id when it matches this (Telegram / libprisma style ids). */
+const FENCE_INFO_LINE = /^[A-Za-z0-9][A-Za-z0-9_#.+\-]*$/;
+
+const LANGUAGE_ALIASES: Record<string, string> = {
+  "c++": "cpp",
+  "c#": "csharp",
+  "f#": "fsharp",
+  "objective-c": "objc",
+  "objectivec": "objc",
+  js: "javascript",
+  ts: "typescript",
+  py: "python",
+  sh: "bash",
+  shell: "bash",
+  zsh: "bash",
+  yml: "yaml",
+  rs: "rust",
+  kt: "kotlin",
+};
+
+/**
+ * Normalize a fence language token for Telegram's `class="language-…"` (HTML parse mode).
+ * See https://core.telegram.org/bots/api#html-style (nested pre/code).
+ */
+export function normalizeTelegramLanguageId(raw: string): string {
+  const t = raw.trim().toLowerCase();
+  if (!t) {
+    return "";
+  }
+  const mapped = LANGUAGE_ALIASES[t] ?? t;
+  return mapped.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+/**
+ * Fenced code block → Telegram HTML. With language: nested &lt;pre&gt;&lt;code class="language-…"&gt;.
+ */
+export function fencedBlockToHtml(language: string, code: string): string {
+  const escaped = escapeTelegramHtmlText(code);
+  const langNorm = normalizeTelegramLanguageId(language);
+  if (langNorm) {
+    return `<pre><code class="language-${langNorm}">${escaped}</code></pre>`;
+  }
+  return `<pre>${escaped}</pre>`;
+}
+
+type SourceSegment = { kind: "text"; raw: string } | { kind: "fence"; language: string; code: string };
+
+/**
+ * Split markdown source into text spans and fenced code blocks so inner blank lines do not break paragraphs.
+ */
+export function segmentSourceByFencedBlocks(source: string): SourceSegment[] {
+  const segments: SourceSegment[] = [];
+  let pos = 0;
+  while (pos < source.length) {
+    const open = source.indexOf("```", pos);
+    if (open === -1) {
+      if (pos < source.length) {
+        segments.push({ kind: "text", raw: source.slice(pos) });
+      }
+      break;
+    }
+    if (open > pos) {
+      segments.push({ kind: "text", raw: source.slice(pos, open) });
+    }
+    const afterTicks = open + 3;
+    const nextNl = source.indexOf("\n", afterTicks);
+    if (nextNl === -1) {
+      segments.push({ kind: "text", raw: source.slice(open) });
+      break;
+    }
+    const infoLine = source.slice(afterTicks, nextNl).trimEnd();
+    const codeStart = nextNl + 1;
+    const close = source.indexOf("```", codeStart);
+    if (close === -1) {
+      segments.push({ kind: "text", raw: source.slice(open) });
+      break;
+    }
+    let language = "";
+    let codeBody = source.slice(codeStart, close);
+    if (infoLine === "" || FENCE_INFO_LINE.test(infoLine)) {
+      language = infoLine;
+    } else {
+      codeBody = source.slice(afterTicks, close);
+    }
+    segments.push({ kind: "fence", language, code: codeBody });
+    pos = close + 3;
+  }
+  return segments;
+}
+
+function splitFencedHtmlToFit(language: string, code: string, maxChars: number): string[] {
+  const single = fencedBlockToHtml(language, code);
+  if (single.length <= maxChars) {
+    return [single];
+  }
+  const lines = code.split("\n");
+  const out: string[] = [];
+  let acc = "";
+  const flushAcc = (body: string) => {
+    if (body.length === 0) {
+      return;
+    }
+    out.push(fencedBlockToHtml(language, body));
+  };
+  for (const line of lines) {
+    const next = acc.length === 0 ? line : `${acc}\n${line}`;
+    if (fencedBlockToHtml(language, next).length <= maxChars) {
+      acc = next;
+      continue;
+    }
+    if (acc.length > 0) {
+      flushAcc(acc);
+      acc = line;
+    } else {
+      acc = line;
+    }
+    if (fencedBlockToHtml(language, acc).length > maxChars) {
+      const budget = Math.max(64, maxChars - 48);
+      for (const pc of splitTelegramOutboundText(escapeTelegramHtmlText(acc), budget)) {
+        out.push(`<pre>${pc}</pre>`);
+      }
+      acc = "";
+    }
+  }
+  flushAcc(acc);
+  return out;
+}
+
 export function escapeTelegramHtmlText(text: string): string {
   return text
     .replace(/&/g, "&amp;")
@@ -73,10 +201,25 @@ export function convertAssistantParagraphToTelegramHtml(paragraph: string): stri
     return "";
   }
 
-  const fence = /^```(?:\w*)\n?([\s\S]*?)```$/;
-  const fm = trimmed.match(fence);
-  if (fm) {
-    return `<pre>${escapeTelegramHtmlText(fm[1] ?? "")}</pre>`;
+  if (trimmed.startsWith("```") && trimmed.length >= 6) {
+    const closeInner = trimmed.lastIndexOf("```");
+    if (closeInner > 3) {
+      const inner = trimmed.slice(3, closeInner);
+      const nl = inner.indexOf("\n");
+      if (nl === -1) {
+        const token = inner.trim();
+        if (token.length > 0 && FENCE_INFO_LINE.test(token)) {
+          return fencedBlockToHtml(token, "");
+        }
+        return fencedBlockToHtml("", inner);
+      }
+      const infoLine = inner.slice(0, nl).trimEnd();
+      const code = inner.slice(nl + 1);
+      if (infoLine === "" || FENCE_INFO_LINE.test(infoLine)) {
+        return fencedBlockToHtml(infoLine, code);
+      }
+      return fencedBlockToHtml("", inner);
+    }
   }
 
   const slots: string[] = [];
@@ -147,28 +290,53 @@ function emitOversizedParagraph(messages: string[], markdown: string, maxChars: 
 
 /**
  * Build one or more Telegram HTML message bodies from assistant markdown-ish text.
- * Packs paragraphs without exceeding max length; avoids splitting inside converted HTML.
+ * Fenced blocks (including optional language lines) are extracted before paragraph splitting
+ * so blank lines inside code do not break layout. Packs blocks without exceeding max length.
  */
 export function buildTelegramHtmlMessageBodies(
   source: string,
   maxChars: number = TELEGRAM_BOT_API_MAX_MESSAGE_LENGTH,
 ): string[] {
-  const paragraphs = splitParagraphs(source);
-  if (paragraphs.length === 0) {
+  if (source.trim().length === 0) {
+    return [];
+  }
+
+  const segments = segmentSourceByFencedBlocks(source);
+  const htmlBlocks: string[] = [];
+
+  for (const seg of segments) {
+    if (seg.kind === "fence") {
+      htmlBlocks.push(...splitFencedHtmlToFit(seg.language, seg.code, maxChars));
+      continue;
+    }
+    const paras = splitParagraphs(seg.raw);
+    for (const p of paras) {
+      const html = convertAssistantParagraphToTelegramHtml(p);
+      if (!html) {
+        continue;
+      }
+      if (html.length > maxChars) {
+        emitOversizedParagraph(htmlBlocks, p, maxChars);
+      } else {
+        htmlBlocks.push(html);
+      }
+    }
+  }
+
+  if (htmlBlocks.length === 0) {
     return [];
   }
 
   const messages: string[] = [];
   let current = "";
 
-  for (const p of paragraphs) {
-    const html = convertAssistantParagraphToTelegramHtml(p);
+  for (const html of htmlBlocks) {
     if (!html) {
       continue;
     }
     if (html.length > maxChars) {
       current = flushBuffer(current, messages);
-      emitOversizedParagraph(messages, p, maxChars);
+      messages.push(html);
       continue;
     }
     const sep = current ? "\n\n" : "";
