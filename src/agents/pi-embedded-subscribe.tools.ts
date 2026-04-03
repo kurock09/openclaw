@@ -147,6 +147,7 @@ const TRUSTED_TOOL_RESULT_MEDIA = new Set([
   "memory_search",
   "message",
   "nodes",
+  "persai_workspace_attach",
   "process",
   "read",
   "session_status",

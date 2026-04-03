@@ -61,7 +61,12 @@ function resolveMediaDir(assistantId: string): string {
   return path.join(workspaceDir, MEDIA_DIR_NAME);
 }
 
-function resolveMediaFilePath(
+/**
+ * Resolve a runtime `storagePath` (relative to `…/workspace/<id>/media`, or `../…`
+ * within the PersAI workspace root) to an absolute file path. Returns null when
+ * the path escapes allowed locations.
+ */
+export function resolvePersaiWorkspaceMediaStoragePath(
   assistantId: string,
   storagePath: string,
 ): string | null {
@@ -249,7 +254,7 @@ export async function handleRuntimeWorkspaceMediaDownloadHttpRequest(params: {
     return true;
   }
 
-  const filePath = resolveMediaFilePath(assistantId, storagePath);
+  const filePath = resolvePersaiWorkspaceMediaStoragePath(assistantId, storagePath);
   if (!filePath) {
     sendJson(res, 400, { error: "Invalid storage path." });
     return true;
@@ -319,7 +324,7 @@ export async function handleRuntimeWorkspaceMediaDeleteHttpRequest(params: {
     return true;
   }
 
-  const filePath = resolveMediaFilePath(assistantId, storagePath);
+  const filePath = resolvePersaiWorkspaceMediaStoragePath(assistantId, storagePath);
   if (!filePath) {
     sendJson(res, 400, { error: "Invalid storage path." });
     return true;
@@ -444,7 +449,7 @@ export async function handleRuntimeWorkspaceMediaTranscribeHttpRequest(params: {
     return true;
   }
 
-  const filePath = resolveMediaFilePath(assistantId, storagePath);
+  const filePath = resolvePersaiWorkspaceMediaStoragePath(assistantId, storagePath);
   if (!filePath) {
     sendJson(res, 400, { error: "Invalid storage path." });
     return true;

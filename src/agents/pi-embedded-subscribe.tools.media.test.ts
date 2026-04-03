@@ -263,4 +263,8 @@ describe("extractToolResultMediaPaths", () => {
   it("trusts image_generate local MEDIA paths", () => {
     expect(isToolResultMediaTrusted("image_generate")).toBe(true);
   });
+
+  it("trusts persai_workspace_attach local MEDIA paths", () => {
+    expect(isToolResultMediaTrusted("persai_workspace_attach")).toBe(true);
+  });
 });

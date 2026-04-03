@@ -87,6 +87,15 @@ check("persai-tool-quota-status-tool.ts exists", () =>
 check("openclaw-tools.ts registers PersAI quota status tool", () =>
   fileContains("src/agents/openclaw-tools.ts", "createPersaiToolQuotaStatusTool"),
 );
+check("persai-workspace-attach-tool.ts exists", () =>
+  fileExists("src/agents/tools/persai-workspace-attach-tool.ts"),
+);
+check("openclaw-tools.ts registers PersAI workspace attach tool", () =>
+  fileContains("src/agents/openclaw-tools.ts", "createPersaiWorkspaceAttachTool"),
+);
+check("pi-embedded-subscribe.tools.ts trusts persai_workspace_attach media paths", () =>
+  fileContains("src/agents/pi-embedded-subscribe.tools.ts", "persai_workspace_attach"),
+);
 
 console.log("\n[4] Memory workspace override");
 check("backend-config.ts has persaiRuntimeRequestContext", () =>

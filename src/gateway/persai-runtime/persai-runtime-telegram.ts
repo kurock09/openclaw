@@ -11,7 +11,10 @@ import type {
   PersaiAppliedRuntimeSpec,
   PersaiRuntimeSpecStore,
 } from "./persai-runtime-spec-store.js";
+import { resolvePersaiWorkspaceMediaStoragePath } from "./persai-runtime-media.js";
 import { resolvePersaiAssistantWorkspaceDir } from "./persai-runtime-workspace.js";
+
+const TELEGRAM_OUTBOUND_MEDIA_MAX_BYTES = 25 * 1024 * 1024;
 
 type WebhookHandler = (req: IncomingMessage, res: ServerResponse) => Promise<void>;
 
@@ -1089,10 +1092,14 @@ async function deliverTelegramMedia(
 ): Promise<void> {
   for (const item of media) {
     try {
-      const mediaDir = resolveMediaDir(assistantId);
-      const filePath = path.resolve(mediaDir, item.url);
-      if (!filePath.startsWith(mediaDir) || !fs.existsSync(filePath)) {
-        console.warn(`[persai-telegram] Media file not found: ${filePath}`);
+      const filePath = resolvePersaiWorkspaceMediaStoragePath(assistantId, item.url);
+      if (!filePath || !fs.existsSync(filePath)) {
+        console.warn(`[persai-telegram] Media file not found: ${item.url}`);
+        continue;
+      }
+      const st = await fsp.stat(filePath);
+      if (!st.isFile() || st.size > TELEGRAM_OUTBOUND_MEDIA_MAX_BYTES) {
+        console.warn(`[persai-telegram] Media file missing or too large: ${filePath}`);
         continue;
       }
       const buffer = await fsp.readFile(filePath);

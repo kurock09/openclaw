@@ -24,6 +24,7 @@ Before preserving or adding a higher-risk patch, confirm:
   - `src/gateway/persai-runtime/` (15 files, including new `persai-runtime-media.ts`)
   - `src/agents/persai-runtime-context.ts`
   - `src/agents/tools/persai-tool-quota-status-tool.ts` (runtime tool: live quota read)
+  - `src/agents/tools/persai-workspace-attach-tool.ts` (runtime tool: attach existing workspace files to chat media)
   - `src/plugin-sdk/persai-credential.ts`
   - `src/tts/providers/yandex.ts` (new in M7)
 
@@ -43,9 +44,9 @@ Before preserving or adding a higher-risk patch, confirm:
 ### 2. Tool deny list via AsyncLocalStorage (+ PersAI quota status tool)
 
 **File:** `src/agents/openclaw-tools.ts`
-**Change:** Import `persaiRuntimeRequestContext`, re-export it. After tool assembly, read `toolDenyList` from context (then fallback to `process.env.PERSAI_TOOL_DENY`). When the request store has a PersAI `assistantId`, also append `persai_tool_quota_status` (from `createPersaiToolQuotaStatusTool()`) so the model can read live daily usage vs current plan caps from PersAI `POST /api/v1/internal/runtime/tools/check` instead of guessing from chat history.
-**Introduced by:** `5c4153daf` (fix: credential refs Object parsing, eliminate process.env race); quota-status tool added later (see `persai-tool-quota-status-tool.ts`)
-**Verify:** `grep -c 'persaiRuntimeRequestContext' src/agents/openclaw-tools.ts` should return >= 2; `grep -c 'createPersaiToolQuotaStatusTool' src/agents/openclaw-tools.ts` should return >= 1
+**Change:** Import `persaiRuntimeRequestContext`, re-export it. After tool assembly, read `toolDenyList` from context (then fallback to `process.env.PERSAI_TOOL_DENY`). When the request store has a PersAI `assistantId`, also append `persai_tool_quota_status` (from `createPersaiToolQuotaStatusTool()`) so the model can read live daily usage vs current plan caps from PersAI `POST /api/v1/internal/runtime/tools/check` instead of guessing from chat history. When the store has both `assistantId` and `workspaceDir`, append `persai_workspace_attach` (from `createPersaiWorkspaceAttachTool()`) so the model can return existing workspace files through the outbound `media[]` pipeline without embedding bytes in the prompt.
+**Introduced by:** `5c4153daf` (fix: credential refs Object parsing, eliminate process.env race); quota-status tool added later (see `persai-tool-quota-status-tool.ts`); workspace-attach tool added later (see `persai-workspace-attach-tool.ts`)
+**Verify:** `grep -c 'persaiRuntimeRequestContext' src/agents/openclaw-tools.ts` should return >= 2; `grep -c 'createPersaiToolQuotaStatusTool' src/agents/openclaw-tools.ts` should return >= 1; `grep -c 'createPersaiWorkspaceAttachTool' src/agents/openclaw-tools.ts` should return >= 1
 
 ### 3. Memory workspace override via AsyncLocalStorage
 
@@ -331,7 +332,7 @@ Before preserving or adding a higher-risk patch, confirm:
 
 - `src/media/store.ts` — `saveMediaBuffer` accepts optional `baseDirOverride` parameter to redirect media writes away from `.openclaw-state/media/` to a caller-chosen directory
 - `src/agents/tools/image-generate-tool.ts` — when `workspaceDir` is set, passes `workspaceDir/media` as `baseDirOverride` so generated images persist in the user workspace and are reachable by PersAI download handler
-- `src/gateway/persai-runtime/persai-runtime-media.ts` — `resolveMediaFilePath` now accepts paths under `PERSAI_WORKSPACE_ROOT` (not just `workspaceDir/media/`) as a safety net for tool-generated media
+- `src/gateway/persai-runtime/persai-runtime-media.ts` — `resolvePersaiWorkspaceMediaStoragePath` (exported) resolves download/delete paths under `workspaceDir/media/` or `../…` within `PERSAI_WORKSPACE_ROOT` as a safety net for tool-generated and workspace-attached media
 
 **Why native patch is required:** `saveMediaBuffer` is a core OpenClaw media utility with a hardcoded save directory. PersAI needs tool-generated images to land in the per-user workspace so they survive cleanup and are served by the PersAI download handler. Without the `baseDirOverride` parameter, there is no way to redirect the save path from a PersAI-only fix.
 
