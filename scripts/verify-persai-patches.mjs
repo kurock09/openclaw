@@ -366,6 +366,9 @@ check("persai-runtime-telegram.ts chunks outbound text for Telegram 4096 limit",
     "TELEGRAM_BOT_API_MAX_MESSAGE_LENGTH",
   ),
 );
+check("telegram-assistant-markdown-html.ts exists (Telegram HTML outbound)", () =>
+  fileExists("src/gateway/persai-runtime/telegram-assistant-markdown-html.ts"),
+);
 
 console.log("\n[18] Yandex SpeechKit TTS provider (M-series M7)");
 check("yandex.ts TTS provider exists", () => fileExists("src/tts/providers/yandex.ts"));

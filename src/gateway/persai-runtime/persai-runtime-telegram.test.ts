@@ -139,16 +139,15 @@ describe("splitTelegramOutboundText", () => {
 });
 
 describe("sendTelegramReplyWithConfiguredParseMode", () => {
-  test("retries as plain text when Telegram rejects MarkdownV2 entities", async () => {
-    const calls: Array<{ text: string; options?: { parse_mode?: "MarkdownV2" } }> = [];
+  test("retries as plain text when Telegram rejects HTML entities", async () => {
+    const calls: Array<{ text: string; options?: { parse_mode?: "HTML" } }> = [];
     const ctx = {
-      reply: async (text: string, options?: { parse_mode?: "MarkdownV2" }) => {
+      reply: async (text: string, options?: { parse_mode?: "HTML" }) => {
         calls.push({ text, options });
-        if (options?.parse_mode === "MarkdownV2") {
+        if (options?.parse_mode === "HTML") {
           throw {
             error_code: 400,
-            description:
-              "Bad Request: can't parse entities: Character '!' is reserved and must be escaped with the preceding '\\'",
+            description: "Bad Request: can't parse entities: Unsupported start tag",
           };
         }
         return undefined;
@@ -159,22 +158,16 @@ describe("sendTelegramReplyWithConfiguredParseMode", () => {
       sendTelegramReplyWithConfiguredParseMode(ctx, "Привет, Алекс! Чем могу помочь?", "markdown"),
     ).resolves.toBeUndefined();
 
-    expect(calls).toEqual([
-      {
-        text: "Привет, Алекс! Чем могу помочь?",
-        options: { parse_mode: "MarkdownV2" },
-      },
-      {
-        text: "Привет, Алекс! Чем могу помочь?",
-        options: undefined,
-      },
-    ]);
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.options).toEqual({ parse_mode: "HTML" });
+    expect(calls[1]?.options).toBeUndefined();
+    expect(calls[1]?.text).toContain("Привет");
   });
 
   test("uses plain text directly when markdown mode is disabled", async () => {
-    const calls: Array<{ text: string; options?: { parse_mode?: "MarkdownV2" } }> = [];
+    const calls: Array<{ text: string; options?: { parse_mode?: "HTML" } }> = [];
     const ctx = {
-      reply: async (text: string, options?: { parse_mode?: "MarkdownV2" }) => {
+      reply: async (text: string, options?: { parse_mode?: "HTML" }) => {
         calls.push({ text, options });
         return undefined;
       },
@@ -185,10 +178,10 @@ describe("sendTelegramReplyWithConfiguredParseMode", () => {
     expect(calls).toEqual([{ text: "Hello", options: undefined }]);
   });
 
-  test("sends multiple plain chunks when text exceeds Telegram limit", async () => {
-    const calls: Array<{ text: string; options?: { parse_mode?: "MarkdownV2" } }> = [];
+  test("sends multiple HTML chunks when formatted text exceeds Telegram limit", async () => {
+    const calls: Array<{ text: string; options?: { parse_mode?: "HTML" } }> = [];
     const ctx = {
-      reply: async (text: string, options?: { parse_mode?: "MarkdownV2" }) => {
+      reply: async (text: string, options?: { parse_mode?: "HTML" }) => {
         calls.push({ text, options });
         return undefined;
       },
@@ -196,17 +189,19 @@ describe("sendTelegramReplyWithConfiguredParseMode", () => {
 
     const partA = "a".repeat(TELEGRAM_BOT_API_MAX_MESSAGE_LENGTH);
     const partB = "tail";
-    await sendTelegramReplyWithConfiguredParseMode(ctx, `${partA}${partB}`, "markdown");
+    await sendTelegramReplyWithConfiguredParseMode(ctx, `${partA}\n\n${partB}`, "markdown");
 
     expect(calls).toHaveLength(2);
-    expect(calls[0]).toEqual({ text: partA, options: undefined });
-    expect(calls[1]).toEqual({ text: partB, options: undefined });
+    expect(calls[0]?.options).toEqual({ parse_mode: "HTML" });
+    expect(calls[1]?.options).toEqual({ parse_mode: "HTML" });
+    expect(calls[0]?.text.length).toBeLessThanOrEqual(TELEGRAM_BOT_API_MAX_MESSAGE_LENGTH);
+    expect(calls[1]?.text.length).toBeLessThanOrEqual(TELEGRAM_BOT_API_MAX_MESSAGE_LENGTH);
   });
 
   test("does not call reply for empty string", async () => {
-    const calls: Array<{ text: string; options?: { parse_mode?: "MarkdownV2" } }> = [];
+    const calls: Array<{ text: string; options?: { parse_mode?: "HTML" } }> = [];
     const ctx = {
-      reply: async (text: string, options?: { parse_mode?: "MarkdownV2" }) => {
+      reply: async (text: string, options?: { parse_mode?: "HTML" }) => {
         calls.push({ text, options });
         return undefined;
       },

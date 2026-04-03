@@ -11,8 +11,18 @@ import type {
   PersaiAppliedRuntimeSpec,
   PersaiRuntimeSpecStore,
 } from "./persai-runtime-spec-store.js";
+import {
+  buildTelegramHtmlMessageBodies,
+  lossyPlainFromTelegramHtml,
+} from "./telegram-assistant-markdown-html.js";
+import {
+  splitTelegramOutboundText,
+  TELEGRAM_BOT_API_MAX_MESSAGE_LENGTH,
+} from "./telegram-outbound-chunks.js";
 import { resolvePersaiWorkspaceMediaStoragePath } from "./persai-runtime-media.js";
 import { resolvePersaiAssistantWorkspaceDir } from "./persai-runtime-workspace.js";
+
+export { splitTelegramOutboundText, TELEGRAM_BOT_API_MAX_MESSAGE_LENGTH };
 
 const TELEGRAM_OUTBOUND_MEDIA_MAX_BYTES = 25 * 1024 * 1024;
 
@@ -227,59 +237,41 @@ export function isTelegramMarkdownParseError(error: unknown): boolean {
   );
 }
 
-/** Telegram Bot API `sendMessage` text limit per message (characters). */
-export const TELEGRAM_BOT_API_MAX_MESSAGE_LENGTH = 4096;
-
-/**
- * Split outbound assistant text into chunks that fit one Telegram message.
- * Uses Unicode code points (`Array.from`) so astral symbols are not split mid-scalar.
- */
-export function splitTelegramOutboundText(text: string, maxChars: number): string[] {
-  if (maxChars < 1) {
-    throw new RangeError("maxChars must be >= 1");
-  }
-  const chars = Array.from(text);
-  const chunks: string[] = [];
-  for (let i = 0; i < chars.length; i += maxChars) {
-    chunks.push(chars.slice(i, i + maxChars).join(""));
-  }
-  return chunks;
+/** HTML and MarkdownV2 both surface `can't parse entities` on invalid markup. */
+export function isTelegramEntityParseError(error: unknown): boolean {
+  return isTelegramMarkdownParseError(error);
 }
 
 export async function sendTelegramReplyWithConfiguredParseMode(
   ctx: {
-    reply(text: string, options?: { parse_mode?: "MarkdownV2" }): Promise<unknown>;
+    reply(text: string, options?: { parse_mode?: "HTML" }): Promise<unknown>;
   },
   reply: string,
   parseMode: string,
 ): Promise<void> {
-  const chunks = splitTelegramOutboundText(reply, TELEGRAM_BOT_API_MAX_MESSAGE_LENGTH);
-  if (chunks.length === 0) {
+  if (reply.length === 0) {
     return;
   }
 
-  if (chunks.length > 1) {
+  if (parseMode !== "markdown") {
+    const chunks = splitTelegramOutboundText(reply, TELEGRAM_BOT_API_MAX_MESSAGE_LENGTH);
     for (const chunk of chunks) {
       await ctx.reply(chunk);
     }
     return;
   }
 
-  const single = chunks[0]!;
-
-  if (parseMode !== "markdown") {
-    await ctx.reply(single);
-    return;
-  }
-
-  try {
-    await ctx.reply(single, { parse_mode: "MarkdownV2" });
-  } catch (error) {
-    if (!isTelegramMarkdownParseError(error)) {
-      throw error;
+  const bodies = buildTelegramHtmlMessageBodies(reply, TELEGRAM_BOT_API_MAX_MESSAGE_LENGTH);
+  for (const body of bodies) {
+    try {
+      await ctx.reply(body, { parse_mode: "HTML" });
+    } catch (error) {
+      if (!isTelegramEntityParseError(error)) {
+        throw error;
+      }
+      console.warn("[persai-telegram] HTML parse failed, retrying as plain text:", error);
+      await ctx.reply(lossyPlainFromTelegramHtml(body));
     }
-    console.warn("[persai-telegram] MarkdownV2 parse failed, retrying as plain text:", error);
-    await ctx.reply(single);
   }
 }
 
