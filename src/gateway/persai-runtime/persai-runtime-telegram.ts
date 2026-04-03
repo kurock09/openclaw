@@ -41,6 +41,11 @@ interface ManagedTelegramBot {
 
 const activeBots = new Map<string, ManagedTelegramBot>();
 
+/** Default handler budget; Telegram webhook must answer in ~60s. Override via PERSAI_TELEGRAM_WEBHOOK_HANDLER_TIMEOUT_MS. */
+const DEFAULT_TELEGRAM_WEBHOOK_HANDLER_TIMEOUT_MS = 55_000;
+/** Hard cap so we stay under Telegram's webhook deadline and avoid 500 → retries. */
+const TELEGRAM_WEBHOOK_HANDLER_TIMEOUT_MAX_MS = 58_000;
+
 const DEFAULT_TELEGRAM_PROFILE_COOLDOWN_MS = 10 * 60_000;
 const DEFAULT_TELEGRAM_REINIT_CONCURRENCY = 4;
 const DEFAULT_TELEGRAM_REINIT_JITTER_MS = 1_500;
@@ -167,6 +172,17 @@ function getReadinessRecheckMs(): number {
   return parsePositiveIntegerEnv(
     "PERSAI_TELEGRAM_PROFILE_READY_RECHECK_MS",
     DEFAULT_READINESS_RECHECK_MS,
+  );
+}
+
+function getTelegramWebhookHandlerTimeoutMs(): number {
+  const raw = parsePositiveIntegerEnv(
+    "PERSAI_TELEGRAM_WEBHOOK_HANDLER_TIMEOUT_MS",
+    DEFAULT_TELEGRAM_WEBHOOK_HANDLER_TIMEOUT_MS,
+  );
+  return Math.min(
+    TELEGRAM_WEBHOOK_HANDLER_TIMEOUT_MAX_MS,
+    Math.max(10_000, raw),
   );
 }
 
@@ -823,6 +839,9 @@ export async function syncTelegramBotForAssistant(params: {
   if (tgConfig.webhookUrl) {
     managed.handleWebhook = webhookCallback(bot, "http", {
       secretToken: tgConfig.webhookSecret ?? undefined,
+      timeoutMilliseconds: getTelegramWebhookHandlerTimeoutMs(),
+      // Match extensions/telegram: avoid throwing at grammY's wall — Telegram retries on non-2xx → duplicate turns.
+      onTimeout: "return",
     }) as unknown as WebhookHandler;
 
     try {
