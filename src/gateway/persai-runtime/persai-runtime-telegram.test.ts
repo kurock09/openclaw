@@ -4,8 +4,10 @@ import {
   isTelegramMarkdownParseError,
   sendTelegramReplyWithConfiguredParseMode,
   selectLatestRuntimeSpecs,
+  splitTelegramOutboundText,
   syncBotProfile,
   TelegramProfileSyncError,
+  TELEGRAM_BOT_API_MAX_MESSAGE_LENGTH,
 } from "./persai-runtime-telegram.js";
 
 function sampleSpec(params: {
@@ -111,6 +113,31 @@ describe("syncBotProfile", () => {
   });
 });
 
+describe("splitTelegramOutboundText", () => {
+  test("returns empty array for empty string", () => {
+    expect(splitTelegramOutboundText("", 10)).toEqual([]);
+  });
+
+  test("keeps one chunk under the limit", () => {
+    const s = "a".repeat(100);
+    expect(splitTelegramOutboundText(s, TELEGRAM_BOT_API_MAX_MESSAGE_LENGTH)).toEqual([s]);
+  });
+
+  test("splits at code-point boundaries (emoji is one character)", () => {
+    const emoji = "😀";
+    const chunks = splitTelegramOutboundText(`${emoji}${emoji}`, 1);
+    expect(chunks).toEqual([emoji, emoji]);
+  });
+
+  test("splits long ASCII into multiple chunks", () => {
+    const s = "x".repeat(TELEGRAM_BOT_API_MAX_MESSAGE_LENGTH + 50);
+    const chunks = splitTelegramOutboundText(s, TELEGRAM_BOT_API_MAX_MESSAGE_LENGTH);
+    expect(chunks).toHaveLength(2);
+    expect(chunks[0]!.length).toBe(TELEGRAM_BOT_API_MAX_MESSAGE_LENGTH);
+    expect(chunks[1]!.length).toBe(50);
+  });
+});
+
 describe("sendTelegramReplyWithConfiguredParseMode", () => {
   test("retries as plain text when Telegram rejects MarkdownV2 entities", async () => {
     const calls: Array<{ text: string; options?: { parse_mode?: "MarkdownV2" } }> = [];
@@ -156,6 +183,37 @@ describe("sendTelegramReplyWithConfiguredParseMode", () => {
     await sendTelegramReplyWithConfiguredParseMode(ctx, "Hello", "plain_text");
 
     expect(calls).toEqual([{ text: "Hello", options: undefined }]);
+  });
+
+  test("sends multiple plain chunks when text exceeds Telegram limit", async () => {
+    const calls: Array<{ text: string; options?: { parse_mode?: "MarkdownV2" } }> = [];
+    const ctx = {
+      reply: async (text: string, options?: { parse_mode?: "MarkdownV2" }) => {
+        calls.push({ text, options });
+        return undefined;
+      },
+    };
+
+    const partA = "a".repeat(TELEGRAM_BOT_API_MAX_MESSAGE_LENGTH);
+    const partB = "tail";
+    await sendTelegramReplyWithConfiguredParseMode(ctx, `${partA}${partB}`, "markdown");
+
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).toEqual({ text: partA, options: undefined });
+    expect(calls[1]).toEqual({ text: partB, options: undefined });
+  });
+
+  test("does not call reply for empty string", async () => {
+    const calls: Array<{ text: string; options?: { parse_mode?: "MarkdownV2" } }> = [];
+    const ctx = {
+      reply: async (text: string, options?: { parse_mode?: "MarkdownV2" }) => {
+        calls.push({ text, options });
+        return undefined;
+      },
+    };
+
+    await sendTelegramReplyWithConfiguredParseMode(ctx, "", "plain_text");
+    expect(calls).toHaveLength(0);
   });
 });
 

@@ -360,6 +360,12 @@ check(
       "deliverTelegramMedia",
     ) >= 2,
 );
+check("persai-runtime-telegram.ts chunks outbound text for Telegram 4096 limit", () =>
+  fileContains(
+    "src/gateway/persai-runtime/persai-runtime-telegram.ts",
+    "TELEGRAM_BOT_API_MAX_MESSAGE_LENGTH",
+  ),
+);
 
 console.log("\n[18] Yandex SpeechKit TTS provider (M-series M7)");
 check("yandex.ts TTS provider exists", () => fileExists("src/tts/providers/yandex.ts"));

@@ -289,7 +289,7 @@ Before preserving or adding a higher-risk patch, confirm:
 
 **Files:**
 
-- `src/gateway/persai-runtime/persai-runtime-telegram.ts` — handlers for `message:voice` (download + STT + turn with attachment), `message:photo` (download + turn with attachment), `message:document` (download + turn with attachment); `requestPersaiTelegramTurn` returns `{ text, media[] }`; `deliverTelegramMedia` sends `sendPhoto`/`sendVoice`/`sendAudio`/`sendVideo`/`sendDocument` via Grammy `InputFile`
+- `src/gateway/persai-runtime/persai-runtime-telegram.ts` — handlers for `message:voice` (download + STT + turn with attachment), `message:photo` (download + turn with attachment), `message:document` (download + turn with attachment); `requestPersaiTelegramTurn` returns `{ text, media[] }`; `deliverTelegramMedia` sends `sendPhoto`/`sendVoice`/`sendAudio`/`sendVideo`/`sendDocument` via Grammy `InputFile`; `sendTelegramReplyWithConfiguredParseMode` splits assistant text into ≤4096-character chunks (Unicode code points) so `sendMessage` does not fail with `message is too long` — multi-chunk sends use plain text (MarkdownV2 is not applied across arbitrary slice boundaries)
 
 **Introduced by:** M-series M5 Telegram inbound + M6 Telegram outbound
 **Verify:**
@@ -299,6 +299,7 @@ Before preserving or adding a higher-risk patch, confirm:
 - `grep -c 'message:document' src/gateway/persai-runtime/persai-runtime-telegram.ts` should return >= 1
 - `grep -c 'deliverTelegramMedia' src/gateway/persai-runtime/persai-runtime-telegram.ts` should return >= 2
 - `grep -c 'PersaiTelegramTurnResult' src/gateway/persai-runtime/persai-runtime-telegram.ts` should return >= 1
+- `grep -c 'TELEGRAM_BOT_API_MAX_MESSAGE_LENGTH' src/gateway/persai-runtime/persai-runtime-telegram.ts` should return >= 1
 
 ### 16. Yandex SpeechKit TTS provider (M-series M7)
 
