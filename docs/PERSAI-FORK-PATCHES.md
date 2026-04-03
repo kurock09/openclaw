@@ -180,6 +180,27 @@ Before preserving or adding a higher-risk patch, confirm:
 - `grep -c 'enforcePersaiRuntimeToolLimit' src/agents/pi-tools.before-tool-call.ts` should return >= 1
 - `grep -c 'persai-runtime-chat-channel' src/gateway/server-http.ts` should return >= 1
 
+### 13. Ephemeral setup preview runtime seam
+
+**Risk:** Lower-risk PersAI-specific bridge files
+
+**Files:**
+
+- `src/gateway/persai-runtime/persai-runtime-preview.ts` — dedicated preview-only executor that validates transient artifacts, creates a temp preview workspace root, runs one turn, then removes preview workspace + isolated session
+- `src/gateway/persai-runtime/persai-runtime-turn-context.ts` — shared helpers for persona/scheduling prompt enrichment reused by live web turns and preview turns
+- `src/gateway/persai-runtime/persai-runtime-http.ts` — exposes `POST /api/v1/runtime/chat/web/preview` without touching the normal applied-spec store/workspace cleanup path
+- `src/gateway/persai-runtime/persai-runtime-workspace.ts` — `writeBootstrapFilesToWorkspace()` accepts an explicit env so preview can target a temp root
+- `src/gateway/persai-runtime/persai-runtime-session-cleanup.ts` — precise session-key cleanup for preview isolation
+- `src/gateway/server-http.ts` — registers the `persai-runtime-chat-web-preview` request stage
+
+**Why native patch is required:** PersAI can materialize the transient spec, but the actual workspace write path, prompt hydration, tool credential resolution, and embedded agent execution all happen inside OpenClaw runtime. A PersAI-only change cannot make preview execute in a separate temp workspace once the request crosses the runtime boundary.
+
+**Verify:**
+
+- `grep -c '/api/v1/runtime/chat/web/preview' src/gateway/persai-runtime/persai-runtime-http.ts` should return >= 1
+- `grep -c 'persai-runtime-chat-web-preview' src/gateway/server-http.ts` should return >= 1
+- `grep -c 'cleanupPersaiSessionKey' src/gateway/persai-runtime/persai-runtime-session-cleanup.ts` should return >= 1
+
 ### 10. Cron callback bridge + task registry sync (H12)
 
 **Risk:** Mixed

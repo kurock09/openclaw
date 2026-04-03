@@ -17,7 +17,9 @@ function collectReferencedSessionIds(storePath: string): Set<string> {
   return new Set(
     Object.values(loadSessionStore(storePath))
       .map((entry) => entry?.sessionId)
-      .filter((sessionId): sessionId is string => typeof sessionId === "string" && sessionId.length > 0),
+      .filter(
+        (sessionId): sessionId is string => typeof sessionId === "string" && sessionId.length > 0,
+      ),
   );
 }
 
@@ -140,7 +142,8 @@ export async function cleanupPersaiAssistantSessions(assistantId: string): Promi
     removedCount += await removeMatchingSessionsFromStore({
       storePath,
       matches: (normalizedKey) =>
-        normalizedKey.startsWith(normalizedCurrentPrefix) || normalizedKey.includes(`:${assistantId}:`),
+        normalizedKey.startsWith(normalizedCurrentPrefix) ||
+        normalizedKey.includes(`:${assistantId}:`),
     });
     await purgeArchivedAssistantSessionFiles(assistantId, storePath);
   }
@@ -177,6 +180,22 @@ export async function cleanupPersaiWebChatSession(params: {
         (normalizedKey.includes(`${assistantId}:`) &&
           normalizedKey.includes(":web:") &&
           normalizedKey.endsWith(legacySuffix)),
+    });
+  }
+
+  return { removedCount };
+}
+
+export async function cleanupPersaiSessionKey(sessionKey: string): Promise<{
+  removedCount: number;
+}> {
+  const normalizedSessionKey = normalizeStoreSessionKey(sessionKey);
+  let removedCount = 0;
+
+  for (const storePath of resolveAssistantStorePaths()) {
+    removedCount += await removeMatchingSessionsFromStore({
+      storePath,
+      matches: (normalizedKey) => normalizedKey === normalizedSessionKey,
     });
   }
 

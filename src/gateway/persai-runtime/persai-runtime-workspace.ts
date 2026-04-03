@@ -170,9 +170,10 @@ export async function writeBootstrapFilesToWorkspace(params: {
   assistantId: string;
   workspace: unknown;
   reapply: boolean;
+  env?: NodeJS.ProcessEnv;
 }): Promise<{ workspaceDir: string; written: string[]; skipped: string[] }> {
-  const { assistantId, workspace, reapply } = params;
-  const dir = resolvePersaiAssistantWorkspaceDir(assistantId);
+  const { assistantId, workspace, reapply, env } = params;
+  const dir = resolvePersaiAssistantWorkspaceDir(assistantId, env);
   const docs = extractBootstrapDocuments(workspace);
   const written: string[] = [];
   const skipped: string[] = [];
