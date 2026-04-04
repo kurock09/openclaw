@@ -4,8 +4,7 @@ import { Type } from "@sinclair/typebox";
 import { persaiRuntimeRequestContext } from "../persai-runtime-context.js";
 import type { AnyAgentTool } from "./common.js";
 import { ToolInputError } from "./common.js";
-
-const MAX_BYTES = 25 * 1024 * 1024;
+import { validatePersaiRuntimeMedia } from "../../gateway/persai-runtime/persai-runtime-file-security.js";
 
 const PersaiWorkspaceAttachSchema = Type.Object(
   {
@@ -63,9 +62,16 @@ export function createPersaiWorkspaceAttachTool(): AnyAgentTool | null {
       if (!st.isFile()) {
         throw new ToolInputError("Path must be a file, not a directory.");
       }
-      if (st.size > MAX_BYTES) {
+      const buffer = await fsp.readFile(resolved);
+      let validated;
+      try {
+        validated = await validatePersaiRuntimeMedia({
+          buffer,
+          fileName: resolved,
+        });
+      } catch (err) {
         throw new ToolInputError(
-          `File exceeds ${String(MAX_BYTES / (1024 * 1024))}MB limit.`,
+          err instanceof Error ? err.message : "File is blocked by workspace attach security policy.",
         );
       }
 
@@ -78,7 +84,7 @@ export function createPersaiWorkspaceAttachTool(): AnyAgentTool | null {
         content: [
           {
             type: "text" as const,
-            text: `Attached \`${basename}\` for delivery (${storagePath}).`,
+            text: `Attached \`${basename}\` for delivery (${storagePath}, ${validated.mimeType}).`,
           },
         ],
         details: {

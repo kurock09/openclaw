@@ -489,9 +489,28 @@ Before preserving or adding a higher-risk patch, confirm:
 
 - `grep -c 'AUDIO_MIME_BY_EXT' src/gateway/persai-runtime/persai-runtime-media.ts` should return >= 2
 
+### 24. Runtime file-security gate + request-level fallback model override
+
+**Risk:** Lower-risk — PersAI bridge/runtime enforcement files only
+
+**Files:**
+
+- `src/gateway/persai-runtime/persai-runtime-file-security.ts` — shared runtime-side validator for media/file payloads
+- `src/gateway/persai-runtime/persai-runtime-media.ts` — validates fetched outbound artifacts with the runtime-side file gate before normal delivery
+- `src/agents/tools/persai-workspace-attach-tool.ts` — validates attached workspace files with the same runtime-side file gate
+- `src/gateway/persai-runtime/persai-runtime-http.ts` — web/chat handlers accept request-level `providerOverride` / `modelOverride` so PersAI can apply materialized quota-fallback routing without rewriting stored bootstrap
+
+**Introduced by:** K16 file hardening + graceful quota fallback follow-up
+**Verify:**
+
+- `grep -c 'validatePersaiRuntimeMedia' src/gateway/persai-runtime/persai-runtime-media.ts` should return >= 1
+- `grep -c 'validatePersaiRuntimeMedia' src/agents/tools/persai-workspace-attach-tool.ts` should return >= 1
+- `grep -c 'providerOverride' src/gateway/persai-runtime/persai-runtime-http.ts` should return >= 3
+- `grep -c 'modelOverride' src/gateway/persai-runtime/persai-runtime-http.ts` should return >= 3
+
 ---
 
-### Patch #24 — Auto-configure persai secret provider from PERSAI_API_BASE_URL
+### Patch #25 — Auto-configure persai secret provider from PERSAI_API_BASE_URL
 
 **Files:**
 

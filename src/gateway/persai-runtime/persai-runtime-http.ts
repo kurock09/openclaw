@@ -264,6 +264,15 @@ export async function handleRuntimeChatWebPreviewHttpRequest(params: {
     typeof payload.userTimezone === "string" ? payload.userTimezone.trim() : undefined;
   const currentTimeIso =
     typeof payload.currentTimeIso === "string" ? payload.currentTimeIso.trim() : undefined;
+  const providerOverrideRaw =
+    typeof payload.providerOverride === "string" ? payload.providerOverride.trim().toLowerCase() : "";
+  const modelOverrideRaw =
+    typeof payload.modelOverride === "string" ? payload.modelOverride.trim() : "";
+  const requestProviderOverride =
+    providerOverrideRaw === "openai" || providerOverrideRaw === "anthropic"
+      ? providerOverrideRaw
+      : undefined;
+  const requestModelOverride = modelOverrideRaw.length > 0 ? modelOverrideRaw : undefined;
   const spec = isRecord(payload.spec) ? payload.spec : null;
 
   if (
@@ -781,6 +790,15 @@ export async function handleRuntimeChatWebHttpRequest(params: {
     typeof payload.userTimezone === "string" ? payload.userTimezone.trim() : undefined;
   const currentTimeIso =
     typeof payload.currentTimeIso === "string" ? payload.currentTimeIso.trim() : undefined;
+  const providerOverrideRaw =
+    typeof payload.providerOverride === "string" ? payload.providerOverride.trim().toLowerCase() : "";
+  const modelOverrideRaw =
+    typeof payload.modelOverride === "string" ? payload.modelOverride.trim() : "";
+  const requestProviderOverride =
+    providerOverrideRaw === "openai" || providerOverrideRaw === "anthropic"
+      ? providerOverrideRaw
+      : undefined;
+  const requestModelOverride = modelOverrideRaw.length > 0 ? modelOverrideRaw : undefined;
 
   if (
     !assistantId ||
@@ -821,6 +839,8 @@ export async function handleRuntimeChatWebHttpRequest(params: {
       buildSchedulingContext({ currentTimeIso, userTimezone }),
     );
     const runtimeOverride = extractPersaiRuntimeModelOverride(applied.bootstrap);
+    const effectiveProviderOverride = requestProviderOverride ?? runtimeOverride?.provider;
+    const effectiveModelOverride = requestModelOverride ?? runtimeOverride?.model;
 
     const credentialRefs = extractToolCredentialRefs(applied.bootstrap);
     const quotaPolicy = extractToolQuotaPolicy(applied.bootstrap);
@@ -847,8 +867,8 @@ export async function handleRuntimeChatWebHttpRequest(params: {
       userMessage,
       sessionKey,
       extraSystemPrompt,
-      providerOverride: runtimeOverride?.provider,
-      modelOverride: runtimeOverride?.model,
+      providerOverride: effectiveProviderOverride,
+      modelOverride: effectiveModelOverride,
       resolvedToolCredentials,
       toolProviderOverrides,
       toolDenyList,
@@ -946,6 +966,15 @@ export async function handleRuntimeChatChannelHttpRequest(params: {
     typeof payload.userTimezone === "string" ? payload.userTimezone.trim() : undefined;
   const currentTimeIso =
     typeof payload.currentTimeIso === "string" ? payload.currentTimeIso.trim() : undefined;
+  const providerOverrideRaw =
+    typeof payload.providerOverride === "string" ? payload.providerOverride.trim().toLowerCase() : "";
+  const modelOverrideRaw =
+    typeof payload.modelOverride === "string" ? payload.modelOverride.trim() : "";
+  const requestProviderOverride =
+    providerOverrideRaw === "openai" || providerOverrideRaw === "anthropic"
+      ? providerOverrideRaw
+      : undefined;
+  const requestModelOverride = modelOverrideRaw.length > 0 ? modelOverrideRaw : undefined;
 
   if (!assistantId || !publishedVersionId || !surface || !threadId || !userMessage) {
     sendJson(res, 400, {
@@ -987,6 +1016,8 @@ export async function handleRuntimeChatChannelHttpRequest(params: {
     buildSchedulingContext({ currentTimeIso, userTimezone }),
   );
   const runtimeOverride = extractPersaiRuntimeModelOverride(applied.bootstrap);
+  const effectiveProviderOverride = requestProviderOverride ?? runtimeOverride?.provider;
+  const effectiveModelOverride = requestModelOverride ?? runtimeOverride?.model;
   const credentialRefs = extractToolCredentialRefs(applied.bootstrap);
   const quotaPolicy = extractToolQuotaPolicy(applied.bootstrap);
   const toolDenyList = buildToolDenyList(quotaPolicy);
@@ -1012,8 +1043,8 @@ export async function handleRuntimeChatChannelHttpRequest(params: {
     userMessage,
     sessionKey: `agent:persai:${assistantId}:telegram:${threadId}`,
     extraSystemPrompt,
-    providerOverride: runtimeOverride?.provider,
-    modelOverride: runtimeOverride?.model,
+    providerOverride: effectiveProviderOverride,
+    modelOverride: effectiveModelOverride,
     resolvedToolCredentials,
     toolProviderOverrides: tgToolProviderOverrides,
     toolDenyList,
@@ -1108,6 +1139,15 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
     typeof payload.userTimezone === "string" ? payload.userTimezone.trim() : undefined;
   const currentTimeIso =
     typeof payload.currentTimeIso === "string" ? payload.currentTimeIso.trim() : undefined;
+  const providerOverrideRaw =
+    typeof payload.providerOverride === "string" ? payload.providerOverride.trim().toLowerCase() : "";
+  const modelOverrideRaw =
+    typeof payload.modelOverride === "string" ? payload.modelOverride.trim() : "";
+  const requestProviderOverride =
+    providerOverrideRaw === "openai" || providerOverrideRaw === "anthropic"
+      ? providerOverrideRaw
+      : undefined;
+  const requestModelOverride = modelOverrideRaw.length > 0 ? modelOverrideRaw : undefined;
 
   if (
     !assistantId ||
@@ -1159,6 +1199,8 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
     buildSchedulingContext({ currentTimeIso, userTimezone }),
   );
   const runtimeOverride = extractPersaiRuntimeModelOverride(applied.bootstrap);
+  const effectiveProviderOverride = requestProviderOverride ?? runtimeOverride?.provider;
+  const effectiveModelOverride = requestModelOverride ?? runtimeOverride?.model;
 
   const streamCredentialRefs = extractToolCredentialRefs(applied.bootstrap);
   const streamQuotaPolicy = extractToolQuotaPolicy(applied.bootstrap);
@@ -1187,8 +1229,8 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
     userMessage,
     sessionKey,
     extraSystemPrompt,
-    providerOverride: runtimeOverride?.provider,
-    modelOverride: runtimeOverride?.model,
+    providerOverride: effectiveProviderOverride,
+    modelOverride: effectiveModelOverride,
     resolvedToolCredentials: streamResolvedToolCredentials,
     toolProviderOverrides: streamToolProviderOverrides,
     toolDenyList: streamToolDenyList,

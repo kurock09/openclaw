@@ -15,6 +15,10 @@ import {
   resolvePersaiAssistantWorkspaceDir,
   resolvePersaiWorkspaceRoot,
 } from "./persai-runtime-workspace.js";
+import {
+  PERSAI_MAX_MEDIA_BYTES,
+  validatePersaiRuntimeMedia,
+} from "./persai-runtime-file-security.js";
 
 const log = createSubsystemLogger("persai-runtime-media");
 
@@ -29,7 +33,6 @@ export const RUNTIME_WORKSPACE_MEDIA_DELETE_CHAT_PATH =
 export const RUNTIME_WORKSPACE_MEDIA_TRANSCRIBE_PATH =
   "/api/v1/runtime/workspace/media/transcribe";
 
-const MAX_MEDIA_BYTES = 25 * 1024 * 1024;
 const MEDIA_DIR_NAME = "media";
 
 function sendJson(res: ServerResponse, status: number, body: unknown) {
@@ -172,13 +175,25 @@ export async function handleRuntimeWorkspaceMediaUploadHttpRequest(params: {
 
   let body: Buffer;
   try {
-    body = await readRawBody(req, MAX_MEDIA_BYTES);
+    body = await readRawBody(req, PERSAI_MAX_MEDIA_BYTES);
   } catch {
     sendJson(res, 413, { error: "Media file too large (max 25MB)." });
     return true;
   }
 
-  const ext = MIME_EXT_MAP[mimeType] ?? "bin";
+  let validated;
+  try {
+    validated = await validatePersaiRuntimeMedia({
+      buffer: body,
+      mimeType,
+      fileName: `upload${MIME_EXT_MAP[mimeType] ? `.${MIME_EXT_MAP[mimeType]}` : ""}`,
+    });
+  } catch (err) {
+    sendJson(res, 400, { error: err instanceof Error ? err.message : "Unsupported media file." });
+    return true;
+  }
+
+  const ext = MIME_EXT_MAP[validated.mimeType] ?? "bin";
   const filename = `${messageId}-${Date.now()}.${ext}`;
   const relativeDir = chatId;
   const mediaDir = resolveMediaDir(assistantId);
@@ -201,7 +216,7 @@ export async function handleRuntimeWorkspaceMediaUploadHttpRequest(params: {
     ok: true,
     storagePath,
     sizeBytes: body.length,
-    mimeType,
+    mimeType: validated.mimeType,
   });
   return true;
 }
