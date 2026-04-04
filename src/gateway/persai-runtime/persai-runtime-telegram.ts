@@ -1063,7 +1063,7 @@ async function requestPersaiTelegramTurn(params: {
     media: [],
   };
   const baseUrl = resolvePersaiInternalApiBaseUrl();
-  const token = process.env.OPENCLAW_GATEWAY_TOKEN?.trim();
+  const token = process.env.PERSAI_INTERNAL_API_TOKEN?.trim();
   if (!baseUrl || !token) {
     return fallback;
   }
@@ -1179,7 +1179,7 @@ async function notifyPersaiGroupUpdate(params: {
     return;
   }
 
-  const token = process.env.OPENCLAW_GATEWAY_TOKEN ?? "";
+  const token = process.env.PERSAI_INTERNAL_API_TOKEN ?? "";
   if (!token) {
     return;
   }
@@ -1211,7 +1211,7 @@ async function notifyPersaiTelegramChatTarget(params: {
     return;
   }
 
-  const token = process.env.OPENCLAW_GATEWAY_TOKEN ?? "";
+  const token = process.env.PERSAI_INTERNAL_API_TOKEN ?? "";
   if (!token) {
     return;
   }

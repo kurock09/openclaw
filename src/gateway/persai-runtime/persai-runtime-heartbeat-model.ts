@@ -54,7 +54,7 @@ export async function resolvePersaiHeartbeatModelOverride(
   }
 
   const baseUrl = resolvePersaiInternalApiBaseUrl(cfg);
-  const token = (process.env.OPENCLAW_GATEWAY_TOKEN ?? "").trim();
+  const token = (process.env.PERSAI_INTERNAL_API_TOKEN ?? "").trim();
   if (!baseUrl || !token) {
     cachedHeartbeatModel = {
       expiresAtMs: now + CACHE_TTL_MS,

@@ -51,7 +51,7 @@ function resolvePersaiInternalApiBaseUrl(): string | undefined {
 
 async function fetchInternalTaskItems(assistantId: string): Promise<InternalTaskItem[]> {
   const baseUrl = resolvePersaiInternalApiBaseUrl();
-  const token = process.env.OPENCLAW_GATEWAY_TOKEN?.trim();
+  const token = process.env.PERSAI_INTERNAL_API_TOKEN?.trim();
   if (!baseUrl || !token || !assistantId.trim()) {
     return [];
   }
@@ -87,7 +87,7 @@ async function fetchInternalTaskItems(assistantId: string): Promise<InternalTask
 
 async function postReminderTaskControl(body: Record<string, unknown>): Promise<unknown> {
   const baseUrl = resolvePersaiInternalApiBaseUrl();
-  const token = process.env.OPENCLAW_GATEWAY_TOKEN?.trim();
+  const token = process.env.PERSAI_INTERNAL_API_TOKEN?.trim();
   if (!baseUrl || !token) {
     throw new Error("PersAI internal task control is not configured.");
   }

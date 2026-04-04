@@ -519,6 +519,40 @@ Before preserving or adding a higher-risk patch, confirm:
 
 - `grep -c 'TTS: provider' src/tts/tts.ts` should return >= 4
 
+### Patch #26 — Secret schema allows `persai` refs/providers
+
+**Risk:** Higher-risk native OpenClaw patch
+
+**Files:**
+
+- `src/config/zod-schema.core.ts` — adds `PersaiSecretRefSchema`, `SecretsPersaiProviderSchema`, and `secrets.defaults.persai` so PersAI-managed secret refs/providers validate in core config parsing
+
+**Why patch is required:** PersAI secret refs are consumed inside native OpenClaw config/secrets resolution. Without the schema support in core config validation, PersAI-managed provider refs and defaults are rejected before runtime bridging can use them. A PersAI-only patch cannot make native OpenClaw accept a config shape it rejects during parse/validation.
+
+**Introduced by:** PersAI secret-provider integration
+**Verify:**
+
+- `grep -c 'PersaiSecretRefSchema' src/config/zod-schema.core.ts` should return >= 1
+- `grep -c 'SecretsPersaiProviderSchema' src/config/zod-schema.core.ts` should return >= 1
+- `grep -c 'persai: z.string' src/config/zod-schema.core.ts` should return >= 1
+
+### Patch #27 — Interactive secret configure supports `persai` providers
+
+**Risk:** Higher-risk native OpenClaw patch
+
+**Files:**
+
+- `src/secrets/configure.ts` — interactive secrets-configure flow recognizes `persai` providers in hints/discovery and preserves PersAI provider entries during configure workflows
+
+**Why patch is required:** OpenClaw's native interactive secret configuration tooling is part of the operator/maintainer workflow for inspecting and evolving runtime config. Once PersAI secret providers exist in real runtime config, the native configure flow must understand them instead of treating them as unknown or silently excluding them from source choices/hints. A PersAI-only patch cannot change native OpenClaw configure UX/behavior after operators enter the OpenClaw-side workflow.
+
+**Introduced by:** PersAI secret-provider integration follow-up
+**Verify:**
+
+- `grep -c 'persai (' src/secrets/configure.ts` should return >= 1
+- `grep -c 'hasSource("persai")' src/secrets/configure.ts` should return >= 1
+- `grep -c 'value: "persai"' src/secrets/configure.ts` should return >= 1
+
 ## Quick full verification
 
 Run `node scripts/verify-persai-patches.mjs` (see script in `scripts/`).

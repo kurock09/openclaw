@@ -881,7 +881,7 @@ async function resolvePersaiRefs(params: {
     });
   }
 
-  const tokenEnvVar = params.providerConfig.tokenEnvVar ?? "OPENCLAW_GATEWAY_TOKEN";
+  const tokenEnvVar = params.providerConfig.tokenEnvVar ?? "PERSAI_INTERNAL_API_TOKEN";
   const token = params.env[tokenEnvVar]?.trim();
   if (!token) {
     throw providerResolutionError({

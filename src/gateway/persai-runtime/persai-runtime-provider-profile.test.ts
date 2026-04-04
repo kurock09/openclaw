@@ -101,12 +101,12 @@ describe("persai runtime provider profile", () => {
             source: "persai",
             baseUrl: "http://api:3001",
             path: "/api/v1/internal/runtime/provider-secrets/resolve",
-            tokenEnvVar: "OPENCLAW_GATEWAY_TOKEN",
+            tokenEnvVar: "PERSAI_INTERNAL_API_TOKEN",
           },
         },
       },
     } as OpenClawConfig);
-    process.env.OPENCLAW_GATEWAY_TOKEN = "gateway-token";
+    process.env.PERSAI_INTERNAL_API_TOKEN = "gateway-token";
     vi.stubGlobal(
       "fetch",
       vi.fn().mockImplementation(() =>

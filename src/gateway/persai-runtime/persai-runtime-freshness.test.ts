@@ -39,7 +39,7 @@ beforeEach(() => {
   process.env = {
     ...ORIGINAL_ENV,
     PERSAI_API_BASE_URL: "https://persai.internal",
-    OPENCLAW_GATEWAY_TOKEN: "test-token",
+    PERSAI_INTERNAL_API_TOKEN: "test-token",
     PERSAI_CONFIG_GENERATION_CACHE_TTL_MS: "1",
   };
   applyPersaiRuntimeSpecLocallyMock.mockReset();

@@ -39,9 +39,9 @@ export function createPersaiToolQuotaStatusTool(): AnyAgentTool | null {
       if (!baseUrl) {
         throw new ToolInputError("PersAI internal API base URL is not configured.");
       }
-      const token = process.env.OPENCLAW_GATEWAY_TOKEN?.trim();
+      const token = process.env.PERSAI_INTERNAL_API_TOKEN?.trim();
       if (!token) {
-        throw new ToolInputError("OPENCLAW_GATEWAY_TOKEN is not configured.");
+        throw new ToolInputError("PERSAI_INTERNAL_API_TOKEN is not configured.");
       }
 
       const params = args as { toolCode?: unknown };

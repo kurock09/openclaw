@@ -61,7 +61,7 @@ describe("config secret refs schema", () => {
             source: "persai",
             baseUrl: "http://api:3001",
             path: "/api/v1/internal/runtime/provider-secrets/resolve",
-            tokenEnvVar: "OPENCLAW_GATEWAY_TOKEN",
+            tokenEnvVar: "PERSAI_INTERNAL_API_TOKEN",
           },
         },
       },

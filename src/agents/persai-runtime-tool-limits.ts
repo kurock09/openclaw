@@ -46,7 +46,7 @@ export async function enforcePersaiRuntimeToolLimit(toolName: string): Promise<v
   const runtimeCtx = persaiRuntimeRequestContext.getStore();
   const assistantId = runtimeCtx?.assistantId?.trim();
   const webhookUrl = runtimeCtx?.toolLimitWebhookUrl?.trim();
-  const token = process.env.OPENCLAW_GATEWAY_TOKEN?.trim();
+  const token = process.env.PERSAI_INTERNAL_API_TOKEN?.trim();
   const quotaEntry = runtimeCtx?.toolQuotaPolicy?.get(toolName) as ToolQuotaPolicyEntry | undefined;
 
   if (!assistantId || !webhookUrl || !token || !quotaEntry || quotaEntry.dailyCallLimit === null) {

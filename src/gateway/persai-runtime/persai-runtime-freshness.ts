@@ -39,7 +39,7 @@ function getPersaiInternalBaseUrl(): string | null {
 }
 
 function getGatewayToken(): string | null {
-  return process.env.OPENCLAW_GATEWAY_TOKEN?.trim() || null;
+  return process.env.PERSAI_INTERNAL_API_TOKEN?.trim() || null;
 }
 
 function extractConfigGenerationFromBootstrap(bootstrap: unknown): number {
