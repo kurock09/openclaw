@@ -138,7 +138,7 @@ Before preserving or adding a higher-risk patch, confirm:
 **Introduced by:** UI polish (avatar upload to workspace)
 **Verify:** `grep -c 'RUNTIME_WORKSPACE_AVATAR_PATH' src/gateway/persai-runtime/persai-runtime-http.ts` should return >= 2
 
-### 9. Telegram lifecycle reconcile, profile sync, and markdown fallback hardening (H8-scale + follow-up)
+### 9. Telegram lifecycle reconcile, owner-claim gate, and markdown fallback hardening (H8-scale + SaaS follow-up)
 
 **Risk:** Lower-risk PersAI-specific bridge file
 
@@ -146,6 +146,11 @@ Before preserving or adding a higher-risk patch, confirm:
 
 - `src/gateway/persai-runtime/persai-runtime-telegram.ts` — `syncBotProfile()` helper: sets bot name, description, and profile photo from workspace persona on every `syncTelegramBotForAssistant` call; posts the latest inbound Telegram chat target back to PersAI so reminder delivery can reuse the correct `telegramChatId`; retries Telegram replies as plain text when `MarkdownV2` entity parsing fails
 - `src/gateway/persai-runtime/persai-runtime-telegram.ts` — inbound Telegram turns now call PersAI internal turn gateway (`POST /api/v1/internal/runtime/turns/telegram`) instead of deciding turn admission fully inside OpenClaw
+- `src/gateway/persai-runtime/persai-runtime-telegram.ts` — Telegram ingress now enforces PersAI SaaS safety semantics inside runtime:
+  - dedupe repeated webhook deliveries by `assistantId + update_id`
+  - owner-only DM gate with `/start persai_claim_<token>` owner claim flow
+  - immediate system-language owner welcome message after successful claim
+  - terminal Telegram `401 Unauthorized` promotion to PersAI `invalid_token` state instead of retry-only noise
 - `src/gateway/persai-runtime/persai-runtime-spec-store.ts` — persisted `telegramRuntime` metadata (transport/profile fingerprints + profile sync timestamps/errors)
 
 **Introduced by:** H8 Telegram bridge + H8-scale lifecycle hardening + Telegram markdown fallback follow-up
@@ -157,6 +162,9 @@ Before preserving or adding a higher-risk patch, confirm:
 - `grep -c '/api/v1/internal/runtime/telegram/chat-target' src/gateway/persai-runtime/persai-runtime-telegram.ts` should return >= 1
 - `grep -c 'sendTelegramReplyWithConfiguredParseMode' src/gateway/persai-runtime/persai-runtime-telegram.ts` should return >= 1
 - `grep -c '/api/v1/internal/runtime/turns/telegram' src/gateway/persai-runtime/persai-runtime-telegram.ts` should return >= 1
+- `grep -c 'shouldProcessTelegramUpdate' src/gateway/persai-runtime/persai-runtime-telegram.ts` should return >= 1
+- `grep -c 'persai_claim_' src/gateway/persai-runtime/persai-runtime-telegram.ts` should return >= 1
+- `grep -c 'invalid_token' src/gateway/persai-runtime/persai-runtime-telegram.ts` should return >= 1
 
 ### 12. Non-web runtime execute seam for PersAI-owned turn gateway (H13 core)
 

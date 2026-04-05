@@ -1155,7 +1155,14 @@ export function createGatewayHttpServer(opts: {
       );
       requestStages.push({
         name: "persai-telegram-webhook",
-        run: () => handleTelegramWebhookRequest({ req, res, requestPath }),
+        run: () =>
+          handleTelegramWebhookRequest({
+            req,
+            res,
+            requestPath,
+            store: persaiRuntimeSpecStore,
+            getReadiness,
+          }),
       });
       if (canvasHost) {
         requestStages.push({

@@ -7,10 +7,12 @@ import { Bot, InputFile, webhookCallback } from "grammy";
 import { loadConfig } from "../../config/config.js";
 import { transcribeAudioFile } from "../../media-understanding/transcribe-audio.js";
 import type { ReadinessChecker } from "../server/readiness.js";
+import { resolvePersaiWorkspaceMediaStoragePath } from "./persai-runtime-media.js";
 import type {
   PersaiAppliedRuntimeSpec,
   PersaiRuntimeSpecStore,
 } from "./persai-runtime-spec-store.js";
+import { resolvePersaiAssistantWorkspaceDir } from "./persai-runtime-workspace.js";
 import {
   buildTelegramHtmlMessageBodies,
   lossyPlainFromTelegramHtml,
@@ -19,8 +21,6 @@ import {
   splitTelegramOutboundText,
   TELEGRAM_BOT_API_MAX_MESSAGE_LENGTH,
 } from "./telegram-outbound-chunks.js";
-import { resolvePersaiWorkspaceMediaStoragePath } from "./persai-runtime-media.js";
-import { resolvePersaiAssistantWorkspaceDir } from "./persai-runtime-workspace.js";
 
 export { splitTelegramOutboundText, TELEGRAM_BOT_API_MAX_MESSAGE_LENGTH };
 
@@ -65,11 +65,15 @@ const DEFAULT_TELEGRAM_REINIT_JITTER_MS = 1_500;
 const DEFAULT_TELEGRAM_REINIT_RETRIES = 3;
 const DEFAULT_TELEGRAM_REINIT_BACKOFF_MS = 1_000;
 const DEFAULT_READINESS_RECHECK_MS = 5_000;
+const TELEGRAM_UPDATE_DEDUPE_TTL_MS = 10 * 60_000;
+
+const processedTelegramUpdates = new Map<string, number>();
 
 export class TelegramProfileSyncError extends Error {
   constructor(
     message: string,
     readonly retryAfterMs: number | null,
+    readonly terminal = false,
   ) {
     super(message);
     this.name = "TelegramProfileSyncError";
@@ -89,6 +93,13 @@ function extractTelegramChannel(bootstrap: unknown): {
   parseMode: string;
   inbound: boolean;
   outbound: boolean;
+  accessMode: string;
+  ownerClaimStatus: string;
+  ownerClaimToken: string | null;
+  ownerTelegramUserId: number | null;
+  ownerTelegramUsername: string | null;
+  ownerTelegramChatId: string | null;
+  runtimeHealth: string;
 } | null {
   if (!isRecord(bootstrap)) {
     return null;
@@ -110,7 +121,129 @@ function extractTelegramChannel(bootstrap: unknown): {
     parseMode: typeof tg.parseMode === "string" ? tg.parseMode : "plain_text",
     inbound: tg.inbound !== false,
     outbound: tg.outbound !== false,
+    accessMode: typeof tg.accessMode === "string" ? tg.accessMode : "owner_only",
+    ownerClaimStatus: typeof tg.ownerClaimStatus === "string" ? tg.ownerClaimStatus : "not_started",
+    ownerClaimToken: typeof tg.ownerClaimToken === "string" ? tg.ownerClaimToken : null,
+    ownerTelegramUserId:
+      typeof tg.ownerTelegramUserId === "number" && Number.isFinite(tg.ownerTelegramUserId)
+        ? tg.ownerTelegramUserId
+        : null,
+    ownerTelegramUsername:
+      typeof tg.ownerTelegramUsername === "string" ? tg.ownerTelegramUsername : null,
+    ownerTelegramChatId: typeof tg.ownerTelegramChatId === "string" ? tg.ownerTelegramChatId : null,
+    runtimeHealth: typeof tg.runtimeHealth === "string" ? tg.runtimeHealth : "ok",
   };
+}
+
+function cleanupProcessedTelegramUpdates(): void {
+  const cutoff = Date.now() - TELEGRAM_UPDATE_DEDUPE_TTL_MS;
+  for (const [key, seenAt] of processedTelegramUpdates.entries()) {
+    if (seenAt < cutoff) {
+      processedTelegramUpdates.delete(key);
+    }
+  }
+}
+
+function claimCommandToken(text: string | null | undefined): string | null {
+  if (!text) {
+    return null;
+  }
+  const match = text.trim().match(/^\/start(?:@\w+)?\s+persai_claim_([a-z0-9]+)$/i);
+  return match?.[1] ?? null;
+}
+
+function shouldProcessTelegramUpdate(assistantId: string, updateId: number | null): boolean {
+  if (updateId === null) {
+    return true;
+  }
+  cleanupProcessedTelegramUpdates();
+  const key = `${assistantId}:${updateId}`;
+  if (processedTelegramUpdates.has(key)) {
+    return false;
+  }
+  processedTelegramUpdates.set(key, Date.now());
+  return true;
+}
+
+function isTelegramUnauthorizedError(error: unknown): boolean {
+  return isRecord(error) && error.error_code === 401;
+}
+
+function resolveSystemLocale(workspace: unknown): string {
+  if (!isRecord(workspace)) {
+    return "en";
+  }
+  const userContext = workspace.userContext;
+  if (!isRecord(userContext)) {
+    return "en";
+  }
+  return typeof userContext.locale === "string" && userContext.locale.trim().length > 0
+    ? userContext.locale.trim().toLowerCase()
+    : "en";
+}
+
+function buildTelegramOwnerClaimedWelcome(locale: string): string {
+  return locale.startsWith("ru")
+    ? "Telegram подключен. Это приватный чат хозяина. Я уже здесь и готова продолжать разговор прямо в этом диалоге."
+    : "Telegram is connected. This is the owner's private chat. I'm here now, and you can continue right in this conversation.";
+}
+
+function buildTelegramOwnerClaimRequiredReply(locale: string): string {
+  return locale.startsWith("ru")
+    ? "Этот бот приватный. Сначала откройте персональную ссылку привязки из PersAI, чтобы подтвердить аккаунт владельца."
+    : "This bot is private. First open the personal claim link from PersAI to confirm the owner's Telegram account.";
+}
+
+function buildTelegramUnauthorizedUserReply(locale: string): string {
+  return locale.startsWith("ru")
+    ? "Этот бот доступен только хозяину ассистента."
+    : "This bot is available only to the assistant owner.";
+}
+
+function evaluateTelegramOwnerGate(params: {
+  currentConfig: ReturnType<typeof extractTelegramChannel>;
+  incomingText?: string | null;
+  telegramUserId: number | null;
+  locale: string;
+}): {
+  allowed: boolean;
+  claimNow: boolean;
+  replyText: string | null;
+} {
+  const { currentConfig, incomingText, telegramUserId, locale } = params;
+  if (!currentConfig || currentConfig.accessMode !== "owner_only") {
+    return { allowed: true, claimNow: false, replyText: null };
+  }
+
+  if (currentConfig.ownerClaimStatus !== "claimed") {
+    const incomingClaimToken = claimCommandToken(incomingText);
+    if (
+      incomingClaimToken &&
+      currentConfig.ownerClaimToken &&
+      incomingClaimToken === currentConfig.ownerClaimToken
+    ) {
+      return { allowed: false, claimNow: true, replyText: null };
+    }
+    return {
+      allowed: false,
+      claimNow: false,
+      replyText: buildTelegramOwnerClaimRequiredReply(locale),
+    };
+  }
+
+  if (
+    currentConfig.ownerTelegramUserId !== null &&
+    telegramUserId !== null &&
+    currentConfig.ownerTelegramUserId !== telegramUserId
+  ) {
+    return {
+      allowed: false,
+      claimNow: false,
+      replyText: buildTelegramUnauthorizedUserReply(locale),
+    };
+  }
+
+  return { allowed: true, claimNow: false, replyText: null };
 }
 
 function extractPersonaFromWorkspace(workspace: unknown): {
@@ -193,10 +326,7 @@ function getTelegramWebhookHandlerTimeoutMs(): number {
     "PERSAI_TELEGRAM_WEBHOOK_HANDLER_TIMEOUT_MS",
     DEFAULT_TELEGRAM_WEBHOOK_HANDLER_TIMEOUT_MS,
   );
-  return Math.min(
-    TELEGRAM_WEBHOOK_HANDLER_TIMEOUT_MAX_MS,
-    Math.max(10_000, raw),
-  );
+  return Math.min(TELEGRAM_WEBHOOK_HANDLER_TIMEOUT_MAX_MS, Math.max(10_000, raw));
 }
 
 function extractTelegramRetryAfterMs(error: unknown): number | null {
@@ -407,6 +537,7 @@ export async function syncBotProfile(
   const persona = extractPersonaFromWorkspace(workspace);
   const failures: string[] = [];
   let retryAfterMs: number | null = null;
+  let unauthorized = false;
 
   if (persona.displayName) {
     try {
@@ -414,6 +545,7 @@ export async function syncBotProfile(
     } catch (err) {
       console.warn(`[persai-telegram] setMyName failed for ${assistantId}:`, err);
       failures.push("setMyName");
+      unauthorized ||= isTelegramUnauthorizedError(err);
       retryAfterMs = Math.max(retryAfterMs ?? 0, extractTelegramRetryAfterMs(err) ?? 0) || null;
     }
   }
@@ -424,6 +556,7 @@ export async function syncBotProfile(
     } catch (err) {
       console.warn(`[persai-telegram] setMyDescription failed for ${assistantId}:`, err);
       failures.push("setMyDescription");
+      unauthorized ||= isTelegramUnauthorizedError(err);
       retryAfterMs = Math.max(retryAfterMs ?? 0, extractTelegramRetryAfterMs(err) ?? 0) || null;
     }
   }
@@ -441,6 +574,7 @@ export async function syncBotProfile(
   } catch (err) {
     console.warn(`[persai-telegram] setMyProfilePhoto failed for ${assistantId}:`, err);
     failures.push("setMyProfilePhoto");
+    unauthorized ||= isTelegramUnauthorizedError(err);
     retryAfterMs = Math.max(retryAfterMs ?? 0, extractTelegramRetryAfterMs(err) ?? 0) || null;
   }
 
@@ -448,6 +582,7 @@ export async function syncBotProfile(
     throw new TelegramProfileSyncError(
       `Telegram profile sync failed for ${assistantId}: ${failures.join(", ")}`,
       retryAfterMs,
+      unauthorized,
     );
   }
 }
@@ -552,6 +687,24 @@ async function reconcileTelegramProfile(params: {
       lastProfileSyncError: null,
     });
   } catch (err) {
+    if (err instanceof TelegramProfileSyncError && err.terminal) {
+      await notifyPersaiTelegramChatTarget({
+        assistantId: state.assistantId,
+        telegramChatId: currentConfigFromState(state)?.ownerTelegramChatId ?? "",
+        chatType: "private",
+        title: "",
+        username: currentConfigFromState(state)?.ownerTelegramUsername ?? "",
+        runtimeHealth: "invalid_token",
+        runtimeHealthMessage: err.message,
+      }).catch(() => undefined);
+      await updateStoredTelegramRuntime(params.store, state.assistantId, state.publishedVersionId, {
+        transportFingerprint: state.transportFingerprint,
+        lastProfileSyncAttemptAt: attemptAt,
+        nextProfileSyncNotBeforeAt: null,
+        lastProfileSyncError: err.message,
+      });
+      return;
+    }
     const retryAfterMs = extractTelegramRetryAfterMs(err) ?? cooldownMs;
     const nextProfileSyncNotBeforeAt = new Date(Date.now() + retryAfterMs).toISOString();
     await updateStoredTelegramRuntime(params.store, state.assistantId, state.publishedVersionId, {
@@ -565,6 +718,12 @@ async function reconcileTelegramProfile(params: {
       delayMs: retryAfterMs,
     });
   }
+}
+
+function currentConfigFromState(
+  state: ManagedTelegramState,
+): ReturnType<typeof extractTelegramChannel> | null {
+  return extractTelegramChannel(state.bootstrap);
 }
 
 export async function syncTelegramBotForAssistant(params: {
@@ -671,6 +830,12 @@ export async function syncTelegramBotForAssistant(params: {
     if (!currentConfig || !currentConfig.inbound) {
       return;
     }
+    const locale = resolveSystemLocale(currentManaged.state.workspace);
+    const updateId = typeof ctx.update.update_id === "number" ? ctx.update.update_id : null;
+    if (!shouldProcessTelegramUpdate(assistantId, updateId)) {
+      console.log(`[persai-telegram] Dropped duplicate update ${updateId} for ${assistantId}`);
+      return;
+    }
 
     const chatType = ctx.chat.type;
     const isGroup = chatType === "group" || chatType === "supergroup";
@@ -690,6 +855,42 @@ export async function syncTelegramBotForAssistant(params: {
     }
 
     try {
+      const ownerGate = evaluateTelegramOwnerGate({
+        currentConfig,
+        incomingText: ctx.message.text ?? "",
+        telegramUserId: ctx.from?.id ?? null,
+        locale,
+      });
+      if (ownerGate.claimNow) {
+        await notifyPersaiTelegramChatTarget({
+          assistantId,
+          telegramChatId: String(ctx.chat.id),
+          chatType: ctx.chat.type,
+          title: "title" in ctx.chat && typeof ctx.chat.title === "string" ? ctx.chat.title : "",
+          username: typeof ctx.from?.username === "string" ? ctx.from.username : "",
+          telegramUserId: ctx.from?.id,
+          claimOwner: true,
+        });
+        await ctx.reply(buildTelegramOwnerClaimedWelcome(locale));
+        await notifyPersaiTelegramChatTarget({
+          assistantId,
+          telegramChatId: String(ctx.chat.id),
+          chatType: ctx.chat.type,
+          title: "title" in ctx.chat && typeof ctx.chat.title === "string" ? ctx.chat.title : "",
+          username: typeof ctx.from?.username === "string" ? ctx.from.username : "",
+          telegramUserId: ctx.from?.id,
+          systemWelcomeSentAt: new Date().toISOString(),
+          runtimeHealth: "ok",
+        });
+        return;
+      }
+      if (!ownerGate.allowed) {
+        if (ownerGate.replyText) {
+          await ctx.reply(ownerGate.replyText).catch(() => {});
+        }
+        return;
+      }
+
       if (isGroup) {
         await notifyPersaiGroupUpdate({
           assistantId,
@@ -703,13 +904,14 @@ export async function syncTelegramBotForAssistant(params: {
         telegramChatId: String(ctx.chat.id),
         chatType: ctx.chat.type,
         title: "title" in ctx.chat && typeof ctx.chat.title === "string" ? ctx.chat.title : "",
-        username:
-          "username" in ctx.chat && typeof ctx.chat.username === "string" ? ctx.chat.username : "",
+        username: typeof ctx.from?.username === "string" ? ctx.from.username : "",
+        telegramUserId: ctx.from?.id,
       });
       const turnResult = await requestPersaiTelegramTurn({
         assistantId,
         userMessage: ctx.message.text ?? "",
         chatId: String(ctx.chat.id),
+        updateId,
       });
       await sendTelegramAssistantTurnReply(
         ctx,
@@ -730,8 +932,22 @@ export async function syncTelegramBotForAssistant(params: {
     if (!currentManaged) return;
     const currentConfig = extractTelegramChannel(currentManaged.state.bootstrap);
     if (!currentConfig || !currentConfig.inbound || !currentConfig.outbound) return;
+    const locale = resolveSystemLocale(currentManaged.state.workspace);
+    const updateId = typeof ctx.update.update_id === "number" ? ctx.update.update_id : null;
+    if (!shouldProcessTelegramUpdate(assistantId, updateId)) return;
 
     try {
+      const ownerGate = evaluateTelegramOwnerGate({
+        currentConfig,
+        telegramUserId: ctx.from?.id ?? null,
+        locale,
+      });
+      if (!ownerGate.allowed) {
+        if (ownerGate.replyText) {
+          await ctx.reply(ownerGate.replyText).catch(() => {});
+        }
+        return;
+      }
       const voice = ctx.message.voice;
       const { buffer, filePath: tgFilePath } = await downloadTelegramFile(bot, voice.file_id);
       const ext = inferExtFromMime(voice.mime_type ?? "audio/ogg");
@@ -757,6 +973,7 @@ export async function syncTelegramBotForAssistant(params: {
         assistantId,
         userMessage,
         chatId: String(ctx.chat.id),
+        updateId,
         attachments: [
           {
             type: "voice",
@@ -778,7 +995,9 @@ export async function syncTelegramBotForAssistant(params: {
       );
     } catch (err) {
       console.error(`[persai-telegram] Voice turn failed for ${assistantId}:`, err);
-      await ctx.reply("Sorry, I couldn't process your voice message. Please try again.").catch(() => {});
+      await ctx
+        .reply("Sorry, I couldn't process your voice message. Please try again.")
+        .catch(() => {});
     }
   });
 
@@ -787,8 +1006,23 @@ export async function syncTelegramBotForAssistant(params: {
     if (!currentManaged) return;
     const currentConfig = extractTelegramChannel(currentManaged.state.bootstrap);
     if (!currentConfig || !currentConfig.inbound || !currentConfig.outbound) return;
+    const locale = resolveSystemLocale(currentManaged.state.workspace);
+    const updateId = typeof ctx.update.update_id === "number" ? ctx.update.update_id : null;
+    if (!shouldProcessTelegramUpdate(assistantId, updateId)) return;
 
     try {
+      const ownerGate = evaluateTelegramOwnerGate({
+        currentConfig,
+        incomingText: ctx.message.caption ?? "",
+        telegramUserId: ctx.from?.id ?? null,
+        locale,
+      });
+      if (!ownerGate.allowed) {
+        if (ownerGate.replyText) {
+          await ctx.reply(ownerGate.replyText).catch(() => {});
+        }
+        return;
+      }
       const photos = ctx.message.photo;
       const largest = photos[photos.length - 1];
       if (!largest) return;
@@ -806,6 +1040,7 @@ export async function syncTelegramBotForAssistant(params: {
         assistantId,
         userMessage,
         chatId: String(ctx.chat.id),
+        updateId,
         attachments: [
           {
             type: "image",
@@ -835,8 +1070,23 @@ export async function syncTelegramBotForAssistant(params: {
     if (!currentManaged) return;
     const currentConfig = extractTelegramChannel(currentManaged.state.bootstrap);
     if (!currentConfig || !currentConfig.inbound || !currentConfig.outbound) return;
+    const locale = resolveSystemLocale(currentManaged.state.workspace);
+    const updateId = typeof ctx.update.update_id === "number" ? ctx.update.update_id : null;
+    if (!shouldProcessTelegramUpdate(assistantId, updateId)) return;
 
     try {
+      const ownerGate = evaluateTelegramOwnerGate({
+        currentConfig,
+        incomingText: ctx.message.caption ?? "",
+        telegramUserId: ctx.from?.id ?? null,
+        locale,
+      });
+      if (!ownerGate.allowed) {
+        if (ownerGate.replyText) {
+          await ctx.reply(ownerGate.replyText).catch(() => {});
+        }
+        return;
+      }
       const doc = ctx.message.document;
       if (!doc) return;
       const { buffer, filePath: tgFilePath } = await downloadTelegramFile(bot, doc.file_id);
@@ -856,9 +1106,14 @@ export async function syncTelegramBotForAssistant(params: {
         assistantId,
         userMessage,
         chatId: String(ctx.chat.id),
+        updateId,
         attachments: [
           {
-            type: mime.startsWith("audio/") ? "audio" : mime.startsWith("video/") ? "video" : "document",
+            type: mime.startsWith("audio/")
+              ? "audio"
+              : mime.startsWith("video/")
+                ? "video"
+                : "document",
             storagePath: saved.storagePath,
             mimeType: mime,
             sizeBytes: saved.sizeBytes,
@@ -1057,6 +1312,7 @@ async function requestPersaiTelegramTurn(params: {
   userMessage: string;
   chatId: string;
   attachments?: TelegramAttachmentPayload[];
+  updateId?: number | null;
 }): Promise<PersaiTelegramTurnResult> {
   const fallback: PersaiTelegramTurnResult = {
     text: "I'm having trouble responding right now. Please try again.",
@@ -1079,6 +1335,9 @@ async function requestPersaiTelegramTurn(params: {
         assistantId: params.assistantId,
         threadId: params.chatId,
         message: params.userMessage,
+        ...(params.updateId !== null && params.updateId !== undefined
+          ? { updateId: params.updateId }
+          : {}),
         ...(params.attachments && params.attachments.length > 0
           ? { attachments: params.attachments }
           : {}),
@@ -1205,6 +1464,11 @@ async function notifyPersaiTelegramChatTarget(params: {
   chatType: string;
   title: string;
   username: string;
+  telegramUserId?: number;
+  claimOwner?: boolean;
+  systemWelcomeSentAt?: string;
+  runtimeHealth?: "ok" | "invalid_token";
+  runtimeHealthMessage?: string;
 }): Promise<void> {
   const baseUrl = resolvePersaiInternalApiBaseUrl();
   if (!baseUrl) {
@@ -1235,6 +1499,8 @@ export async function handleTelegramWebhookRequest(params: {
   req: IncomingMessage;
   res: ServerResponse;
   requestPath: string;
+  store: PersaiRuntimeSpecStore;
+  getReadiness?: ReadinessChecker;
 }): Promise<boolean> {
   const { req, res, requestPath } = params;
   const prefix = "/telegram-webhook/";
@@ -1256,11 +1522,34 @@ export async function handleTelegramWebhookRequest(params: {
     return true;
   }
 
-  const managed = activeBots.get(assistantId);
+  let managed = activeBots.get(assistantId);
   if (!managed) {
-    res.statusCode = 404;
-    res.end("Bot not found");
-    return true;
+    const allSpecs = await params.store.getAll();
+    const { latestSpecs } = selectLatestRuntimeSpecs(allSpecs);
+    const spec = latestSpecs.find((candidate) => candidate.assistantId === assistantId) ?? null;
+    const tgConfig = spec ? extractTelegramChannel(spec.bootstrap) : null;
+    if (spec && tgConfig?.enabled && tgConfig.botToken) {
+      try {
+        await syncTelegramBotForAssistant({
+          assistantId: spec.assistantId,
+          publishedVersionId: spec.publishedVersionId,
+          bootstrap: spec.bootstrap,
+          workspace: spec.workspace,
+          store: params.store,
+          workspaceDir: spec.workspaceDir,
+          getReadiness: params.getReadiness,
+          deferProfileUntilReady: true,
+        });
+      } catch (err) {
+        console.error(`[persai-telegram] Lazy bot bootstrap failed for ${assistantId}:`, err);
+      }
+      managed = activeBots.get(assistantId);
+    }
+    if (!managed) {
+      res.statusCode = 404;
+      res.end("Bot not found");
+      return true;
+    }
   }
 
   try {
