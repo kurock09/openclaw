@@ -5,6 +5,7 @@ import {
   enforceWorkspaceQuota,
   formatBytes,
   getWorkspaceQuotaFromContext,
+  invalidateWorkspaceCache,
 } from "./workspace-quota-guard.js";
 import { type ExecHost, loadExecApprovals, maxAsk, minSecurity } from "../infra/exec-approvals.js";
 import { resolveExecSafeBinRuntimePolicy } from "../infra/exec-safe-bin-runtime-policy.js";
@@ -511,17 +512,31 @@ export function createExecTool(
           quotaBytes: wsQuota.quotaBytes,
         });
         if (!preCheck.allowed) {
-          return {
-            content: [
-              {
-                type: "text",
-                text:
-                  `Workspace storage quota exceeded: ${formatBytes(preCheck.usedBytes)} used, ` +
-                  `limit ${formatBytes(preCheck.quotaBytes)}. Delete files to free space.`,
+          const isCleanupCommand = /^\s*(rm\s|rm$|unlink\s|truncate\s|find\s.*-delete)/.test(
+            params.command,
+          );
+          if (!isCleanupCommand) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text:
+                    `Workspace storage quota exceeded: ${formatBytes(preCheck.usedBytes)} used, ` +
+                    `limit ${formatBytes(preCheck.quotaBytes)}. Delete files to free space.`,
+                },
+              ],
+              details: {
+                status: "completed" as const,
+                exitCode: 1,
+                durationMs: 0,
+                aggregated: "",
               },
-            ],
-            details: { status: "completed" as const, exitCode: 1 },
-          };
+            };
+          }
+          warnings.push(
+            `⚠️ Workspace quota exceeded (${formatBytes(preCheck.usedBytes)} / ` +
+              `${formatBytes(preCheck.quotaBytes)}). Allowing cleanup command.`,
+          );
         }
       }
 
@@ -625,6 +640,7 @@ export function createExecTool(
             }
             let outputText = `${getWarningText()}${outcome.aggregated || "(no output)"}`;
             if (wsQuota) {
+              invalidateWorkspaceCache(wsQuota.workspaceDir);
               const postCheck = enforceWorkspaceQuota({
                 workspaceDir: wsQuota.workspaceDir,
                 quotaBytes: wsQuota.quotaBytes,

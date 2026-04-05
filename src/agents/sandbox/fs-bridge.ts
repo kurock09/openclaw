@@ -3,6 +3,7 @@ import {
   enforceWorkspaceQuota,
   formatBytes,
   getWorkspaceQuotaFromContext,
+  invalidateWorkspaceCache,
 } from "../workspace-quota-guard.js";
 import type { SandboxBackendCommandResult } from "./backend.js";
 import { runDockerSandboxShellCommand } from "./docker-backend.js";
@@ -152,6 +153,7 @@ class SandboxFsBridgeImpl implements SandboxFsBridge {
       stdin: buffer,
       signal: params.signal,
     });
+    if (wsQuota) invalidateWorkspaceCache(wsQuota.workspaceDir);
   }
 
   async mkdirp(params: { filePath: string; cwd?: string; signal?: AbortSignal }): Promise<void> {

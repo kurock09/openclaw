@@ -37,6 +37,10 @@ export function enforceWorkspaceQuota(params: {
   };
 }
 
+export function invalidateWorkspaceCache(workspaceDir: string): void {
+  usageCache.delete(workspaceDir);
+}
+
 export function formatBytes(b: number): string {
   if (b < 1024) return `${b} B`;
   if (b < 1_048_576) return `${(b / 1024).toFixed(1)} KB`;

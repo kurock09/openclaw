@@ -590,12 +590,12 @@ Before preserving or adding a higher-risk patch, confirm:
 - `src/agents/persai-runtime-context.ts` — added `workspaceQuotaBytes` field to `PersaiRuntimeRequestCtx`
 - `src/gateway/persai-runtime/persai-runtime-agent-turn.ts` — all three turn functions (sync, telegram, stream) accept and propagate `workspaceQuotaBytes` into runtime context
 - `src/gateway/persai-runtime/persai-runtime-http.ts` — all three HTTP handlers extract workspace quota from bootstrap and pass to agent turn
-- `src/agents/workspace-quota-guard.ts` — NEW: cached `du -sb` with 30s TTL, `enforceWorkspaceQuota()`, `formatBytes()`, `getWorkspaceQuotaFromContext()`
+- `src/agents/workspace-quota-guard.ts` — NEW: cached `du -sb` with 30s TTL, `enforceWorkspaceQuota()`, `formatBytes()`, `getWorkspaceQuotaFromContext()`, `invalidateWorkspaceCache()`
 
 **Files (higher-risk native):**
 
-- `src/agents/sandbox/fs-bridge.ts` — `writeFile()` now calls `enforceWorkspaceQuota()` pre-check before writing; rejects with quota-exceeded error when limit is breached
-- `src/agents/bash-tools.exec.ts` — pre-check before `runExecProcess` (hard block); post-check after successful completion (warning appended to output)
+- `src/agents/sandbox/fs-bridge.ts` — `writeFile()` now calls `enforceWorkspaceQuota()` pre-check before writing; rejects with quota-exceeded error when limit is breached; invalidates du cache after successful write
+- `src/agents/bash-tools.exec.ts` — pre-check before `runExecProcess` (hard block for non-cleanup commands; cleanup commands like `rm`, `unlink`, `truncate` bypass pre-check with warning); post-check after successful completion (warning appended to output); invalidates du cache before post-check
 
 **Why native patches are required:** The write tool and exec tool are the only entry points for sandbox file creation. Quota enforcement must happen inside these native code paths — a PersAI-only patch cannot intercept filesystem writes that occur inside the OpenClaw agent execution engine.
 
