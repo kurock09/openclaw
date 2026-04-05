@@ -1,6 +1,11 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
+import {
+  enforceWorkspaceQuota,
+  formatBytes,
+  getWorkspaceQuotaFromContext,
+} from "./workspace-quota-guard.js";
 import { type ExecHost, loadExecApprovals, maxAsk, minSecurity } from "../infra/exec-approvals.js";
 import { resolveExecSafeBinRuntimePolicy } from "../infra/exec-safe-bin-runtime-policy.js";
 import { sanitizeHostExecEnvWithDiagnostics } from "../infra/host-env-security.js";
@@ -499,8 +504,27 @@ export function createExecTool(
       const getWarningText = () => (warnings.length ? `${warnings.join("\n")}\n\n` : "");
       const usePty = params.pty === true && !sandbox;
 
-      // Preflight: catch a common model failure mode (shell syntax leaking into Python/JS sources)
-      // before we execute and burn tokens in cron loops.
+      const wsQuota = getWorkspaceQuotaFromContext();
+      if (wsQuota) {
+        const preCheck = enforceWorkspaceQuota({
+          workspaceDir: wsQuota.workspaceDir,
+          quotaBytes: wsQuota.quotaBytes,
+        });
+        if (!preCheck.allowed) {
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  `Workspace storage quota exceeded: ${formatBytes(preCheck.usedBytes)} used, ` +
+                  `limit ${formatBytes(preCheck.quotaBytes)}. Delete files to free space.`,
+              },
+            ],
+            details: { status: "completed" as const, exitCode: 1 },
+          };
+        }
+      }
+
       await validateScriptFileForShellBleed({ command: params.command, workdir });
 
       const run = await runExecProcess({
@@ -599,11 +623,24 @@ export function createExecTool(
               reject(new Error(outcome.reason ?? "Command failed."));
               return;
             }
+            let outputText = `${getWarningText()}${outcome.aggregated || "(no output)"}`;
+            if (wsQuota) {
+              const postCheck = enforceWorkspaceQuota({
+                workspaceDir: wsQuota.workspaceDir,
+                quotaBytes: wsQuota.quotaBytes,
+              });
+              if (!postCheck.allowed) {
+                outputText +=
+                  `\n\n⚠️ Workspace storage quota exceeded after this command: ` +
+                  `${formatBytes(postCheck.usedBytes)} / ${formatBytes(postCheck.quotaBytes)}. ` +
+                  `Delete unnecessary files before continuing.`;
+              }
+            }
             resolve({
               content: [
                 {
                   type: "text",
-                  text: `${getWarningText()}${outcome.aggregated || "(no output)"}`,
+                  text: outputText,
                 },
               ],
               details: {

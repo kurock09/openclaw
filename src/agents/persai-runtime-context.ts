@@ -17,6 +17,8 @@ export interface PersaiRuntimeRequestCtx {
   toolProviderOverrides?: Map<string, string>;
   /** Persona gender from the materialized workspace spec ("male" | "female" | "neutral"). */
   assistantGender?: string | null;
+  /** Per-plan workspace storage quota in bytes. Null = unlimited. */
+  workspaceQuotaBytes?: number | null;
 }
 
 /**

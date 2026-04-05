@@ -580,6 +580,35 @@ Before preserving or adding a higher-risk patch, confirm:
 - `grep -c 'hasSource("persai")' src/secrets/configure.ts` should return >= 1
 - `grep -c 'value: "persai"' src/secrets/configure.ts` should return >= 1
 
+### Patch #28 — Workspace storage quota enforcement (ADR-069)
+
+**Risk:** Lower-risk PersAI bridge files + two higher-risk native patches
+
+**Files (lower-risk bridge):**
+
+- `src/gateway/persai-runtime/persai-runtime-tool-policy.ts` — added `extractWorkspaceQuotaBytes()` to read per-plan workspace quota from bootstrap governance
+- `src/agents/persai-runtime-context.ts` — added `workspaceQuotaBytes` field to `PersaiRuntimeRequestCtx`
+- `src/gateway/persai-runtime/persai-runtime-agent-turn.ts` — all three turn functions (sync, telegram, stream) accept and propagate `workspaceQuotaBytes` into runtime context
+- `src/gateway/persai-runtime/persai-runtime-http.ts` — all three HTTP handlers extract workspace quota from bootstrap and pass to agent turn
+- `src/agents/workspace-quota-guard.ts` — NEW: cached `du -sb` with 30s TTL, `enforceWorkspaceQuota()`, `formatBytes()`, `getWorkspaceQuotaFromContext()`
+
+**Files (higher-risk native):**
+
+- `src/agents/sandbox/fs-bridge.ts` — `writeFile()` now calls `enforceWorkspaceQuota()` pre-check before writing; rejects with quota-exceeded error when limit is breached
+- `src/agents/bash-tools.exec.ts` — pre-check before `runExecProcess` (hard block); post-check after successful completion (warning appended to output)
+
+**Why native patches are required:** The write tool and exec tool are the only entry points for sandbox file creation. Quota enforcement must happen inside these native code paths — a PersAI-only patch cannot intercept filesystem writes that occur inside the OpenClaw agent execution engine.
+
+**Introduced by:** ADR-069 workspace storage quota enforcement
+**Verify:**
+
+- `grep -c 'extractWorkspaceQuotaBytes' src/gateway/persai-runtime/persai-runtime-tool-policy.ts` should return >= 1
+- `grep -c 'workspaceQuotaBytes' src/agents/persai-runtime-context.ts` should return >= 1
+- `grep -c 'workspaceQuotaBytes' src/gateway/persai-runtime/persai-runtime-agent-turn.ts` should return >= 6
+- `grep -c 'workspaceQuotaBytes' src/gateway/persai-runtime/persai-runtime-http.ts` should return >= 3
+- `grep -c 'enforceWorkspaceQuota' src/agents/sandbox/fs-bridge.ts` should return >= 1
+- `grep -c 'enforceWorkspaceQuota' src/agents/bash-tools.exec.ts` should return >= 2
+
 ## Quick full verification
 
 Run `node scripts/verify-persai-patches.mjs` (see script in `scripts/`).

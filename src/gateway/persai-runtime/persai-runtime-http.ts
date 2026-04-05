@@ -31,6 +31,7 @@ import {
   extractToolCredentialRefs,
   extractToolProviderOverrides,
   extractToolQuotaPolicy,
+  extractWorkspaceQuotaBytes,
   resolveToolCredentials,
 } from "./persai-runtime-tool-policy.js";
 import {
@@ -846,6 +847,7 @@ export async function handleRuntimeChatWebHttpRequest(params: {
     const quotaPolicy = extractToolQuotaPolicy(applied.bootstrap);
     const toolDenyList = buildToolDenyList(quotaPolicy);
     const toolProviderOverrides = extractToolProviderOverrides(credentialRefs);
+    const workspaceQuotaBytes = extractWorkspaceQuotaBytes(applied.bootstrap);
 
     let resolvedToolCredentials = new Map<string, string>();
     if (credentialRefs.size > 0) {
@@ -877,6 +879,7 @@ export async function handleRuntimeChatWebHttpRequest(params: {
       cronWebhookUrl: resolveCronWebhookUrl(assistantId),
       workspaceDir: applied.workspaceDir,
       assistantGender: extractAssistantGenderFromWorkspace(applied.workspace),
+      workspaceQuotaBytes,
     });
     if (!agentOut.ok) {
       sendJson(res, agentOut.error.status, {
@@ -1022,6 +1025,7 @@ export async function handleRuntimeChatChannelHttpRequest(params: {
   const quotaPolicy = extractToolQuotaPolicy(applied.bootstrap);
   const toolDenyList = buildToolDenyList(quotaPolicy);
   const tgToolProviderOverrides = extractToolProviderOverrides(credentialRefs);
+  const tgWorkspaceQuotaBytes = extractWorkspaceQuotaBytes(applied.bootstrap);
 
   let resolvedToolCredentials = new Map<string, string>();
   if (credentialRefs.size > 0) {
@@ -1053,6 +1057,7 @@ export async function handleRuntimeChatChannelHttpRequest(params: {
     cronWebhookUrl: resolveCronWebhookUrl(assistantId),
     workspaceDir: applied.workspaceDir,
     assistantGender: extractAssistantGenderFromWorkspace(applied.workspace),
+    workspaceQuotaBytes: tgWorkspaceQuotaBytes,
   });
   if (!agentOut.ok) {
     sendJson(res, agentOut.error.status, {
@@ -1206,6 +1211,7 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
   const streamQuotaPolicy = extractToolQuotaPolicy(applied.bootstrap);
   const streamToolDenyList = buildToolDenyList(streamQuotaPolicy);
   const streamToolProviderOverrides = extractToolProviderOverrides(streamCredentialRefs);
+  const streamWorkspaceQuotaBytes = extractWorkspaceQuotaBytes(applied.bootstrap);
 
   let streamResolvedToolCredentials = new Map<string, string>();
   if (streamCredentialRefs.size > 0) {
@@ -1239,6 +1245,7 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
     cronWebhookUrl: resolveCronWebhookUrl(assistantId),
     workspaceDir: applied.workspaceDir,
     assistantGender: extractAssistantGenderFromWorkspace(applied.workspace),
+    workspaceQuotaBytes: streamWorkspaceQuotaBytes,
   });
   return true;
 }

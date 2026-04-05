@@ -1,4 +1,9 @@
 import fs from "node:fs";
+import {
+  enforceWorkspaceQuota,
+  formatBytes,
+  getWorkspaceQuotaFromContext,
+} from "../workspace-quota-guard.js";
 import type { SandboxBackendCommandResult } from "./backend.js";
 import { runDockerSandboxShellCommand } from "./docker-backend.js";
 import {
@@ -119,6 +124,21 @@ class SandboxFsBridgeImpl implements SandboxFsBridge {
     const buffer = Buffer.isBuffer(params.data)
       ? params.data
       : Buffer.from(params.data, params.encoding ?? "utf8");
+    const wsQuota = getWorkspaceQuotaFromContext();
+    if (wsQuota) {
+      const check = enforceWorkspaceQuota({
+        workspaceDir: wsQuota.workspaceDir,
+        additionalBytes: buffer.byteLength,
+        quotaBytes: wsQuota.quotaBytes,
+      });
+      if (!check.allowed) {
+        throw new Error(
+          `Workspace storage quota exceeded: ${formatBytes(check.usedBytes)} used + ` +
+            `${formatBytes(buffer.byteLength)} new > ${formatBytes(check.quotaBytes)} limit. ` +
+            `Delete files to free space.`,
+        );
+      }
+    }
     const pinnedWriteTarget = await this.pathGuard.resolveAnchoredPinnedEntry(
       target,
       "write files",

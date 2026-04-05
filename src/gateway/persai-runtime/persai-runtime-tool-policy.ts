@@ -247,6 +247,17 @@ export async function resolveToolCredentials(
   return credentials;
 }
 
+export function extractWorkspaceQuotaBytes(
+  bootstrap: unknown,
+): number | null {
+  const governance = asRecord(asRecord(bootstrap)?.governance);
+  if (!governance) return null;
+  const raw = governance.workspaceQuotaBytes;
+  return typeof raw === "number" && Number.isFinite(raw) && raw > 0
+    ? raw
+    : null;
+}
+
 export async function validateToolPolicyForApply(
   bootstrap: unknown,
 ): Promise<void> {
