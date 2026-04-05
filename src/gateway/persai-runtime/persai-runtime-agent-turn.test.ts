@@ -14,10 +14,16 @@ vi.mock("../../cli/deps.js", () => ({
   createDefaultDeps: createDefaultDepsMock,
 }));
 
-import { runPersaiWebRuntimeAgentTurnSync } from "./persai-runtime-agent-turn.js";
+import { EventEmitter } from "node:events";
+import {
+  runPersaiWebRuntimeAgentTurnStream,
+  runPersaiWebRuntimeAgentTurnSync,
+} from "./persai-runtime-agent-turn.js";
+import { emitAgentEvent, resetAgentEventsForTest } from "../../infra/agent-events.js";
 
 afterEach(() => {
   vi.clearAllMocks();
+  resetAgentEventsForTest();
 });
 
 describe("runPersaiWebRuntimeAgentTurnSync", () => {
@@ -38,6 +44,7 @@ describe("runPersaiWebRuntimeAgentTurnSync", () => {
     ).resolves.toEqual({
       ok: true,
       assistantMessage: "Hello from override.",
+      media: [],
     });
 
     expect(agentCommandFromIngressMock).toHaveBeenCalledTimes(1);
@@ -70,6 +77,77 @@ describe("runPersaiWebRuntimeAgentTurnSync", () => {
         message: 'Daily tool usage limit reached for "web_search".',
         status: 409,
       },
+    });
+  });
+
+  test("keeps media-only responses silent after successful TTS", async () => {
+    agentCommandFromIngressMock.mockResolvedValue({
+      payloads: [{ text: "NO_REPLY", mediaUrl: "/tmp/reply.ogg", audioAsVoice: true }],
+    });
+
+    await expect(
+      runPersaiWebRuntimeAgentTurnSync({
+        assistantId: "assistant-1",
+        userMessage: "hi",
+        sessionKey: "agent:persai:a:web:c:t",
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      assistantMessage: "",
+      media: [{ url: "/tmp/reply.ogg", type: "audio", audioAsVoice: true }],
+    });
+  });
+});
+
+describe("runPersaiWebRuntimeAgentTurnStream", () => {
+  test("suppresses NO_REPLY lead fragments and still emits media", async () => {
+    agentCommandFromIngressMock.mockImplementation(async (_input) => {
+      emitAgentEvent({
+        runId: _input.runId,
+        stream: "assistant",
+        data: { text: "NO" },
+      });
+      emitAgentEvent({
+        runId: _input.runId,
+        stream: "assistant",
+        data: { text: "NO_REPLY" },
+      });
+      return {
+        payloads: [{ text: "NO_REPLY", mediaUrl: "/tmp/reply.ogg", audioAsVoice: true }],
+      };
+    });
+
+    const req = new EventEmitter() as EventEmitter & {
+      on: (event: string, listener: (...args: unknown[]) => void) => typeof req;
+    };
+    const written: string[] = [];
+    const res = {
+      write: vi.fn((chunk: string) => {
+        written.push(chunk);
+        return true;
+      }),
+      end: vi.fn(),
+    } as unknown as import("node:http").ServerResponse;
+
+    await runPersaiWebRuntimeAgentTurnStream({
+      req: req as unknown as import("node:http").IncomingMessage,
+      res,
+      assistantId: "assistant-1",
+      userMessage: "hi",
+      sessionKey: "agent:persai:a:web:c:t",
+    });
+
+    const events = written
+      .join("")
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+
+    expect(events.some((evt) => evt.type === "delta")).toBe(false);
+    expect(events).toContainEqual({
+      type: "media",
+      media: [{ url: "/tmp/reply.ogg", type: "audio", audioAsVoice: true }],
     });
   });
 });

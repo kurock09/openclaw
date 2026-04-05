@@ -892,7 +892,7 @@ export async function handleRuntimeChatWebHttpRequest(params: {
       });
       return true;
     }
-    const assistantMessage = agentOut.assistantMessage.trim() || "No response from OpenClaw.";
+    const assistantMessage = agentOut.assistantMessage.trim();
     sendJson(res, 200, {
       ok: true,
       assistantMessage,
@@ -1071,7 +1071,7 @@ export async function handleRuntimeChatChannelHttpRequest(params: {
     return true;
   }
 
-  const assistantMessage = agentOut.assistantMessage.trim() || "No response from OpenClaw.";
+  const assistantMessage = agentOut.assistantMessage.trim();
   sendJson(res, 200, {
     ok: true,
     assistantMessage,

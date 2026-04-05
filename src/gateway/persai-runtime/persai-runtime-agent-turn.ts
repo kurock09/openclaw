@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { persaiRuntimeRequestContext } from "../../agents/openclaw-tools.js";
 import { PersaiRuntimeToolLimitError } from "../../agents/persai-runtime-tool-limits.js";
+import { isSilentReplyPrefixText, isSilentReplyText } from "../../auto-reply/tokens.js";
 import { createDefaultDeps } from "../../cli/deps.js";
 import { agentCommandFromIngress } from "../../commands/agent.js";
 import { onAgentEvent } from "../../infra/agent-events.js";
@@ -83,8 +84,10 @@ function resolveAgentResponse(result: unknown): AgentResponse {
     }
   }
 
-  const text =
-    textParts.filter(Boolean).join("\n\n") || "No response from OpenClaw.";
+  const text = textParts.filter(Boolean).join("\n\n");
+  if (!text && media.length === 0) {
+    return { text: "No response from OpenClaw.", media: [] };
+  }
   return { text, media };
 }
 
@@ -307,7 +310,11 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
     }
     if (evt.stream === "assistant") {
       const content = resolveAssistantStreamDeltaText(evt) ?? "";
-      if (content) {
+      if (
+        content &&
+        !isSilentReplyText(content) &&
+        !isSilentReplyPrefixText(content)
+      ) {
         sawAssistantDelta = true;
         params.res.write(
           `${JSON.stringify({ type: "delta", delta: content })}\n`,
@@ -342,7 +349,7 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
           return;
         }
         const response = resolveAgentResponse(result);
-        if (!sawAssistantDelta) {
+        if (!sawAssistantDelta && response.text) {
           params.res.write(
             `${JSON.stringify({ type: "delta", delta: response.text })}\n`,
           );
