@@ -148,7 +148,7 @@ Before preserving or adding a higher-risk patch, confirm:
 - `src/gateway/persai-runtime/persai-runtime-telegram.ts` — inbound Telegram turns now call PersAI internal turn gateway (`POST /api/v1/internal/runtime/turns/telegram`) instead of deciding turn admission fully inside OpenClaw
 - `src/gateway/persai-runtime/persai-runtime-telegram.ts` — Telegram ingress now enforces PersAI SaaS safety semantics inside runtime:
   - dedupe repeated webhook deliveries by `assistantId + update_id`
-  - owner-only DM gate with `/start persai_claim_<token>` owner claim flow
+  - owner-only DM gate with a 6-digit owner claim code flow
   - immediate system-language owner welcome message after successful claim
   - terminal Telegram `401 Unauthorized` promotion to PersAI `invalid_token` state instead of retry-only noise
 - `src/gateway/persai-runtime/persai-runtime-spec-store.ts` — persisted `telegramRuntime` metadata (transport/profile fingerprints + profile sync timestamps/errors)
@@ -163,7 +163,7 @@ Before preserving or adding a higher-risk patch, confirm:
 - `grep -c 'sendTelegramReplyWithConfiguredParseMode' src/gateway/persai-runtime/persai-runtime-telegram.ts` should return >= 1
 - `grep -c '/api/v1/internal/runtime/turns/telegram' src/gateway/persai-runtime/persai-runtime-telegram.ts` should return >= 1
 - `grep -c 'shouldProcessTelegramUpdate' src/gateway/persai-runtime/persai-runtime-telegram.ts` should return >= 1
-- `grep -c 'persai_claim_' src/gateway/persai-runtime/persai-runtime-telegram.ts` should return >= 1
+- `grep -c 'claimCodeFromText' src/gateway/persai-runtime/persai-runtime-telegram.ts` should return >= 1
 - `grep -c 'invalid_token' src/gateway/persai-runtime/persai-runtime-telegram.ts` should return >= 1
 
 ### 12. Non-web runtime execute seam for PersAI-owned turn gateway (H13 core)
@@ -379,7 +379,7 @@ Before preserving or adding a higher-risk patch, confirm:
 
 - `src/media/store.ts` — `saveMediaBuffer` accepts optional `baseDirOverride` parameter to redirect media writes away from `.openclaw-state/media/` to a caller-chosen directory
 - `src/agents/tools/image-generate-tool.ts` — when `workspaceDir` is set, passes `workspaceDir/media` as `baseDirOverride` so generated images persist in the user workspace and are reachable by PersAI download handler
-- `src/gateway/persai-runtime/persai-runtime-media.ts` — `resolvePersaiWorkspaceMediaStoragePath` (exported) resolves download/delete paths under `workspaceDir/media/` or `../…` within `PERSAI_WORKSPACE_ROOT` as a safety net for tool-generated and workspace-attached media
+- `src/gateway/persai-runtime/persai-runtime-media.ts` — `resolvePersaiWorkspaceMediaStoragePath` (exported) resolves download/delete paths strictly within the current assistant's workspace directory (not the global workspace root) to prevent cross-assistant file reads
 
 **Why native patch is required:** `saveMediaBuffer` is a core OpenClaw media utility with a hardcoded save directory. PersAI needs tool-generated images to land in the per-user workspace so they survive cleanup and are served by the PersAI download handler. Without the `baseDirOverride` parameter, there is no way to redirect the save path from a PersAI-only fix.
 

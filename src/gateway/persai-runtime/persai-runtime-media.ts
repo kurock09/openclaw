@@ -11,10 +11,7 @@ import {
 } from "../auth.js";
 import { sendGatewayAuthFailure } from "../http-common.js";
 import { getBearerToken } from "../http-utils.js";
-import {
-  resolvePersaiAssistantWorkspaceDir,
-  resolvePersaiWorkspaceRoot,
-} from "./persai-runtime-workspace.js";
+import { resolvePersaiAssistantWorkspaceDir } from "./persai-runtime-workspace.js";
 import {
   PERSAI_MAX_MEDIA_BYTES,
   validatePersaiRuntimeMedia,
@@ -65,23 +62,20 @@ function resolveMediaDir(assistantId: string): string {
 }
 
 /**
- * Resolve a runtime `storagePath` (relative to `…/workspace/<id>/media`, or `../…`
- * within the PersAI workspace root) to an absolute file path. Returns null when
- * the path escapes allowed locations.
+ * Resolve a runtime `storagePath` to an absolute file path, strictly within the
+ * current assistant's workspace directory. Returns null when the path escapes
+ * the assistant boundary (prevents cross-assistant file reads).
  */
 export function resolvePersaiWorkspaceMediaStoragePath(
   assistantId: string,
   storagePath: string,
 ): string | null {
+  const assistantDir = resolvePersaiAssistantWorkspaceDir(assistantId);
   const mediaDir = resolveMediaDir(assistantId);
   const resolved = path.resolve(mediaDir, storagePath);
-  if (resolved.startsWith(mediaDir + path.sep) || resolved === mediaDir) {
-    return resolved;
-  }
-  const workspaceRoot = resolvePersaiWorkspaceRoot();
   if (
-    resolved.startsWith(workspaceRoot + path.sep) ||
-    resolved === workspaceRoot
+    resolved.startsWith(assistantDir + path.sep) ||
+    resolved === assistantDir
   ) {
     return resolved;
   }

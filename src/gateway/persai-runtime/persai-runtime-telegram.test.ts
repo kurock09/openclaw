@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 import type { PersaiAppliedRuntimeSpec } from "./persai-runtime-spec-store.js";
 import {
+  claimCodeFromText,
+  evaluateTelegramOwnerGate,
   isTelegramMarkdownParseError,
   sendTelegramReplyWithConfiguredParseMode,
   selectLatestRuntimeSpecs,
@@ -109,6 +111,111 @@ describe("syncBotProfile", () => {
     ).rejects.toMatchObject<TelegramProfileSyncError>({
       name: "TelegramProfileSyncError",
       retryAfterMs: 40104000,
+    });
+  });
+});
+
+describe("Telegram owner claim code flow", () => {
+  test("parses direct and command-wrapped 6-digit codes", () => {
+    expect(claimCodeFromText("482913")).toBe("482913");
+    expect(claimCodeFromText("/start 482913")).toBe("482913");
+    expect(claimCodeFromText("/claim@banana_bot 482913")).toBe("482913");
+    expect(claimCodeFromText("/start persai_claim_deadbeef")).toBeNull();
+    expect(claimCodeFromText("48291")).toBeNull();
+  });
+
+  test("requires matching code before owner claim completes", () => {
+    expect(
+      evaluateTelegramOwnerGate({
+        currentConfig: {
+          enabled: true,
+          botToken: "token-1",
+          webhookUrl: null,
+          webhookSecret: null,
+          groupReplyMode: "mention_reply",
+          parseMode: "plain_text",
+          inbound: true,
+          outbound: true,
+          accessMode: "owner_only",
+          ownerClaimStatus: "pending",
+          ownerClaimCode: "482913",
+          ownerClaimCodeExpiresAt: null,
+          ownerTelegramUserId: null,
+          ownerTelegramUsername: null,
+          ownerTelegramChatId: null,
+          runtimeHealth: "ok",
+        },
+        incomingText: "/start",
+        telegramUserId: 42,
+        locale: "en",
+      }),
+    ).toMatchObject({
+      allowed: false,
+      claimNow: false,
+      replyText:
+        "To confirm that you are the assistant owner, send the 6-digit code from PersAI here.",
+    });
+
+    expect(
+      evaluateTelegramOwnerGate({
+        currentConfig: {
+          enabled: true,
+          botToken: "token-1",
+          webhookUrl: null,
+          webhookSecret: null,
+          groupReplyMode: "mention_reply",
+          parseMode: "plain_text",
+          inbound: true,
+          outbound: true,
+          accessMode: "owner_only",
+          ownerClaimStatus: "pending",
+          ownerClaimCode: "482913",
+          ownerClaimCodeExpiresAt: null,
+          ownerTelegramUserId: null,
+          ownerTelegramUsername: null,
+          ownerTelegramChatId: null,
+          runtimeHealth: "ok",
+        },
+        incomingText: "482913",
+        telegramUserId: 42,
+        locale: "ru",
+      }),
+    ).toMatchObject({
+      allowed: false,
+      claimNow: true,
+      replyText: null,
+    });
+  });
+
+  test("rejects expired claim codes before accepting ownership", () => {
+    expect(
+      evaluateTelegramOwnerGate({
+        currentConfig: {
+          enabled: true,
+          botToken: "token-1",
+          webhookUrl: null,
+          webhookSecret: null,
+          groupReplyMode: "mention_reply",
+          parseMode: "plain_text",
+          inbound: true,
+          outbound: true,
+          accessMode: "owner_only",
+          ownerClaimStatus: "pending",
+          ownerClaimCode: "482913",
+          ownerClaimCodeExpiresAt: "2000-01-01T00:00:00.000Z",
+          ownerTelegramUserId: null,
+          ownerTelegramUsername: null,
+          ownerTelegramChatId: null,
+          runtimeHealth: "ok",
+        },
+        incomingText: "482913",
+        telegramUserId: 42,
+        locale: "en",
+      }),
+    ).toMatchObject({
+      allowed: false,
+      claimNow: false,
+      replyText: "That verification code has expired. Reconnect the bot in PersAI to get a new code.",
     });
   });
 });

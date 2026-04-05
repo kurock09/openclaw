@@ -66,6 +66,7 @@ const DEFAULT_TELEGRAM_REINIT_RETRIES = 3;
 const DEFAULT_TELEGRAM_REINIT_BACKOFF_MS = 1_000;
 const DEFAULT_READINESS_RECHECK_MS = 5_000;
 const TELEGRAM_UPDATE_DEDUPE_TTL_MS = 10 * 60_000;
+const TELEGRAM_OWNER_CLAIM_CODE_LENGTH = 6;
 
 const processedTelegramUpdates = new Map<string, number>();
 
@@ -95,7 +96,8 @@ function extractTelegramChannel(bootstrap: unknown): {
   outbound: boolean;
   accessMode: string;
   ownerClaimStatus: string;
-  ownerClaimToken: string | null;
+  ownerClaimCode: string | null;
+  ownerClaimCodeExpiresAt: string | null;
   ownerTelegramUserId: number | null;
   ownerTelegramUsername: string | null;
   ownerTelegramChatId: string | null;
@@ -123,7 +125,9 @@ function extractTelegramChannel(bootstrap: unknown): {
     outbound: tg.outbound !== false,
     accessMode: typeof tg.accessMode === "string" ? tg.accessMode : "owner_only",
     ownerClaimStatus: typeof tg.ownerClaimStatus === "string" ? tg.ownerClaimStatus : "not_started",
-    ownerClaimToken: typeof tg.ownerClaimToken === "string" ? tg.ownerClaimToken : null,
+    ownerClaimCode: typeof tg.ownerClaimCode === "string" ? tg.ownerClaimCode : null,
+    ownerClaimCodeExpiresAt:
+      typeof tg.ownerClaimCodeExpiresAt === "string" ? tg.ownerClaimCodeExpiresAt : null,
     ownerTelegramUserId:
       typeof tg.ownerTelegramUserId === "number" && Number.isFinite(tg.ownerTelegramUserId)
         ? tg.ownerTelegramUserId
@@ -144,12 +148,27 @@ function cleanupProcessedTelegramUpdates(): void {
   }
 }
 
-function claimCommandToken(text: string | null | undefined): string | null {
+export function claimCodeFromText(text: string | null | undefined): string | null {
   if (!text) {
     return null;
   }
-  const match = text.trim().match(/^\/start(?:@\w+)?\s+persai_claim_([a-z0-9]+)$/i);
+  const match = text
+    .trim()
+    .match(
+      new RegExp(
+        `^(?:\\/(?:start|claim)(?:@\\w+)?\\s+)?(\\d{${String(TELEGRAM_OWNER_CLAIM_CODE_LENGTH)}})$`,
+        "i",
+      ),
+    );
   return match?.[1] ?? null;
+}
+
+function isExpiredIsoTimestamp(value: string | null | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+  const ts = Date.parse(value);
+  return Number.isFinite(ts) && ts <= Date.now();
 }
 
 function shouldProcessTelegramUpdate(assistantId: string, updateId: number | null): boolean {
@@ -190,8 +209,20 @@ function buildTelegramOwnerClaimedWelcome(locale: string): string {
 
 function buildTelegramOwnerClaimRequiredReply(locale: string): string {
   return locale.startsWith("ru")
-    ? "Этот бот приватный. Сначала откройте персональную ссылку привязки из PersAI, чтобы подтвердить аккаунт владельца."
-    : "This bot is private. First open the personal claim link from PersAI to confirm the owner's Telegram account.";
+    ? "Чтобы подтвердить владельца ассистента, отправьте сюда 6-значный код из PersAI."
+    : "To confirm that you are the assistant owner, send the 6-digit code from PersAI here.";
+}
+
+function buildTelegramInvalidOwnerClaimCodeReply(locale: string): string {
+  return locale.startsWith("ru")
+    ? "Неверный код подтверждения. Отправьте 6-значный код из PersAI."
+    : "That verification code is invalid. Send the 6-digit code from PersAI.";
+}
+
+function buildTelegramExpiredOwnerClaimCodeReply(locale: string): string {
+  return locale.startsWith("ru")
+    ? "Код подтверждения истек. Переподключите бота в PersAI, чтобы получить новый код."
+    : "That verification code has expired. Reconnect the bot in PersAI to get a new code.";
 }
 
 function buildTelegramUnauthorizedUserReply(locale: string): string {
@@ -200,7 +231,7 @@ function buildTelegramUnauthorizedUserReply(locale: string): string {
     : "This bot is available only to the assistant owner.";
 }
 
-function evaluateTelegramOwnerGate(params: {
+export function evaluateTelegramOwnerGate(params: {
   currentConfig: ReturnType<typeof extractTelegramChannel>;
   incomingText?: string | null;
   telegramUserId: number | null;
@@ -216,13 +247,27 @@ function evaluateTelegramOwnerGate(params: {
   }
 
   if (currentConfig.ownerClaimStatus !== "claimed") {
-    const incomingClaimToken = claimCommandToken(incomingText);
+    if (isExpiredIsoTimestamp(currentConfig.ownerClaimCodeExpiresAt)) {
+      return {
+        allowed: false,
+        claimNow: false,
+        replyText: buildTelegramExpiredOwnerClaimCodeReply(locale),
+      };
+    }
+    const incomingClaimCode = claimCodeFromText(incomingText);
     if (
-      incomingClaimToken &&
-      currentConfig.ownerClaimToken &&
-      incomingClaimToken === currentConfig.ownerClaimToken
+      incomingClaimCode &&
+      currentConfig.ownerClaimCode &&
+      incomingClaimCode === currentConfig.ownerClaimCode
     ) {
       return { allowed: false, claimNow: true, replyText: null };
+    }
+    if (incomingClaimCode) {
+      return {
+        allowed: false,
+        claimNow: false,
+        replyText: buildTelegramInvalidOwnerClaimCodeReply(locale),
+      };
     }
     return {
       allowed: false,
