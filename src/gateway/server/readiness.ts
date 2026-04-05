@@ -17,6 +17,52 @@ export type ReadinessResult = {
 export type ReadinessChecker = () => ReadinessResult;
 
 const DEFAULT_READINESS_CACHE_TTL_MS = 1_000;
+const PERSAI_RUNTIME_READINESS_MODE_ENV = "PERSAI_RUNTIME_READINESS_MODE";
+const PERSAI_RUNTIME_SINGLE_REPLICA_MODE = "single_replica";
+const PERSAI_RUNTIME_MULTI_REPLICA_MODE = "multi_replica";
+
+function resolvePersaiRuntimeReadinessMode(env: NodeJS.ProcessEnv = process.env): string {
+  const raw = env[PERSAI_RUNTIME_READINESS_MODE_ENV];
+  return (raw ?? PERSAI_RUNTIME_SINGLE_REPLICA_MODE).trim().toLowerCase();
+}
+
+export function assertSupportedPersaiRuntimeStartupContract(
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  const mode = resolvePersaiRuntimeReadinessMode(env);
+  if (mode === PERSAI_RUNTIME_SINGLE_REPLICA_MODE) {
+    return;
+  }
+
+  throw new Error(
+    `PersAI OpenClaw runtime does not support \`PERSAI_RUNTIME_READINESS_MODE=${mode}\`. ` +
+      "Supported runtime contract remains `single_replica` with one pod per runtime pool " +
+      "until distributed session ownership exists.",
+  );
+}
+
+function resolvePersaiRuntimeReadinessFailures(): string[] {
+  const mode = resolvePersaiRuntimeReadinessMode();
+  if (mode !== PERSAI_RUNTIME_MULTI_REPLICA_MODE) {
+    return [];
+  }
+
+  const failures: string[] = [];
+  const specStoreMode = (process.env.PERSAI_RUNTIME_SPEC_STORE ?? "memory").trim().toLowerCase();
+  if (specStoreMode !== "redis") {
+    failures.push("persai_runtime_spec_store_not_shared");
+  }
+  // Redis-backed apply metadata is only one seam. Session transcripts, workspace
+  // continuity, and execution ordering are still owned by the gateway process
+  // rather than a cluster-wide runtime contract.
+  failures.push(
+    "persai_runtime_session_store_not_cluster_proven",
+    "persai_runtime_workspace_continuity_not_cluster_proven",
+    "persai_runtime_session_ordering_process_local",
+    "persai_runtime_multi_replica_session_not_supported",
+  );
+  return failures;
+}
 
 function shouldIgnoreReadinessFailure(
   accountSnapshot: ChannelAccountSnapshot,
@@ -72,6 +118,8 @@ export function createReadinessChecker(deps: {
         }
       }
     }
+
+    failing.push(...resolvePersaiRuntimeReadinessFailures());
 
     cachedAt = now;
     cachedState = { ready: failing.length === 0, failing };

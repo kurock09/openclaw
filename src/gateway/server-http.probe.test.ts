@@ -9,6 +9,17 @@ import {
 } from "./server-http.test-harness.js";
 import type { ReadinessChecker } from "./server/readiness.js";
 
+function withEnv(env: NodeJS.ProcessEnv, run: () => Promise<void>) {
+  const originalEnv = process.env;
+  process.env = {
+    ...originalEnv,
+    ...env,
+  };
+  return run().finally(() => {
+    process.env = originalEnv;
+  });
+}
+
 describe("gateway probe endpoints", () => {
   it("returns detailed readiness payload for local /ready requests", async () => {
     const getReadiness: ReadinessChecker = () => ({
@@ -151,5 +162,95 @@ describe("gateway probe endpoints", () => {
         expect(getBody()).toBe("");
       },
     });
+  });
+
+  it("surfaces PersAI runtime cluster blockers on /ready when multi-replica mode is declared", async () => {
+    await withEnv(
+      {
+        PERSAI_RUNTIME_READINESS_MODE: "multi_replica",
+        PERSAI_RUNTIME_SPEC_STORE: "memory",
+      },
+      async () => {
+        const getReadiness: ReadinessChecker = () => ({
+          ready: false,
+          failing: [
+            "persai_runtime_spec_store_not_shared",
+            "persai_runtime_session_store_not_cluster_proven",
+            "persai_runtime_workspace_continuity_not_cluster_proven",
+            "persai_runtime_session_ordering_process_local",
+            "persai_runtime_multi_replica_session_not_supported",
+          ],
+          uptimeMs: 5_000,
+        });
+
+        await withGatewayServer({
+          prefix: "probe-persai-runtime-multi-replica",
+          resolvedAuth: AUTH_NONE,
+          overrides: { getReadiness },
+          run: async (server) => {
+            const req = createRequest({ path: "/ready" });
+            const { res, getBody } = createResponse();
+            await dispatchRequest(server, req, res);
+
+            expect(res.statusCode).toBe(503);
+            expect(JSON.parse(getBody())).toEqual({
+              ready: false,
+              failing: [
+                "persai_runtime_spec_store_not_shared",
+                "persai_runtime_session_store_not_cluster_proven",
+                "persai_runtime_workspace_continuity_not_cluster_proven",
+                "persai_runtime_session_ordering_process_local",
+                "persai_runtime_multi_replica_session_not_supported",
+              ],
+              uptimeMs: 5_000,
+            });
+          },
+        });
+      },
+    );
+  });
+
+  it("does not present redis-backed apply storage as full multi-replica session safety", async () => {
+    await withEnv(
+      {
+        PERSAI_RUNTIME_READINESS_MODE: "multi_replica",
+        PERSAI_RUNTIME_SPEC_STORE: "redis",
+      },
+      async () => {
+        const getReadiness: ReadinessChecker = () => ({
+          ready: false,
+          failing: [
+            "persai_runtime_session_store_not_cluster_proven",
+            "persai_runtime_workspace_continuity_not_cluster_proven",
+            "persai_runtime_session_ordering_process_local",
+            "persai_runtime_multi_replica_session_not_supported",
+          ],
+          uptimeMs: 6_000,
+        });
+
+        await withGatewayServer({
+          prefix: "probe-persai-runtime-redis-not-enough",
+          resolvedAuth: AUTH_NONE,
+          overrides: { getReadiness },
+          run: async (server) => {
+            const req = createRequest({ path: "/ready" });
+            const { res, getBody } = createResponse();
+            await dispatchRequest(server, req, res);
+
+            expect(res.statusCode).toBe(503);
+            expect(JSON.parse(getBody())).toEqual({
+              ready: false,
+              failing: [
+                "persai_runtime_session_store_not_cluster_proven",
+                "persai_runtime_workspace_continuity_not_cluster_proven",
+                "persai_runtime_session_ordering_process_local",
+                "persai_runtime_multi_replica_session_not_supported",
+              ],
+              uptimeMs: 6_000,
+            });
+          },
+        });
+      },
+    );
   });
 });

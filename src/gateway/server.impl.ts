@@ -122,7 +122,10 @@ import {
   refreshGatewayHealthSnapshot,
 } from "./server/health-state.js";
 import { resolveHookClientIpConfig } from "./server/hooks.js";
-import { createReadinessChecker } from "./server/readiness.js";
+import {
+  assertSupportedPersaiRuntimeStartupContract,
+  createReadinessChecker,
+} from "./server/readiness.js";
 import { loadGatewayTlsRuntime } from "./server/tls.js";
 import { resolveSessionKeyForTranscriptFile } from "./session-transcript-key.js";
 import {
@@ -365,6 +368,8 @@ export async function startGatewayServer(
 ): Promise<GatewayServer> {
   const minimalTestGateway =
     process.env.VITEST === "1" && process.env.OPENCLAW_TEST_MINIMAL_GATEWAY === "1";
+
+  assertSupportedPersaiRuntimeStartupContract();
 
   // Ensure all default port derivations (browser/canvas) see the actual runtime port.
   process.env.OPENCLAW_GATEWAY_PORT = String(port);

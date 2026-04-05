@@ -12,8 +12,6 @@ import { prepareProviderRuntimeAuth } from "../../plugins/provider-runtime.js";
 import type { PluginHookBeforeAgentStartResult } from "../../plugins/types.js";
 import { enqueueCommandInLane } from "../../process/command-queue.js";
 import { isMarkdownCapableMessageChannel } from "../../utils/message-channel.js";
-import { resolveOpenClawAgentDir } from "../agent-paths.js";
-import { hasConfiguredModelFallbacks } from "../agent-scope.js";
 import {
   isProfileInCooldown,
   type AuthProfileFailureReason,
@@ -43,7 +41,6 @@ import {
   type ResolvedProviderAuth,
 } from "../model-auth.js";
 import { normalizeProviderId } from "../model-selection.js";
-import { ensureOpenClawModelsJson } from "../models-config.js";
 import {
   formatBillingErrorMessage,
   classifyFailoverReason,
@@ -64,12 +61,17 @@ import {
 } from "../pi-embedded-helpers.js";
 import { ensureRuntimePluginsLoaded } from "../runtime-plugins.js";
 import { derivePromptTokens, normalizeUsage, type UsageLike } from "../usage.js";
-import { redactRunIdentifier, resolveRunWorkspaceDir } from "../workspace-run.js";
+import { redactRunIdentifier } from "../workspace-run.js";
 import { buildEmbeddedCompactionRuntimeContext } from "./compaction-runtime-context.js";
 import { runContextEngineMaintenance } from "./context-engine-maintenance.js";
 import { resolveGlobalLane, resolveSessionLane } from "./lanes.js";
 import { log } from "./logger.js";
 import { resolveModelAsync } from "./model.js";
+import { prepareEmbeddedRunBeforeGlobalLane } from "./run-global-lane-prep.js";
+import {
+  buildEmbeddedRunQueueWaitWarning,
+  EMBEDDED_RUN_GLOBAL_QUEUE_WAIT_WARN_AFTER_MS,
+} from "./run-queue-wait.js";
 import { runEmbeddedAttempt } from "./run/attempt.js";
 import { createFailoverDecisionLogger } from "./run/failover-observation.js";
 import type { RunEmbeddedPiAgentParams } from "./run/params.js";
@@ -269,8 +271,36 @@ export async function runEmbeddedPiAgent(
 ): Promise<EmbeddedPiRunResult> {
   const sessionLane = resolveSessionLane(params.sessionKey?.trim() || params.sessionId);
   const globalLane = resolveGlobalLane(params.lane);
+  const isProbeSession = params.sessionId?.startsWith("probe-") ?? false;
+  const redactedRunId = redactRunIdentifier(params.runId);
+  const redactedSessionIdForQueueWait = redactRunIdentifier(params.sessionId);
+  const redactedSessionKeyForQueueWait = redactRunIdentifier(params.sessionKey);
   const enqueueGlobal =
-    params.enqueue ?? ((task, opts) => enqueueCommandInLane(globalLane, task, opts));
+    params.enqueue ??
+    ((task, opts) =>
+      enqueueCommandInLane(globalLane, task, {
+        ...opts,
+        warnAfterMs: opts?.warnAfterMs ?? EMBEDDED_RUN_GLOBAL_QUEUE_WAIT_WARN_AFTER_MS,
+        onWait: (waitMs, queuedAhead) => {
+          try {
+            opts?.onWait?.(waitMs, queuedAhead);
+          } finally {
+            if (!isProbeSession) {
+              log.warn(
+                buildEmbeddedRunQueueWaitWarning({
+                  runId: redactedRunId,
+                  sessionId: redactedSessionIdForQueueWait,
+                  sessionKey: redactedSessionKeyForQueueWait,
+                  globalLane,
+                  waitedMs: waitMs,
+                  queuedAhead,
+                  config: params.config,
+                }),
+              );
+            }
+          }
+        },
+      }));
   const enqueueSession =
     params.enqueue ?? ((task, opts) => enqueueCommandInLane(sessionLane, task, opts));
   const channelHint = params.messageChannel ?? params.messageProvider;
@@ -299,18 +329,18 @@ export async function runEmbeddedPiAgent(
         ? "markdown"
         : "plain"
       : "markdown");
-  const isProbeSession = params.sessionId?.startsWith("probe-") ?? false;
-
+  const preGlobalLane = await prepareEmbeddedRunBeforeGlobalLane({
+    workspaceDir: params.workspaceDir,
+    sessionKey: params.sessionKey,
+    agentId: params.agentId,
+    config: params.config,
+    agentDir: params.agentDir,
+  });
   return enqueueSession(() =>
     enqueueGlobal(async () => {
       const started = Date.now();
-      const workspaceResolution = resolveRunWorkspaceDir({
-        workspaceDir: params.workspaceDir,
-        sessionKey: params.sessionKey,
-        agentId: params.agentId,
-        config: params.config,
-      });
-      const resolvedWorkspace = workspaceResolution.workspaceDir;
+      const { workspaceResolution, resolvedWorkspace, agentDir, fallbackConfigured } =
+        preGlobalLane;
       const redactedSessionId = redactRunIdentifier(params.sessionId);
       const redactedSessionKey = redactRunIdentifier(params.sessionKey);
       const redactedWorkspace = redactRunIdentifier(resolvedWorkspace);
@@ -328,13 +358,6 @@ export async function runEmbeddedPiAgent(
 
       let provider = (params.provider ?? DEFAULT_PROVIDER).trim() || DEFAULT_PROVIDER;
       let modelId = (params.model ?? DEFAULT_MODEL).trim() || DEFAULT_MODEL;
-      const agentDir = params.agentDir ?? resolveOpenClawAgentDir();
-      const fallbackConfigured = hasConfiguredModelFallbacks({
-        cfg: params.config,
-        agentId: params.agentId,
-        sessionKey: params.sessionKey,
-      });
-      await ensureOpenClawModelsJson(params.config, agentDir);
 
       // Run before_model_resolve hooks early so plugins can override the
       // provider/model before resolveModel().
@@ -1654,7 +1677,9 @@ export async function runEmbeddedPiAgent(
           // into result payloads when no external onBlockReply was provided.
           if (!_hasExternalBlockReply && _capturedBlockReplyMedia.length > 0) {
             for (const captured of _capturedBlockReplyMedia) {
-              if (!captured.mediaUrls.length) continue;
+              if (!captured.mediaUrls.length) {
+                continue;
+              }
               if (payloads.length > 0) {
                 const last = payloads[payloads.length - 1];
                 const merged = Array.from(
@@ -1662,7 +1687,9 @@ export async function runEmbeddedPiAgent(
                 );
                 last.mediaUrls = merged;
                 last.mediaUrl = last.mediaUrl ?? captured.mediaUrls[0];
-                if (captured.audioAsVoice) last.audioAsVoice = true;
+                if (captured.audioAsVoice) {
+                  last.audioAsVoice = true;
+                }
               } else {
                 payloads.push({
                   text: undefined,

@@ -1,12 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
-import {
-  enforceWorkspaceQuota,
-  formatBytes,
-  getWorkspaceQuotaFromContext,
-  invalidateWorkspaceCache,
-} from "./workspace-quota-guard.js";
 import { type ExecHost, loadExecApprovals, maxAsk, minSecurity } from "../infra/exec-approvals.js";
 import { resolveExecSafeBinRuntimePolicy } from "../infra/exec-safe-bin-runtime-policy.js";
 import { sanitizeHostExecEnvWithDiagnostics } from "../infra/host-env-security.js";
@@ -49,6 +43,12 @@ import {
   truncateMiddle,
 } from "./bash-tools.shared.js";
 import { assertSandboxPath } from "./sandbox-paths.js";
+import {
+  enforceWorkspaceQuota,
+  formatBytes,
+  getWorkspaceQuotaFromContext,
+  invalidateWorkspaceCache,
+} from "./workspace-quota-guard.js";
 
 export type { BashSandboxConfig } from "./bash-tools.shared.js";
 export type {
@@ -80,6 +80,16 @@ function extractScriptTargetFromCommand(
   }
 
   return null;
+}
+
+function isWorkspaceCleanupCommand(command: string): boolean {
+  const raw = command.trim();
+  if (!raw) {
+    return false;
+  }
+  // Keep this intentionally strict: quota bypass is only for direct cleanup
+  // invocations, not for arbitrary shell strings that merely mention rm/unlink.
+  return /^(?:rm|unlink|truncate)\b|^find\b.*\s-delete\b/.test(raw);
 }
 
 async function validateScriptFileForShellBleed(params: {
@@ -512,9 +522,7 @@ export function createExecTool(
           quotaBytes: wsQuota.quotaBytes,
         });
         if (!preCheck.allowed) {
-          const isCleanupCommand = /^\s*(rm\s|rm$|unlink\s|truncate\s|find\s.*-delete)/.test(
-            params.command,
-          );
+          const isCleanupCommand = isWorkspaceCleanupCommand(params.command);
           if (!isCleanupCommand) {
             return {
               content: [
