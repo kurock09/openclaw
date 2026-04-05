@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { PersaiAppliedRuntimeSpec } from "./persai-runtime-spec-store.js";
 import {
+  applyTelegramOwnerClaimToBootstrap,
   claimCodeFromText,
   evaluateTelegramOwnerGate,
   isTelegramMarkdownParseError,
@@ -215,7 +216,43 @@ describe("Telegram owner claim code flow", () => {
     ).toMatchObject({
       allowed: false,
       claimNow: false,
-      replyText: "That verification code has expired. Reconnect the bot in PersAI to get a new code.",
+      replyText:
+        "That verification code has expired. Reconnect the bot in PersAI to get a new code.",
+    });
+  });
+
+  test("patches in-memory bootstrap to claimed owner immediately after claim", () => {
+    const nextBootstrap = applyTelegramOwnerClaimToBootstrap({
+      bootstrap: {
+        channels: {
+          telegram: {
+            enabled: true,
+            accessMode: "owner_only",
+            ownerClaimStatus: "pending",
+            ownerClaimCode: "482913",
+            ownerClaimCodeExpiresAt: "2099-01-01T00:00:00.000Z",
+            ownerTelegramUserId: null,
+            ownerTelegramUsername: null,
+            ownerTelegramChatId: null,
+          },
+        },
+      },
+      telegramUserId: 42,
+      telegramUsername: "alex",
+      telegramChatId: "chat-1",
+    });
+
+    expect(nextBootstrap).toMatchObject({
+      channels: {
+        telegram: {
+          ownerClaimStatus: "claimed",
+          ownerClaimCode: null,
+          ownerClaimCodeExpiresAt: null,
+          ownerTelegramUserId: 42,
+          ownerTelegramUsername: "alex",
+          ownerTelegramChatId: "chat-1",
+        },
+      },
     });
   });
 });

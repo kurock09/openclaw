@@ -771,6 +771,40 @@ function currentConfigFromState(
   return extractTelegramChannel(state.bootstrap);
 }
 
+export function applyTelegramOwnerClaimToBootstrap(params: {
+  bootstrap: unknown;
+  telegramUserId: number | null;
+  telegramUsername: string | null;
+  telegramChatId: string;
+}): unknown {
+  if (!isRecord(params.bootstrap)) {
+    return params.bootstrap;
+  }
+  const channels = isRecord(params.bootstrap.channels) ? params.bootstrap.channels : null;
+  if (!channels) {
+    return params.bootstrap;
+  }
+  const telegram = isRecord(channels.telegram) ? channels.telegram : null;
+  if (!telegram) {
+    return params.bootstrap;
+  }
+  return {
+    ...params.bootstrap,
+    channels: {
+      ...channels,
+      telegram: {
+        ...telegram,
+        ownerClaimStatus: "claimed",
+        ownerClaimCode: null,
+        ownerClaimCodeExpiresAt: null,
+        ownerTelegramUserId: params.telegramUserId,
+        ownerTelegramUsername: params.telegramUsername,
+        ownerTelegramChatId: params.telegramChatId,
+      },
+    },
+  };
+}
+
 export async function syncTelegramBotForAssistant(params: {
   assistantId: string;
   publishedVersionId: string;
@@ -916,6 +950,15 @@ export async function syncTelegramBotForAssistant(params: {
           telegramUserId: ctx.from?.id,
           claimOwner: true,
         });
+        currentManaged.state = {
+          ...currentManaged.state,
+          bootstrap: applyTelegramOwnerClaimToBootstrap({
+            bootstrap: currentManaged.state.bootstrap,
+            telegramUserId: ctx.from?.id ?? null,
+            telegramUsername: typeof ctx.from?.username === "string" ? ctx.from.username : null,
+            telegramChatId: String(ctx.chat.id),
+          }),
+        };
         await ctx.reply(buildTelegramOwnerClaimedWelcome(locale));
         await notifyPersaiTelegramChatTarget({
           assistantId,
