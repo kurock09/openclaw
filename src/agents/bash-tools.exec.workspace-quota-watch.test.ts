@@ -109,6 +109,74 @@ describe("exec workspace quota watch", () => {
     expect(workspaceQuotaGuardMocks.invalidateWorkspaceCache).toHaveBeenCalledWith("/workspace");
   }, 10_000);
 
+  it("checks quota soon after spawn so fast oversized writes do not wait for the first 2s poll", async () => {
+    vi.useFakeTimers();
+    workspaceQuotaGuardMocks.getWorkspaceQuotaFromContext.mockReturnValue({
+      workspaceDir: "/workspace",
+      quotaBytes: 100,
+    });
+    workspaceQuotaGuardMocks.enforceWorkspaceQuota
+      .mockReturnValueOnce({
+        allowed: true,
+        usedBytes: 10,
+        quotaBytes: 100,
+      })
+      .mockReturnValueOnce({
+        allowed: false,
+        usedBytes: 150,
+        quotaBytes: 100,
+      });
+
+    let resolveRun:
+      | ((value: {
+          status: "completed" | "failed";
+          exitCode: number | null;
+          exitSignal: NodeJS.Signals | number | null;
+          durationMs: number;
+          aggregated: string;
+          timedOut: boolean;
+          reason?: string;
+        }) => void)
+      | null = null;
+
+    const kill = vi.fn(() => {
+      resolveRun?.({
+        status: "failed",
+        exitCode: null,
+        exitSignal: "SIGKILL",
+        durationMs: 100,
+        aggregated: "",
+        timedOut: false,
+        reason: "Command aborted by signal SIGKILL",
+      });
+    });
+
+    runExecProcessMock.mockImplementation(async () => ({
+      session: { id: "sess-fast", backgrounded: false, pid: 456, cwd: "/workspace", tail: "" },
+      startedAt: 0,
+      pid: 456,
+      promise: new Promise((resolve) => {
+        resolveRun = resolve;
+      }),
+      kill,
+    }));
+
+    const tool = createTestExecTool();
+    const execution = tool.execute("call-fast", {
+      command: "dd if=/dev/zero of=oversized.bin bs=1M count=800",
+      workdir: "/workspace",
+    });
+    const rejection = expect(execution).rejects.toThrow(
+      "Workspace storage quota exceeded during command: 150 B / 100 B. Process was terminated to stop further workspace growth.",
+    );
+
+    await vi.advanceTimersByTimeAsync(100);
+
+    await rejection;
+    expect(kill).toHaveBeenCalledTimes(1);
+    expect(workspaceQuotaGuardMocks.invalidateWorkspaceCache).toHaveBeenCalledWith("/workspace");
+  });
+
   it("does not start the quota watch for direct cleanup commands", async () => {
     vi.useFakeTimers();
     workspaceQuotaGuardMocks.getWorkspaceQuotaFromContext.mockReturnValue({
