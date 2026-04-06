@@ -758,10 +758,29 @@ export function createExecTool(
                 quotaBytes: wsQuota.quotaBytes,
               });
               if (postCheck.measurementFailed) {
+                if (!isCleanupCommand) {
+                  reject(
+                    new Error(
+                      "Workspace storage quota could not be verified after this command. " +
+                        "Treating command as failed to avoid leaving workspace growth unchecked.",
+                    ),
+                  );
+                  return;
+                }
                 outputText +=
                   "\n\n⚠️ Workspace storage quota could not be verified after this command. " +
                   "Use a direct cleanup command if the workspace may be near its limit.";
               } else if (!postCheck.allowed) {
+                if (!isCleanupCommand) {
+                  reject(
+                    new Error(
+                      `Workspace storage quota exceeded after command: ` +
+                        `${formatBytes(postCheck.usedBytes)} / ${formatBytes(postCheck.quotaBytes)}. ` +
+                        `Command is treated as failed because it left the workspace over quota.`,
+                    ),
+                  );
+                  return;
+                }
                 outputText +=
                   `\n\n⚠️ Workspace storage quota exceeded after this command: ` +
                   `${formatBytes(postCheck.usedBytes)} / ${formatBytes(postCheck.quotaBytes)}. ` +

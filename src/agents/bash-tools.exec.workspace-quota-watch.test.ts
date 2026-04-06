@@ -216,4 +216,49 @@ describe("exec workspace quota watch", () => {
     expect(text).toContain("Allowing cleanup command.");
     expect(workspaceQuotaGuardMocks.enforceWorkspaceQuota).toHaveBeenCalledTimes(2);
   });
+
+  it("fails a non-cleanup command when the post-command quota check finds the workspace over limit", async () => {
+    workspaceQuotaGuardMocks.getWorkspaceQuotaFromContext.mockReturnValue({
+      workspaceDir: "/workspace",
+      quotaBytes: 100,
+    });
+    workspaceQuotaGuardMocks.enforceWorkspaceQuota
+      .mockReturnValueOnce({
+        allowed: true,
+        usedBytes: 10,
+        quotaBytes: 100,
+      })
+      .mockReturnValueOnce({
+        allowed: false,
+        usedBytes: 150,
+        quotaBytes: 100,
+      });
+
+    runExecProcessMock.mockResolvedValue({
+      session: { id: "sess-post", backgrounded: false, pid: 789, cwd: "/workspace", tail: "" },
+      startedAt: 0,
+      pid: 789,
+      promise: Promise.resolve({
+        status: "completed",
+        exitCode: 0,
+        exitSignal: null,
+        durationMs: 20,
+        aggregated: "done",
+        timedOut: false,
+      }),
+      kill: vi.fn(),
+    });
+
+    const tool = createTestExecTool();
+
+    await expect(
+      tool.execute("call-post", {
+        command: "dd if=/dev/zero of=oversized.bin bs=1M count=1000",
+        workdir: "/workspace",
+      }),
+    ).rejects.toThrow(
+      "Workspace storage quota exceeded after command: 150 B / 100 B. Command is treated as failed because it left the workspace over quota.",
+    );
+    expect(workspaceQuotaGuardMocks.invalidateWorkspaceCache).toHaveBeenCalledWith("/workspace");
+  });
 });
