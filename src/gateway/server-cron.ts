@@ -106,7 +106,7 @@ async function postCronWebhook(params: {
   }, CRON_WEBHOOK_TIMEOUT_MS);
 
   try {
-    const result = await fetchWithSsrFGuard({
+    const { response, release } = await fetchWithSsrFGuard({
       url: params.webhookUrl,
       init: {
         method: "POST",
@@ -115,7 +115,17 @@ async function postCronWebhook(params: {
         signal: abortController.signal,
       },
     });
-    await result.release();
+    if (!response.ok) {
+      params.logger.warn(
+        {
+          ...params.logContext,
+          status: response.status,
+          webhookUrl: redactWebhookUrl(params.webhookUrl),
+        },
+        params.failedLog,
+      );
+    }
+    await release();
   } catch (err) {
     if (err instanceof SsrFBlockedError) {
       params.logger.warn(

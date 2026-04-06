@@ -1406,6 +1406,7 @@ type PersaiTurnMedia = {
 type PersaiTelegramTurnResult = {
   text: string;
   media: PersaiTurnMedia[];
+  deduplicated?: boolean;
 };
 
 function parseTurnMedia(raw: unknown): PersaiTurnMedia[] {
@@ -1441,7 +1442,7 @@ function rethrowRetryableTelegramTurnError(
   }
 }
 
-async function requestPersaiTelegramTurn(params: {
+export async function requestPersaiTelegramTurn(params: {
   assistantId: string;
   userMessage: string;
   chatId: string;
@@ -1489,9 +1490,12 @@ async function requestPersaiTelegramTurn(params: {
     }
     const payload = (await response.json()) as Record<string, unknown>;
     if (payload && payload.ok === true && typeof payload.assistantMessage === "string") {
+      const deduplicated = payload.deduplicated === true;
+      const trimmedAssistantMessage = payload.assistantMessage.trim();
       return {
-        text: payload.assistantMessage.trim() || "...",
+        text: deduplicated ? "" : trimmedAssistantMessage || "...",
         media: parseTurnMedia(payload.media),
+        ...(deduplicated ? { deduplicated: true } : {}),
       };
     }
     if (payload && payload.ok === false && typeof payload.renderedMessage === "string") {
@@ -1565,7 +1569,7 @@ function persaiTelegramTurnHasVoiceNote(media: PersaiTurnMedia[]): boolean {
 }
 
 /** Voice-note replies: Telegram UX is voice-only (no duplicate text). Other media still sent in full. */
-async function sendTelegramAssistantTurnReply(
+export async function sendTelegramAssistantTurnReply(
   ctx: Parameters<typeof sendTelegramReplyWithConfiguredParseMode>[0],
   bot: Bot,
   chatId: string | number,
@@ -1573,6 +1577,9 @@ async function sendTelegramAssistantTurnReply(
   turnResult: PersaiTelegramTurnResult,
   parseMode: string,
 ): Promise<void> {
+  if (turnResult.deduplicated === true) {
+    return;
+  }
   if (!persaiTelegramTurnHasVoiceNote(turnResult.media)) {
     await sendTelegramReplyWithConfiguredParseMode(ctx, turnResult.text, parseMode);
   }

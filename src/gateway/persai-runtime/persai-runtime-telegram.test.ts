@@ -1,10 +1,13 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
+import * as configModule from "../../config/config.js";
 import type { PersaiAppliedRuntimeSpec } from "./persai-runtime-spec-store.js";
 import {
   applyTelegramOwnerClaimToBootstrap,
   claimCodeFromText,
   evaluateTelegramOwnerGate,
   isRetryablePersaiTelegramTurnFailure,
+  requestPersaiTelegramTurn,
+  sendTelegramAssistantTurnReply,
   isTelegramMarkdownParseError,
   sendTelegramReplyWithConfiguredParseMode,
   selectLatestRuntimeSpecs,
@@ -373,6 +376,87 @@ describe("sendTelegramReplyWithConfiguredParseMode", () => {
 
     await sendTelegramReplyWithConfiguredParseMode(ctx, "", "plain_text");
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe("deduplicated Telegram turn handling", () => {
+  test("keeps deduplicated PersAI turns silent instead of returning ellipsis", async () => {
+    const originalFetch = globalThis.fetch;
+    const loadConfigSpy = vi.spyOn(configModule, "loadConfig");
+    process.env.PERSAI_INTERNAL_API_TOKEN = "token";
+    loadConfigSpy.mockReturnValue({
+      secrets: {
+        providers: {
+          "persai-runtime": {
+            source: "persai",
+            baseUrl: "http://persai.internal",
+          },
+        },
+      },
+    } as never);
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            ok: true,
+            assistantMessage: "",
+            deduplicated: true,
+            media: [],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+    ) as typeof fetch;
+
+    await expect(
+      requestPersaiTelegramTurn({
+        assistantId: "assistant-1",
+        userMessage: "hi",
+        chatId: "chat-1",
+        updateId: 77,
+      }),
+    ).resolves.toEqual({
+      text: "",
+      media: [],
+      deduplicated: true,
+    });
+
+    globalThis.fetch = originalFetch;
+    loadConfigSpy.mockRestore();
+  });
+
+  test("does not send Telegram replies for deduplicated turns", async () => {
+    const ctx = {
+      reply: vi.fn(async () => undefined),
+    };
+    const bot = {
+      api: {
+        sendPhoto: vi.fn(),
+        sendVoice: vi.fn(),
+        sendAudio: vi.fn(),
+        sendVideo: vi.fn(),
+        sendDocument: vi.fn(),
+      },
+    };
+
+    await sendTelegramAssistantTurnReply(
+      ctx as never,
+      bot as never,
+      "chat-1",
+      "assistant-1",
+      {
+        text: "",
+        media: [],
+        deduplicated: true,
+      },
+      "plain_text",
+    );
+
+    expect(ctx.reply).not.toHaveBeenCalled();
+    expect(bot.api.sendPhoto).not.toHaveBeenCalled();
+    expect(bot.api.sendVoice).not.toHaveBeenCalled();
+    expect(bot.api.sendAudio).not.toHaveBeenCalled();
+    expect(bot.api.sendVideo).not.toHaveBeenCalled();
+    expect(bot.api.sendDocument).not.toHaveBeenCalled();
   });
 });
 

@@ -11,12 +11,14 @@ const {
   loadConfigMock,
   fetchWithSsrFGuardMock,
   runCronIsolatedAgentTurnMock,
+  loggerWarnMock,
 } = vi.hoisted(() => ({
   enqueueSystemEventMock: vi.fn(),
   requestHeartbeatNowMock: vi.fn(),
   loadConfigMock: vi.fn(),
   fetchWithSsrFGuardMock: vi.fn(),
   runCronIsolatedAgentTurnMock: vi.fn(async () => ({ status: "ok" as const, summary: "ok" })),
+  loggerWarnMock: vi.fn(),
 }));
 
 function enqueueSystemEvent(...args: unknown[]) {
@@ -51,6 +53,19 @@ vi.mock("../cron/isolated-agent.js", () => ({
   runCronIsolatedAgentTurn: runCronIsolatedAgentTurnMock,
 }));
 
+vi.mock("../logging.js", async () => {
+  const actual = await vi.importActual<typeof import("../logging.js")>("../logging.js");
+  return {
+    ...actual,
+    getChildLogger: () => ({
+      warn: loggerWarnMock,
+      info: vi.fn(),
+      debug: vi.fn(),
+      error: vi.fn(),
+    }),
+  };
+});
+
 import { buildGatewayCronService } from "./server-cron.js";
 
 function createCronConfig(name: string): OpenClawConfig {
@@ -72,6 +87,7 @@ describe("buildGatewayCronService", () => {
     loadConfigMock.mockClear();
     fetchWithSsrFGuardMock.mockClear();
     runCronIsolatedAgentTurnMock.mockClear();
+    loggerWarnMock.mockClear();
   });
 
   it("routes main-target jobs to the scoped session for enqueue + wake", async () => {
@@ -192,6 +208,44 @@ describe("buildGatewayCronService", () => {
           sessionKey: "project-alpha-monitor",
         }),
       );
+    } finally {
+      state.cron.stop();
+    }
+  });
+
+  it("still logs webhook failures when the guarded fetch returns non-2xx", async () => {
+    const cfg = createCronConfig("server-cron-non-2xx");
+    loadConfigMock.mockReturnValue(cfg);
+    fetchWithSsrFGuardMock.mockResolvedValue({
+      response: { ok: false, status: 502 },
+      finalUrl: "https://example.com/cron-finished",
+      release: async () => undefined,
+    });
+
+    const state = buildGatewayCronService({
+      cfg,
+      deps: {} as CliDeps,
+      broadcast: () => {},
+    });
+    try {
+      const job = await state.cron.add({
+        name: "webhook-non-2xx",
+        enabled: true,
+        schedule: { kind: "at", at: new Date(1).toISOString() },
+        sessionTarget: "main",
+        wakeMode: "next-heartbeat",
+        payload: { kind: "systemEvent", text: "hello" },
+        delivery: {
+          mode: "webhook",
+          to: "https://example.com/cron-finished",
+        },
+      });
+
+      await state.cron.run(job.id, "force");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(fetchWithSsrFGuardMock).toHaveBeenCalledOnce();
+      expect(loggerWarnMock).toHaveBeenCalled();
     } finally {
       state.cron.stop();
     }
