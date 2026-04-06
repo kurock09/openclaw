@@ -4,6 +4,7 @@ import {
   applyTelegramOwnerClaimToBootstrap,
   claimCodeFromText,
   evaluateTelegramOwnerGate,
+  isRetryablePersaiTelegramTurnFailure,
   isTelegramMarkdownParseError,
   sendTelegramReplyWithConfiguredParseMode,
   selectLatestRuntimeSpecs,
@@ -113,6 +114,25 @@ describe("syncBotProfile", () => {
       name: "TelegramProfileSyncError",
       retryAfterMs: 40104000,
     });
+  });
+});
+
+describe("isRetryablePersaiTelegramTurnFailure", () => {
+  test("treats transient runtime codes as retryable", () => {
+    expect(isRetryablePersaiTelegramTurnFailure({ code: "runtime_timeout" })).toBe(true);
+    expect(isRetryablePersaiTelegramTurnFailure({ code: "runtime_degraded" })).toBe(true);
+    expect(isRetryablePersaiTelegramTurnFailure({ code: "runtime_unreachable" })).toBe(true);
+  });
+
+  test("treats transient HTTP statuses as retryable", () => {
+    expect(isRetryablePersaiTelegramTurnFailure({ status: 429 })).toBe(true);
+    expect(isRetryablePersaiTelegramTurnFailure({ status: 503 })).toBe(true);
+  });
+
+  test("keeps permanent failures non-retryable", () => {
+    expect(isRetryablePersaiTelegramTurnFailure({ code: "assistant_not_live" })).toBe(false);
+    expect(isRetryablePersaiTelegramTurnFailure({ code: "quota_limit_reached" })).toBe(false);
+    expect(isRetryablePersaiTelegramTurnFailure({ status: 400 })).toBe(false);
   });
 });
 

@@ -25,6 +25,12 @@ import {
 export { splitTelegramOutboundText, TELEGRAM_BOT_API_MAX_MESSAGE_LENGTH };
 
 const TELEGRAM_OUTBOUND_MEDIA_MAX_BYTES = 25 * 1024 * 1024;
+const RETRYABLE_PERSAI_TURN_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
+const RETRYABLE_PERSAI_TURN_CODES = new Set([
+  "runtime_timeout",
+  "runtime_degraded",
+  "runtime_unreachable",
+]);
 
 type WebhookHandler = (req: IncomingMessage, res: ServerResponse) => Promise<void>;
 
@@ -53,6 +59,17 @@ interface ManagedTelegramBot {
 }
 
 const activeBots = new Map<string, ManagedTelegramBot>();
+
+export class RetryablePersaiTelegramTurnError extends Error {
+  constructor(
+    message: string,
+    readonly code: string | null = null,
+    readonly status: number | null = null,
+  ) {
+    super(message);
+    this.name = "RetryablePersaiTelegramTurnError";
+  }
+}
 
 /** Default handler budget; Telegram webhook must answer in ~60s. Override via PERSAI_TELEGRAM_WEBHOOK_HANDLER_TIMEOUT_MS. */
 const DEFAULT_TELEGRAM_WEBHOOK_HANDLER_TIMEOUT_MS = 55_000;
@@ -83,6 +100,16 @@ export class TelegramProfileSyncError extends Error {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function isRetryablePersaiTelegramTurnFailure(params: {
+  code?: string | null;
+  status?: number | null;
+}): boolean {
+  return (
+    (typeof params.code === "string" && RETRYABLE_PERSAI_TURN_CODES.has(params.code)) ||
+    (typeof params.status === "number" && RETRYABLE_PERSAI_TURN_HTTP_STATUSES.has(params.status))
+  );
 }
 
 function extractTelegramChannel(bootstrap: unknown): {
@@ -1010,6 +1037,7 @@ export async function syncTelegramBotForAssistant(params: {
         currentConfig.parseMode,
       );
     } catch (err) {
+      rethrowRetryableTelegramTurnError(err, assistantId, "Text turn");
       console.error(`[persai-telegram] Agent turn failed for ${assistantId}:`, err);
       await ctx.reply("Sorry, I encountered an error. Please try again.").catch(() => {});
     }
@@ -1082,6 +1110,7 @@ export async function syncTelegramBotForAssistant(params: {
         currentConfig.parseMode,
       );
     } catch (err) {
+      rethrowRetryableTelegramTurnError(err, assistantId, "Voice turn");
       console.error(`[persai-telegram] Voice turn failed for ${assistantId}:`, err);
       await ctx
         .reply("Sorry, I couldn't process your voice message. Please try again.")
@@ -1148,6 +1177,7 @@ export async function syncTelegramBotForAssistant(params: {
         currentConfig.parseMode,
       );
     } catch (err) {
+      rethrowRetryableTelegramTurnError(err, assistantId, "Photo turn");
       console.error(`[persai-telegram] Photo turn failed for ${assistantId}:`, err);
       await ctx.reply("Sorry, I couldn't process your photo. Please try again.").catch(() => {});
     }
@@ -1218,6 +1248,7 @@ export async function syncTelegramBotForAssistant(params: {
         currentConfig.parseMode,
       );
     } catch (err) {
+      rethrowRetryableTelegramTurnError(err, assistantId, "Document turn");
       console.error(`[persai-telegram] Document turn failed for ${assistantId}:`, err);
       await ctx.reply("Sorry, I couldn't process your file. Please try again.").catch(() => {});
     }
@@ -1395,6 +1426,21 @@ function parseTurnMedia(raw: unknown): PersaiTurnMedia[] {
   return result;
 }
 
+function rethrowRetryableTelegramTurnError(
+  err: unknown,
+  assistantId: string,
+  operation: string,
+): void {
+  if (err instanceof RetryablePersaiTelegramTurnError) {
+    console.warn(
+      `[persai-telegram] ${operation} transient failure for ${assistantId}: code=${
+        err.code ?? "unknown"
+      } status=${err.status ?? "n/a"} message=${err.message}`,
+    );
+    throw err;
+  }
+}
+
 async function requestPersaiTelegramTurn(params: {
   assistantId: string;
   userMessage: string;
@@ -1432,6 +1478,13 @@ async function requestPersaiTelegramTurn(params: {
       }),
     });
     if (!response.ok) {
+      if (isRetryablePersaiTelegramTurnFailure({ status: response.status })) {
+        throw new RetryablePersaiTelegramTurnError(
+          `PersAI internal Telegram turn returned HTTP ${response.status}.`,
+          null,
+          response.status,
+        );
+      }
       return fallback;
     }
     const payload = (await response.json()) as Record<string, unknown>;
@@ -1442,6 +1495,16 @@ async function requestPersaiTelegramTurn(params: {
       };
     }
     if (payload && payload.ok === false && typeof payload.renderedMessage === "string") {
+      const code = typeof payload.code === "string" ? payload.code : null;
+      const message = typeof payload.message === "string" ? payload.message : "PersAI turn failed.";
+      console.warn(
+        `[persai-telegram] PersAI internal Telegram turn returned ok=false for ${
+          params.assistantId
+        }: code=${code ?? "unknown"} message=${message}`,
+      );
+      if (isRetryablePersaiTelegramTurnFailure({ code })) {
+        throw new RetryablePersaiTelegramTurnError(message, code, response.status);
+      }
       return {
         text:
           payload.renderedMessage.trim() ||
@@ -1450,6 +1513,9 @@ async function requestPersaiTelegramTurn(params: {
       };
     }
   } catch (err) {
+    if (err instanceof RetryablePersaiTelegramTurnError) {
+      throw err;
+    }
     console.error(`[persai-telegram] PersAI turn gateway failed for ${params.assistantId}:`, err);
   }
 
