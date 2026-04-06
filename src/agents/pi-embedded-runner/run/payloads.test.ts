@@ -26,6 +26,23 @@ describe("buildEmbeddedRunPayloads tool-error warnings", () => {
     });
   });
 
+  it("keeps workspace quota exec failures visible even when verbose mode is off", () => {
+    const payloads = buildPayloads({
+      lastToolError: {
+        toolName: "exec",
+        error:
+          "Workspace storage quota exceeded after command: 737.0 MB / 700.0 MB. Command is treated as failed because it left the workspace over quota.",
+      },
+      verboseLevel: "off",
+    });
+
+    expectSingleToolErrorPayload(payloads, {
+      title: "Exec",
+      detail:
+        "Workspace storage quota exceeded after command: 737.0 MB / 700.0 MB. Command is treated as failed because it left the workspace over quota.",
+    });
+  });
+
   it("keeps non-exec mutating tool failures visible", () => {
     const payloads = buildPayloads({
       lastToolError: { toolName: "write", error: "permission denied" },

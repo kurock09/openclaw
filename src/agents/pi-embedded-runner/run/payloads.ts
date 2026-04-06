@@ -53,6 +53,11 @@ function isVerboseToolDetailEnabled(level?: VerboseLevel): boolean {
   return level === "on" || level === "full";
 }
 
+function isWorkspaceQuotaExecError(error: string | undefined): boolean {
+  const text = (error ?? "").toLowerCase();
+  return text.includes("workspace storage quota");
+}
+
 function resolveToolErrorWarningPolicy(params: {
   lastToolError: LastToolError;
   hasUserFacingReply: boolean;
@@ -65,8 +70,13 @@ function resolveToolErrorWarningPolicy(params: {
     return { showWarning: false, includeDetails };
   }
   const normalizedToolName = params.lastToolError.toolName.trim().toLowerCase();
-  if ((normalizedToolName === "exec" || normalizedToolName === "bash") && !includeDetails) {
-    return { showWarning: false, includeDetails };
+  if (normalizedToolName === "exec" || normalizedToolName === "bash") {
+    if (isWorkspaceQuotaExecError(params.lastToolError.error)) {
+      return { showWarning: true, includeDetails: true };
+    }
+    if (!includeDetails) {
+      return { showWarning: false, includeDetails };
+    }
   }
   // sessions_send timeouts and errors are transient inter-session communication
   // issues — the message may still have been delivered. Suppress warnings to
