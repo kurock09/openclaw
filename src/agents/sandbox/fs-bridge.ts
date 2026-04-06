@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import {
+  adjustWorkspaceUsageCache,
   enforceWorkspaceQuota,
   formatBytes,
   getWorkspaceQuotaFromContext,
@@ -125,6 +126,11 @@ class SandboxFsBridgeImpl implements SandboxFsBridge {
     const buffer = Buffer.isBuffer(params.data)
       ? params.data
       : Buffer.from(params.data, params.encoding ?? "utf8");
+    const existing = await this.stat({
+      filePath: params.filePath,
+      cwd: params.cwd,
+      signal: params.signal,
+    });
     const wsQuota = getWorkspaceQuotaFromContext();
     if (wsQuota) {
       const check = enforceWorkspaceQuota({
@@ -159,7 +165,8 @@ class SandboxFsBridgeImpl implements SandboxFsBridge {
       signal: params.signal,
     });
     if (wsQuota) {
-      invalidateWorkspaceCache(wsQuota.workspaceDir);
+      const previousBytes = existing?.type === "file" ? existing.size : 0;
+      adjustWorkspaceUsageCache(wsQuota.workspaceDir, buffer.byteLength - previousBytes);
     }
   }
 
@@ -192,6 +199,13 @@ class SandboxFsBridgeImpl implements SandboxFsBridge {
   }): Promise<void> {
     const target = this.resolveResolvedPath(params);
     this.ensureWriteAccess(target, "remove files");
+    const existing = params.recursive
+      ? null
+      : await this.stat({
+          filePath: params.filePath,
+          cwd: params.cwd,
+          signal: params.signal,
+        });
     const removeCheck = {
       target,
       options: {
@@ -210,7 +224,11 @@ class SandboxFsBridgeImpl implements SandboxFsBridge {
     });
     const wsQuota = getWorkspaceQuotaFromContext();
     if (wsQuota) {
-      invalidateWorkspaceCache(wsQuota.workspaceDir);
+      if (existing?.type === "file") {
+        adjustWorkspaceUsageCache(wsQuota.workspaceDir, -existing.size);
+      } else {
+        invalidateWorkspaceCache(wsQuota.workspaceDir);
+      }
     }
   }
 
@@ -222,6 +240,16 @@ class SandboxFsBridgeImpl implements SandboxFsBridge {
   }): Promise<void> {
     const from = this.resolveResolvedPath({ filePath: params.from, cwd: params.cwd });
     const to = this.resolveResolvedPath({ filePath: params.to, cwd: params.cwd });
+    const sourceBefore = await this.stat({
+      filePath: params.from,
+      cwd: params.cwd,
+      signal: params.signal,
+    });
+    const targetBefore = await this.stat({
+      filePath: params.to,
+      cwd: params.cwd,
+      signal: params.signal,
+    });
     this.ensureWriteAccess(from, "rename files");
     this.ensureWriteAccess(to, "rename files");
     const fromCheck = {
@@ -249,7 +277,12 @@ class SandboxFsBridgeImpl implements SandboxFsBridge {
     });
     const wsQuota = getWorkspaceQuotaFromContext();
     if (wsQuota) {
-      invalidateWorkspaceCache(wsQuota.workspaceDir);
+      if (sourceBefore?.type === "file") {
+        const overwrittenBytes = targetBefore?.type === "file" ? targetBefore.size : 0;
+        adjustWorkspaceUsageCache(wsQuota.workspaceDir, -overwrittenBytes);
+      } else {
+        invalidateWorkspaceCache(wsQuota.workspaceDir);
+      }
     }
   }
 

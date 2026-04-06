@@ -76,6 +76,17 @@ export function invalidateWorkspaceCache(workspaceDir: string): void {
   usageCache.delete(workspaceDir);
 }
 
+export function adjustWorkspaceUsageCache(workspaceDir: string, deltaBytes: number): void {
+  const cached = usageCache.get(workspaceDir);
+  if (!cached || !Number.isFinite(deltaBytes) || deltaBytes === 0) {
+    return;
+  }
+  usageCache.set(workspaceDir, {
+    bytes: Math.max(0, cached.bytes + deltaBytes),
+    ts: Date.now(),
+  });
+}
+
 export function formatBytes(b: number): string {
   if (b < 1024) {
     return `${b} B`;
