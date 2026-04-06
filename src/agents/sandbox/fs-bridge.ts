@@ -132,6 +132,11 @@ class SandboxFsBridgeImpl implements SandboxFsBridge {
         additionalBytes: buffer.byteLength,
         quotaBytes: wsQuota.quotaBytes,
       });
+      if (check.measurementFailed) {
+        throw new Error(
+          "Workspace storage quota could not be verified right now. Try again or free space with a direct cleanup command.",
+        );
+      }
       if (!check.allowed) {
         throw new Error(
           `Workspace storage quota exceeded: ${formatBytes(check.usedBytes)} used + ` +
@@ -153,7 +158,9 @@ class SandboxFsBridgeImpl implements SandboxFsBridge {
       stdin: buffer,
       signal: params.signal,
     });
-    if (wsQuota) invalidateWorkspaceCache(wsQuota.workspaceDir);
+    if (wsQuota) {
+      invalidateWorkspaceCache(wsQuota.workspaceDir);
+    }
   }
 
   async mkdirp(params: { filePath: string; cwd?: string; signal?: AbortSignal }): Promise<void> {
@@ -201,6 +208,10 @@ class SandboxFsBridgeImpl implements SandboxFsBridge {
       }),
       signal: params.signal,
     });
+    const wsQuota = getWorkspaceQuotaFromContext();
+    if (wsQuota) {
+      invalidateWorkspaceCache(wsQuota.workspaceDir);
+    }
   }
 
   async rename(params: {
@@ -236,6 +247,10 @@ class SandboxFsBridgeImpl implements SandboxFsBridge {
       }),
       signal: params.signal,
     });
+    const wsQuota = getWorkspaceQuotaFromContext();
+    if (wsQuota) {
+      invalidateWorkspaceCache(wsQuota.workspaceDir);
+    }
   }
 
   async stat(params: {

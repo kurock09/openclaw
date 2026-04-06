@@ -36,6 +36,34 @@ afterEach(() => {
 });
 
 describe("exec workspace quota cleanup bypass", () => {
+  it("blocks non-cleanup commands when workspace quota cannot be verified", async () => {
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-exec-cleanup-"));
+    try {
+      workspaceQuotaGuardMocks.getWorkspaceQuotaFromContext.mockReturnValue({
+        workspaceDir,
+        quotaBytes: 1,
+      });
+      workspaceQuotaGuardMocks.enforceWorkspaceQuota.mockReturnValue({
+        allowed: false,
+        usedBytes: 0,
+        quotaBytes: 1,
+        measurementFailed: true,
+      });
+
+      const tool = createTestExecTool();
+      const result = await tool.execute("call-0", {
+        command: "python main.py",
+        workdir: workspaceDir,
+      });
+      const text = result.content.find((part) => part.type === "text")?.text ?? "";
+
+      expect(text).toContain("Workspace storage quota could not be verified right now.");
+      expect((result.details as { exitCode?: number }).exitCode).toBe(1);
+    } finally {
+      await fs.rm(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
   it("still allows direct cleanup commands when workspace quota is exceeded", async () => {
     const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-exec-cleanup-"));
     try {

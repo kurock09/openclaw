@@ -92,6 +92,8 @@ function isWorkspaceCleanupCommand(command: string): boolean {
   return /^(?:rm|unlink|truncate)\b|^find\b.*\s-delete\b/.test(raw);
 }
 
+const WORKSPACE_QUOTA_WATCH_INTERVAL_MS = 2_000;
+
 async function validateScriptFileForShellBleed(params: {
   command: string;
   workdir: string;
@@ -516,13 +518,35 @@ export function createExecTool(
       const usePty = params.pty === true && !sandbox;
 
       const wsQuota = getWorkspaceQuotaFromContext();
+      const isCleanupCommand = wsQuota ? isWorkspaceCleanupCommand(params.command) : false;
       if (wsQuota) {
         const preCheck = enforceWorkspaceQuota({
           workspaceDir: wsQuota.workspaceDir,
           quotaBytes: wsQuota.quotaBytes,
         });
-        if (!preCheck.allowed) {
-          const isCleanupCommand = isWorkspaceCleanupCommand(params.command);
+        if (preCheck.measurementFailed) {
+          if (!isCleanupCommand) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text:
+                    "Workspace storage quota could not be verified right now. " +
+                    "Try again or free space with a direct cleanup command.",
+                },
+              ],
+              details: {
+                status: "completed" as const,
+                exitCode: 1,
+                durationMs: 0,
+                aggregated: "",
+              },
+            };
+          }
+          warnings.push(
+            "⚠️ Workspace quota could not be verified. Allowing cleanup command anyway.",
+          );
+        } else if (!preCheck.allowed) {
           if (!isCleanupCommand) {
             return {
               content: [
@@ -568,6 +592,56 @@ export function createExecTool(
         timeoutSec: effectiveTimeout,
         onUpdate,
       });
+
+      let quotaExceededDuringRun: { usedBytes: number; quotaBytes: number } | null = null;
+      let quotaMeasurementFailedDuringRun = false;
+      let quotaWatchTimer: NodeJS.Timeout | null = null;
+      let quotaWatchStopped = false;
+      const stopQuotaWatch = () => {
+        quotaWatchStopped = true;
+        if (quotaWatchTimer) {
+          clearTimeout(quotaWatchTimer);
+          quotaWatchTimer = null;
+        }
+      };
+      const scheduleQuotaWatch = () => {
+        if (!wsQuota || isCleanupCommand || quotaWatchStopped || quotaExceededDuringRun) {
+          return;
+        }
+        quotaWatchTimer = setTimeout(() => {
+          quotaWatchTimer = null;
+          if (!wsQuota || quotaWatchStopped || quotaExceededDuringRun) {
+            return;
+          }
+          invalidateWorkspaceCache(wsQuota.workspaceDir);
+          const check = enforceWorkspaceQuota({
+            workspaceDir: wsQuota.workspaceDir,
+            quotaBytes: wsQuota.quotaBytes,
+          });
+          if (check.measurementFailed) {
+            quotaMeasurementFailedDuringRun = true;
+            warnings.push(
+              "⚠️ Workspace quota could not be verified during command. Terminating process to stop unchecked workspace growth.",
+            );
+            run.kill();
+            return;
+          }
+          if (!check.allowed) {
+            quotaExceededDuringRun = {
+              usedBytes: check.usedBytes,
+              quotaBytes: check.quotaBytes,
+            };
+            warnings.push(
+              `⚠️ Workspace quota exceeded during command (${formatBytes(check.usedBytes)} / ` +
+                `${formatBytes(check.quotaBytes)}). Terminating process to stop further workspace growth.`,
+            );
+            run.kill();
+            return;
+          }
+          scheduleQuotaWatch();
+        }, WORKSPACE_QUOTA_WATCH_INTERVAL_MS);
+      };
+      scheduleQuotaWatch();
 
       let yielded = false;
       let yieldTimer: NodeJS.Timeout | null = null;
@@ -636,10 +710,31 @@ export function createExecTool(
 
         run.promise
           .then((outcome) => {
+            stopQuotaWatch();
             if (yieldTimer) {
               clearTimeout(yieldTimer);
             }
             if (yielded || run.session.backgrounded) {
+              return;
+            }
+            if (quotaMeasurementFailedDuringRun) {
+              reject(
+                new Error(
+                  "Workspace storage quota could not be verified during command. " +
+                    "Process was terminated to stop unchecked workspace growth.",
+                ),
+              );
+              return;
+            }
+            if (quotaExceededDuringRun) {
+              reject(
+                new Error(
+                  `Workspace storage quota exceeded during command: ` +
+                    `${formatBytes(quotaExceededDuringRun.usedBytes)} / ` +
+                    `${formatBytes(quotaExceededDuringRun.quotaBytes)}. ` +
+                    `Process was terminated to stop further workspace growth.`,
+                ),
+              );
               return;
             }
             if (outcome.status === "failed") {
@@ -653,7 +748,11 @@ export function createExecTool(
                 workspaceDir: wsQuota.workspaceDir,
                 quotaBytes: wsQuota.quotaBytes,
               });
-              if (!postCheck.allowed) {
+              if (postCheck.measurementFailed) {
+                outputText +=
+                  "\n\n⚠️ Workspace storage quota could not be verified after this command. " +
+                  "Use a direct cleanup command if the workspace may be near its limit.";
+              } else if (!postCheck.allowed) {
                 outputText +=
                   `\n\n⚠️ Workspace storage quota exceeded after this command: ` +
                   `${formatBytes(postCheck.usedBytes)} / ${formatBytes(postCheck.quotaBytes)}. ` +
@@ -677,6 +776,7 @@ export function createExecTool(
             });
           })
           .catch((err) => {
+            stopQuotaWatch();
             if (yieldTimer) {
               clearTimeout(yieldTimer);
             }
