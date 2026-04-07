@@ -70,6 +70,7 @@ import {
   handleRuntimeWorkspaceResetHttpRequest,
   handleRuntimeWorkspaceMemoryResetHttpRequest,
   handleRuntimeWorkspaceAvatarHttpRequest,
+  handleRuntimeWorkspaceStorageUsageHttpRequest,
 } from "./persai-runtime/persai-runtime-http.js";
 import {
   handleRuntimeWorkspaceMediaUploadHttpRequest,
@@ -1083,6 +1084,18 @@ export function createGatewayHttpServer(opts: {
         name: "persai-runtime-workspace-avatar",
         run: () =>
           handleRuntimeWorkspaceAvatarHttpRequest({
+            req,
+            res,
+            requestPath,
+            resolvedAuth,
+            trustedProxies,
+            allowRealIpFallback,
+          }),
+      });
+      requestStages.push({
+        name: "persai-runtime-workspace-storage-usage",
+        run: () =>
+          handleRuntimeWorkspaceStorageUsageHttpRequest({
             req,
             res,
             requestPath,

@@ -46,6 +46,7 @@ import {
   resetPersaiAssistantMemoryWorkspace,
   resolvePersaiAssistantWorkspaceDir,
 } from "./persai-runtime-workspace.js";
+import { getWorkspaceUsageBytes } from "../../agents/workspace-quota-guard.js";
 
 export const RUNTIME_SPEC_APPLY_PATH = "/api/v1/runtime/spec/apply";
 export const RUNTIME_WORKSPACE_CLEANUP_PATH = "/api/v1/runtime/workspace/cleanup";
@@ -60,6 +61,8 @@ export const RUNTIME_CHAT_WEB_SESSION_DELETE_PATH = "/api/v1/runtime/chat/web/se
 export const RUNTIME_CHAT_WEB_STREAM_PATH = "/api/v1/runtime/chat/web/stream";
 export const RUNTIME_CHAT_CHANNEL_PATH = "/api/v1/runtime/chat/channel";
 export const RUNTIME_WORKSPACE_AVATAR_PATH = "/api/v1/runtime/workspace/avatar";
+export const RUNTIME_WORKSPACE_STORAGE_USAGE_PATH =
+  "/api/v1/runtime/workspace/storage-usage";
 
 const MAX_RUNTIME_JSON_BYTES = 1_000_000;
 const MISSING_APPLIED_SPEC_ERROR =
@@ -1372,5 +1375,49 @@ export async function handleRuntimeWorkspaceAvatarHttpRequest(params: {
   }
 
   sendJson(res, 405, { error: "Method not allowed." });
+  return true;
+}
+
+export async function handleRuntimeWorkspaceStorageUsageHttpRequest(params: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  requestPath: string;
+  resolvedAuth: ResolvedGatewayAuth;
+  trustedProxies: string[];
+  allowRealIpFallback: boolean;
+}): Promise<boolean> {
+  const { req, res, requestPath, resolvedAuth, trustedProxies, allowRealIpFallback } = params;
+  if (requestPath !== RUNTIME_WORKSPACE_STORAGE_USAGE_PATH) {
+    return false;
+  }
+  if ((req.method ?? "GET").toUpperCase() !== "GET") {
+    sendJson(res, 405, { error: "Method not allowed." });
+    return true;
+  }
+
+  const bearerToken = getBearerToken(req);
+  const auth = await authorizeHttpGatewayConnect({
+    auth: resolvedAuth,
+    connectAuth: bearerToken ? { token: bearerToken, password: bearerToken } : null,
+    req,
+    trustedProxies,
+    allowRealIpFallback,
+  });
+  if (!auth.ok) {
+    sendGatewayAuthFailure(res, auth);
+    return true;
+  }
+
+  const url = new URL(req.url ?? "/", "http://localhost");
+  const assistantId = url.searchParams.get("assistantId");
+  if (!assistantId) {
+    sendJson(res, 400, { error: "assistantId query parameter is required." });
+    return true;
+  }
+
+  const workspaceDir = resolvePersaiAssistantWorkspaceDir(assistantId);
+  const usedBytes = getWorkspaceUsageBytes(workspaceDir);
+
+  sendJson(res, 200, { usedBytes });
   return true;
 }
