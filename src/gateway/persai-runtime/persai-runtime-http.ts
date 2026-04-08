@@ -1241,6 +1241,7 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
     return true;
   }
 
+  const runtimeTraceRequest = readPersaiRuntimeTraceRequest(req);
   const streamTrace = createPersaiRuntimeTrace({
     enabled: runtimeTraceRequest.enabled,
     scope: "runtime_chat_web_stream",

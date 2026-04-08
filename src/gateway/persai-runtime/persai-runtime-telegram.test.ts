@@ -300,8 +300,8 @@ describe("splitTelegramOutboundText", () => {
     const s = "x".repeat(TELEGRAM_BOT_API_MAX_MESSAGE_LENGTH + 50);
     const chunks = splitTelegramOutboundText(s, TELEGRAM_BOT_API_MAX_MESSAGE_LENGTH);
     expect(chunks).toHaveLength(2);
-    expect(chunks[0]!.length).toBe(TELEGRAM_BOT_API_MAX_MESSAGE_LENGTH);
-    expect(chunks[1]!.length).toBe(50);
+    expect(chunks[0].length).toBe(TELEGRAM_BOT_API_MAX_MESSAGE_LENGTH);
+    expect(chunks[1].length).toBe(50);
   });
 });
 
@@ -457,6 +457,87 @@ describe("deduplicated Telegram turn handling", () => {
     expect(bot.api.sendAudio).not.toHaveBeenCalled();
     expect(bot.api.sendVideo).not.toHaveBeenCalled();
     expect(bot.api.sendDocument).not.toHaveBeenCalled();
+  });
+
+  test("returns rendered retryable timeout text instead of throwing", async () => {
+    const originalFetch = globalThis.fetch;
+    const loadConfigSpy = vi.spyOn(configModule, "loadConfig");
+    process.env.PERSAI_INTERNAL_API_TOKEN = "token";
+    loadConfigSpy.mockReturnValue({
+      secrets: {
+        providers: {
+          "persai-runtime": {
+            source: "persai",
+            baseUrl: "http://persai.internal",
+          },
+        },
+      },
+    } as never);
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            ok: false,
+            code: "runtime_timeout",
+            message: "The runtime timed out before completing this turn.",
+            renderedMessage: "Please retry this message in a moment.",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+    ) as typeof fetch;
+
+    await expect(
+      requestPersaiTelegramTurn({
+        assistantId: "assistant-1",
+        userMessage: "hi",
+        chatId: "chat-1",
+        updateId: 77,
+      }),
+    ).resolves.toEqual({
+      text: "Please retry this message in a moment.",
+      media: [],
+    });
+
+    globalThis.fetch = originalFetch;
+    loadConfigSpy.mockRestore();
+  });
+
+  test("returns generic fallback for retryable HTTP status instead of throwing", async () => {
+    const originalFetch = globalThis.fetch;
+    const loadConfigSpy = vi.spyOn(configModule, "loadConfig");
+    process.env.PERSAI_INTERNAL_API_TOKEN = "token";
+    loadConfigSpy.mockReturnValue({
+      secrets: {
+        providers: {
+          "persai-runtime": {
+            source: "persai",
+            baseUrl: "http://persai.internal",
+          },
+        },
+      },
+    } as never);
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response("gateway timeout", {
+          status: 504,
+          headers: { "Content-Type": "text/plain" },
+        }),
+    ) as typeof fetch;
+
+    await expect(
+      requestPersaiTelegramTurn({
+        assistantId: "assistant-1",
+        userMessage: "hi",
+        chatId: "chat-1",
+        updateId: 77,
+      }),
+    ).resolves.toEqual({
+      text: "I'm having trouble responding right now. Please try again.",
+      media: [],
+    });
+
+    globalThis.fetch = originalFetch;
+    loadConfigSpy.mockRestore();
   });
 });
 

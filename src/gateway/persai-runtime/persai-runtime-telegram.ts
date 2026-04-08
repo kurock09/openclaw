@@ -1045,12 +1045,18 @@ export async function syncTelegramBotForAssistant(params: {
 
   bot.on("message:voice", async (ctx) => {
     const currentManaged = activeBots.get(assistantId);
-    if (!currentManaged) return;
+    if (!currentManaged) {
+      return;
+    }
     const currentConfig = extractTelegramChannel(currentManaged.state.bootstrap);
-    if (!currentConfig || !currentConfig.inbound || !currentConfig.outbound) return;
+    if (!currentConfig || !currentConfig.inbound || !currentConfig.outbound) {
+      return;
+    }
     const locale = resolveSystemLocale(currentManaged.state.workspace);
     const updateId = typeof ctx.update.update_id === "number" ? ctx.update.update_id : null;
-    if (!shouldProcessTelegramUpdate(assistantId, updateId)) return;
+    if (!shouldProcessTelegramUpdate(assistantId, updateId)) {
+      return;
+    }
 
     try {
       const ownerGate = evaluateTelegramOwnerGate({
@@ -1120,12 +1126,18 @@ export async function syncTelegramBotForAssistant(params: {
 
   bot.on("message:photo", async (ctx) => {
     const currentManaged = activeBots.get(assistantId);
-    if (!currentManaged) return;
+    if (!currentManaged) {
+      return;
+    }
     const currentConfig = extractTelegramChannel(currentManaged.state.bootstrap);
-    if (!currentConfig || !currentConfig.inbound || !currentConfig.outbound) return;
+    if (!currentConfig || !currentConfig.inbound || !currentConfig.outbound) {
+      return;
+    }
     const locale = resolveSystemLocale(currentManaged.state.workspace);
     const updateId = typeof ctx.update.update_id === "number" ? ctx.update.update_id : null;
-    if (!shouldProcessTelegramUpdate(assistantId, updateId)) return;
+    if (!shouldProcessTelegramUpdate(assistantId, updateId)) {
+      return;
+    }
 
     try {
       const ownerGate = evaluateTelegramOwnerGate({
@@ -1142,7 +1154,9 @@ export async function syncTelegramBotForAssistant(params: {
       }
       const photos = ctx.message.photo;
       const largest = photos[photos.length - 1];
-      if (!largest) return;
+      if (!largest) {
+        return;
+      }
       const { buffer, filePath: tgFilePath } = await downloadTelegramFile(bot, largest.file_id);
       const saved = await saveTelegramMediaToWorkspace({
         assistantId,
@@ -1185,12 +1199,18 @@ export async function syncTelegramBotForAssistant(params: {
 
   bot.on("message:document", async (ctx) => {
     const currentManaged = activeBots.get(assistantId);
-    if (!currentManaged) return;
+    if (!currentManaged) {
+      return;
+    }
     const currentConfig = extractTelegramChannel(currentManaged.state.bootstrap);
-    if (!currentConfig || !currentConfig.inbound || !currentConfig.outbound) return;
+    if (!currentConfig || !currentConfig.inbound || !currentConfig.outbound) {
+      return;
+    }
     const locale = resolveSystemLocale(currentManaged.state.workspace);
     const updateId = typeof ctx.update.update_id === "number" ? ctx.update.update_id : null;
-    if (!shouldProcessTelegramUpdate(assistantId, updateId)) return;
+    if (!shouldProcessTelegramUpdate(assistantId, updateId)) {
+      return;
+    }
 
     try {
       const ownerGate = evaluateTelegramOwnerGate({
@@ -1206,7 +1226,9 @@ export async function syncTelegramBotForAssistant(params: {
         return;
       }
       const doc = ctx.message.document;
-      if (!doc) return;
+      if (!doc) {
+        return;
+      }
       const { buffer, filePath: tgFilePath } = await downloadTelegramFile(bot, doc.file_id);
       const mime = doc.mime_type ?? "application/octet-stream";
       const ext = inferExtFromMime(mime);
@@ -1410,14 +1432,20 @@ type PersaiTelegramTurnResult = {
 };
 
 function parseTurnMedia(raw: unknown): PersaiTurnMedia[] {
-  if (!Array.isArray(raw)) return [];
+  if (!Array.isArray(raw)) {
+    return [];
+  }
   const result: PersaiTurnMedia[] = [];
   for (const item of raw) {
-    if (typeof item !== "object" || item === null) continue;
+    if (typeof item !== "object" || item === null) {
+      continue;
+    }
     const r = item as Record<string, unknown>;
     const url = typeof r.url === "string" ? r.url : "";
     const type = typeof r.type === "string" ? r.type : "";
-    if (!url || !["image", "audio", "video", "document"].includes(type)) continue;
+    if (!url || !["image", "audio", "video", "document"].includes(type)) {
+      continue;
+    }
     result.push({
       url,
       type: type as PersaiTurnMedia["type"],
@@ -1480,11 +1508,12 @@ export async function requestPersaiTelegramTurn(params: {
     });
     if (!response.ok) {
       if (isRetryablePersaiTelegramTurnFailure({ status: response.status })) {
-        throw new RetryablePersaiTelegramTurnError(
-          `PersAI internal Telegram turn returned HTTP ${response.status}.`,
-          null,
-          response.status,
+        console.warn(
+          `[persai-telegram] PersAI internal Telegram turn returned retryable HTTP ${
+            response.status
+          } for ${params.assistantId}; returning fallback instead of crashing the worker.`,
         );
+        return fallback;
       }
       return fallback;
     }
@@ -1507,7 +1536,12 @@ export async function requestPersaiTelegramTurn(params: {
         }: code=${code ?? "unknown"} message=${message}`,
       );
       if (isRetryablePersaiTelegramTurnFailure({ code })) {
-        throw new RetryablePersaiTelegramTurnError(message, code, response.status);
+        return {
+          text:
+            payload.renderedMessage.trim() ||
+            "I'm having trouble responding right now. Please try again.",
+          media: [],
+        };
       }
       return {
         text:
