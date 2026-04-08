@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import * as path from "node:path";
@@ -40,6 +41,10 @@ import {
   extractPersonaInstructionsFromWorkspace,
   mergeSystemPrompt,
 } from "./persai-runtime-turn-context.js";
+import {
+  createPersaiRuntimeTrace,
+  readPersaiRuntimeTraceRequest
+} from "./persai-runtime-trace.js";
 import {
   cleanupPersaiAssistantWorkspace,
   consumePersaiAssistantBootstrapFile,
@@ -268,15 +273,6 @@ export async function handleRuntimeChatWebPreviewHttpRequest(params: {
     typeof payload.userTimezone === "string" ? payload.userTimezone.trim() : undefined;
   const currentTimeIso =
     typeof payload.currentTimeIso === "string" ? payload.currentTimeIso.trim() : undefined;
-  const providerOverrideRaw =
-    typeof payload.providerOverride === "string" ? payload.providerOverride.trim().toLowerCase() : "";
-  const modelOverrideRaw =
-    typeof payload.modelOverride === "string" ? payload.modelOverride.trim() : "";
-  const requestProviderOverride =
-    providerOverrideRaw === "openai" || providerOverrideRaw === "anthropic"
-      ? providerOverrideRaw
-      : undefined;
-  const requestModelOverride = modelOverrideRaw.length > 0 ? modelOverrideRaw : undefined;
   const spec = isRecord(payload.spec) ? payload.spec : null;
 
   if (
@@ -803,6 +799,7 @@ export async function handleRuntimeChatWebHttpRequest(params: {
       ? providerOverrideRaw
       : undefined;
   const requestModelOverride = modelOverrideRaw.length > 0 ? modelOverrideRaw : undefined;
+  const runtimeTraceRequest = readPersaiRuntimeTraceRequest(req);
 
   if (
     !assistantId ||
@@ -820,28 +817,45 @@ export async function handleRuntimeChatWebHttpRequest(params: {
     return true;
   }
 
+  const webTrace = createPersaiRuntimeTrace({
+    enabled: runtimeTraceRequest.enabled,
+    scope: "runtime_chat_web",
+    traceId: runtimeTraceRequest.traceId ?? randomUUID()
+  });
+  if (runtimeTraceRequest.enabled) {
+    res.setHeader("X-Persai-Overview-Trace-Id", webTrace.traceId);
+  }
+  webTrace.stage("handler.payload_validated");
+
   const sessionKey = derivePersaiWebRuntimeSessionKey({
     assistantId,
     chatId,
     surfaceThreadKey,
   });
   res.setHeader("X-Persai-Runtime-Session-Key", sessionKey);
+  webTrace.stage("handler.session_key_ready");
 
   let applied = await store.get(assistantId, publishedVersionId);
   if (applied) {
+    webTrace.stage("handler.applied_spec_loaded");
     const freshness = await ensureSpecFreshness({
       assistantId,
       applied,
       store,
     });
+    webTrace.stage("handler.spec_freshness_checked", {
+      rematerialized: freshness.rematerialized,
+    });
     if (freshness.rematerialized) {
       applied = (await store.get(assistantId, publishedVersionId)) ?? applied;
+      webTrace.stage("handler.applied_spec_reloaded");
     }
 
     const extraSystemPrompt = mergeSystemPrompt(
       extractPersonaInstructionsFromWorkspace(applied.workspace) ?? undefined,
       buildSchedulingContext({ currentTimeIso, userTimezone }),
     );
+    webTrace.stage("handler.prompt_context_built");
     const runtimeOverride = extractPersaiRuntimeModelOverride(applied.bootstrap);
     const effectiveProviderOverride = requestProviderOverride ?? runtimeOverride?.provider;
     const effectiveModelOverride = requestModelOverride ?? runtimeOverride?.model;
@@ -851,6 +865,11 @@ export async function handleRuntimeChatWebHttpRequest(params: {
     const toolDenyList = buildToolDenyList(quotaPolicy);
     const toolProviderOverrides = extractToolProviderOverrides(credentialRefs);
     const workspaceQuotaBytes = extractWorkspaceQuotaBytes(applied.bootstrap);
+    webTrace.stage("handler.tool_policy_built", {
+      credentialRefCount: credentialRefs.size,
+      denyListCount: toolDenyList.length,
+      providerOverrideCount: toolProviderOverrides.size,
+    });
 
     let resolvedToolCredentials = new Map<string, string>();
     if (credentialRefs.size > 0) {
@@ -858,11 +877,17 @@ export async function handleRuntimeChatWebHttpRequest(params: {
         const cfg = loadConfig();
         resolvedToolCredentials = await resolveToolCredentials(credentialRefs, cfg);
       } catch (credErr) {
+        webTrace.fail("handler.resolve_tool_credentials_failed", credErr, {
+          credentialRefCount: credentialRefs.size,
+        });
         logWarn(
           `persai-runtime: resolveToolCredentials failed: ${credErr instanceof Error ? credErr.message : String(credErr)}`,
         );
       }
     }
+    webTrace.stage("handler.tool_credentials_resolved", {
+      resolvedCredentialCount: resolvedToolCredentials.size,
+    });
     logInfo(
       `persai-runtime: web turn credentials=${[...resolvedToolCredentials.keys()].join(",") || "none"} overrides=${[...toolProviderOverrides.entries()].map(([k, v]) => `${k}=${v}`).join(",") || "none"}`,
     );
@@ -883,31 +908,39 @@ export async function handleRuntimeChatWebHttpRequest(params: {
       workspaceDir: applied.workspaceDir,
       assistantGender: extractAssistantGenderFromWorkspace(applied.workspace),
       workspaceQuotaBytes,
+      trace: webTrace,
     });
+    webTrace.stage("handler.agent_turn_returned");
     if (!agentOut.ok) {
+      const runtimeTrace = webTrace.finish("error");
       sendJson(res, agentOut.error.status, {
         ok: false,
         error: {
           code: agentOut.error.code,
           category: agentOut.error.status === 409 ? "conflict" : "infra",
-          message: agentOut.error.message,
+          message: agentOut.error.message
         },
+        ...(runtimeTrace ? { runtimeTrace } : {})
       });
       return true;
     }
     const assistantMessage = agentOut.assistantMessage.trim();
+    const runtimeTrace = webTrace.finish("ok");
     sendJson(res, 200, {
       ok: true,
       assistantMessage,
       media: agentOut.media,
       respondedAt: new Date().toISOString(),
+      ...(runtimeTrace ? { runtimeTrace } : {})
     });
     return true;
   }
 
+  const runtimeTrace = webTrace.finish("missing_applied_spec");
   sendJson(res, 503, {
     ok: false,
     error: MISSING_APPLIED_SPEC_ERROR,
+    ...(runtimeTrace ? { runtimeTrace } : {})
   });
   return true;
 }
@@ -981,6 +1014,7 @@ export async function handleRuntimeChatChannelHttpRequest(params: {
       ? providerOverrideRaw
       : undefined;
   const requestModelOverride = modelOverrideRaw.length > 0 ? modelOverrideRaw : undefined;
+  const runtimeTraceRequest = readPersaiRuntimeTraceRequest(req);
 
   if (!assistantId || !publishedVersionId || !surface || !threadId || !userMessage) {
     sendJson(res, 400, {
@@ -991,36 +1025,53 @@ export async function handleRuntimeChatChannelHttpRequest(params: {
     return true;
   }
 
+  const channelTrace = createPersaiRuntimeTrace({
+    enabled: runtimeTraceRequest.enabled,
+    scope: "runtime_chat_channel",
+    traceId: runtimeTraceRequest.traceId ?? randomUUID()
+  });
+  channelTrace.stage("handler.payload_validated");
+
   if (surface !== "telegram") {
+    const runtimeTrace = channelTrace.finish("unsupported_surface");
     sendJson(res, 400, {
       ok: false,
       error: `Unsupported runtime channel surface "${surface}".`,
+      ...(runtimeTrace ? { runtimeTrace } : {})
     });
     return true;
   }
 
   let applied = await store.get(assistantId, publishedVersionId);
   if (!applied) {
+    const runtimeTrace = channelTrace.finish("missing_applied_spec");
     sendJson(res, 503, {
       ok: false,
       error: MISSING_APPLIED_SPEC_ERROR,
+      ...(runtimeTrace ? { runtimeTrace } : {})
     });
     return true;
   }
+  channelTrace.stage("handler.applied_spec_loaded");
 
   const freshness = await ensureSpecFreshness({
     assistantId,
     applied,
     store,
   });
+  channelTrace.stage("handler.spec_freshness_checked", {
+    rematerialized: freshness.rematerialized,
+  });
   if (freshness.rematerialized) {
     applied = (await store.get(assistantId, publishedVersionId)) ?? applied;
+    channelTrace.stage("handler.applied_spec_reloaded");
   }
 
   const extraSystemPrompt = mergeSystemPrompt(
     extractPersonaInstructionsFromWorkspace(applied.workspace) ?? undefined,
     buildSchedulingContext({ currentTimeIso, userTimezone }),
   );
+  channelTrace.stage("handler.prompt_context_built");
   const runtimeOverride = extractPersaiRuntimeModelOverride(applied.bootstrap);
   const effectiveProviderOverride = requestProviderOverride ?? runtimeOverride?.provider;
   const effectiveModelOverride = requestModelOverride ?? runtimeOverride?.model;
@@ -1029,6 +1080,11 @@ export async function handleRuntimeChatChannelHttpRequest(params: {
   const toolDenyList = buildToolDenyList(quotaPolicy);
   const tgToolProviderOverrides = extractToolProviderOverrides(credentialRefs);
   const tgWorkspaceQuotaBytes = extractWorkspaceQuotaBytes(applied.bootstrap);
+  channelTrace.stage("handler.tool_policy_built", {
+    credentialRefCount: credentialRefs.size,
+    denyListCount: toolDenyList.length,
+    providerOverrideCount: tgToolProviderOverrides.size,
+  });
 
   let resolvedToolCredentials = new Map<string, string>();
   if (credentialRefs.size > 0) {
@@ -1036,11 +1092,17 @@ export async function handleRuntimeChatChannelHttpRequest(params: {
       const cfg = loadConfig();
       resolvedToolCredentials = await resolveToolCredentials(credentialRefs, cfg);
     } catch (credErr) {
+      channelTrace.fail("handler.resolve_tool_credentials_failed", credErr, {
+        credentialRefCount: credentialRefs.size,
+      });
       logWarn(
         `persai-runtime: resolveToolCredentials failed (tg): ${credErr instanceof Error ? credErr.message : String(credErr)}`,
       );
     }
   }
+  channelTrace.stage("handler.tool_credentials_resolved", {
+    resolvedCredentialCount: resolvedToolCredentials.size,
+  });
   logInfo(
     `persai-runtime: tg turn credentials=${[...resolvedToolCredentials.keys()].join(",") || "none"} overrides=${[...tgToolProviderOverrides.entries()].map(([k, v]) => `${k}=${v}`).join(",") || "none"}`,
   );
@@ -1061,25 +1123,31 @@ export async function handleRuntimeChatChannelHttpRequest(params: {
     workspaceDir: applied.workspaceDir,
     assistantGender: extractAssistantGenderFromWorkspace(applied.workspace),
     workspaceQuotaBytes: tgWorkspaceQuotaBytes,
+    trace: channelTrace,
   });
+  channelTrace.stage("handler.agent_turn_returned");
   if (!agentOut.ok) {
+    const runtimeTrace = channelTrace.finish("error");
     sendJson(res, agentOut.error.status, {
       ok: false,
       error: {
         code: agentOut.error.code,
         category: agentOut.error.status === 409 ? "conflict" : "infra",
-        message: agentOut.error.message,
+        message: agentOut.error.message
       },
+      ...(runtimeTrace ? { runtimeTrace } : {})
     });
     return true;
   }
 
   const assistantMessage = agentOut.assistantMessage.trim();
+  const runtimeTrace = channelTrace.finish("ok");
   sendJson(res, 200, {
     ok: true,
     assistantMessage,
     media: agentOut.media,
     respondedAt: new Date().toISOString(),
+    ...(runtimeTrace ? { runtimeTrace } : {})
   });
   return true;
 }
@@ -1173,39 +1241,59 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
     return true;
   }
 
+  const streamTrace = createPersaiRuntimeTrace({
+    enabled: runtimeTraceRequest.enabled,
+    scope: "runtime_chat_web_stream",
+    traceId: runtimeTraceRequest.traceId ?? randomUUID()
+  });
+  if (runtimeTraceRequest.enabled) {
+    res.setHeader("X-Persai-Overview-Trace-Id", streamTrace.traceId);
+  }
+  streamTrace.stage("handler.payload_validated");
+
   const sessionKey = derivePersaiWebRuntimeSessionKey({
     assistantId,
     chatId,
     surfaceThreadKey,
   });
   res.setHeader("X-Persai-Runtime-Session-Key", sessionKey);
+  streamTrace.stage("handler.session_key_ready");
 
   let applied = await store.get(assistantId, publishedVersionId);
   if (!applied) {
+    const runtimeTrace = streamTrace.finish("missing_applied_spec");
     sendJson(res, 503, {
       ok: false,
       error: MISSING_APPLIED_SPEC_ERROR,
+      ...(runtimeTrace ? { runtimeTrace } : {})
     });
     return true;
   }
+  streamTrace.stage("handler.applied_spec_loaded");
 
   const streamFreshness = await ensureSpecFreshness({
     assistantId,
     applied,
     store,
   });
+  streamTrace.stage("handler.spec_freshness_checked", {
+    rematerialized: streamFreshness.rematerialized,
+  });
   if (streamFreshness.rematerialized) {
     applied = (await store.get(assistantId, publishedVersionId)) ?? applied;
+    streamTrace.stage("handler.applied_spec_reloaded");
   }
 
   res.statusCode = 200;
   res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
   res.setHeader("Cache-Control", "no-cache");
+  streamTrace.stage("handler.stream_headers_sent");
 
   const extraSystemPrompt = mergeSystemPrompt(
     extractPersonaInstructionsFromWorkspace(applied.workspace) ?? undefined,
     buildSchedulingContext({ currentTimeIso, userTimezone }),
   );
+  streamTrace.stage("handler.prompt_context_built");
   const runtimeOverride = extractPersaiRuntimeModelOverride(applied.bootstrap);
   const effectiveProviderOverride = requestProviderOverride ?? runtimeOverride?.provider;
   const effectiveModelOverride = requestModelOverride ?? runtimeOverride?.model;
@@ -1215,6 +1303,11 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
   const streamToolDenyList = buildToolDenyList(streamQuotaPolicy);
   const streamToolProviderOverrides = extractToolProviderOverrides(streamCredentialRefs);
   const streamWorkspaceQuotaBytes = extractWorkspaceQuotaBytes(applied.bootstrap);
+  streamTrace.stage("handler.tool_policy_built", {
+    credentialRefCount: streamCredentialRefs.size,
+    denyListCount: streamToolDenyList.length,
+    providerOverrideCount: streamToolProviderOverrides.size,
+  });
 
   let streamResolvedToolCredentials = new Map<string, string>();
   if (streamCredentialRefs.size > 0) {
@@ -1222,11 +1315,17 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
       const cfg = loadConfig();
       streamResolvedToolCredentials = await resolveToolCredentials(streamCredentialRefs, cfg);
     } catch (credErr) {
+      streamTrace.fail("handler.resolve_tool_credentials_failed", credErr, {
+        credentialRefCount: streamCredentialRefs.size,
+      });
       logWarn(
         `persai-runtime: resolveToolCredentials failed (stream): ${credErr instanceof Error ? credErr.message : String(credErr)}`,
       );
     }
   }
+  streamTrace.stage("handler.tool_credentials_resolved", {
+    resolvedCredentialCount: streamResolvedToolCredentials.size,
+  });
   logInfo(
     `persai-runtime: stream turn credentials=${[...streamResolvedToolCredentials.keys()].join(",") || "none"} overrides=${[...streamToolProviderOverrides.entries()].map(([k, v]) => `${k}=${v}`).join(",") || "none"}`,
   );
@@ -1249,6 +1348,7 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
     workspaceDir: applied.workspaceDir,
     assistantGender: extractAssistantGenderFromWorkspace(applied.workspace),
     workspaceQuotaBytes: streamWorkspaceQuotaBytes,
+    trace: streamTrace
   });
   return true;
 }

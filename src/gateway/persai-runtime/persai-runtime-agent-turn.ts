@@ -10,6 +10,7 @@ import { normalizeOutboundPayloads } from "../../infra/outbound/payloads.js";
 import { logWarn } from "../../logger.js";
 import { defaultRuntime } from "../../runtime.js";
 import { resolveAssistantStreamDeltaText } from "../agent-event-assistant-text.js";
+import type { PersaiRuntimeTraceHandle } from "./persai-runtime-trace.js";
 
 type PersaiRuntimeTurnError = {
   code: string;
@@ -52,9 +53,15 @@ type AgentResponse = {
 
 function inferMediaType(url: string): PersaiMediaArtifact["type"] {
   const lower = url.toLowerCase();
-  if (/\.(png|jpe?g|gif|webp|svg|bmp)$/.test(lower)) return "image";
-  if (/\.(mp3|ogg|opus|wav|webm|m4a|aac|flac)$/.test(lower)) return "audio";
-  if (/\.(mp4|mkv|avi|mov)$/.test(lower)) return "video";
+  if (/\.(png|jpe?g|gif|webp|svg|bmp)$/.test(lower)) {
+    return "image";
+  }
+  if (/\.(mp3|ogg|opus|wav|webm|m4a|aac|flac)$/.test(lower)) {
+    return "audio";
+  }
+  if (/\.(mp4|mkv|avi|mov)$/.test(lower)) {
+    return "video";
+  }
   return "document";
 }
 
@@ -72,7 +79,9 @@ function resolveAgentResponse(result: unknown): AgentResponse {
   const media: PersaiMediaArtifact[] = [];
 
   for (const p of normalized) {
-    if (p.text) textParts.push(p.text);
+    if (p.text) {
+      textParts.push(p.text);
+    }
     for (const url of p.mediaUrls) {
       const baseType = inferMediaType(url);
       const isVoice = p.audioAsVoice === true && baseType === "audio";
@@ -138,12 +147,15 @@ export async function runPersaiWebRuntimeAgentTurnSync(params: {
   workspaceDir?: string;
   assistantGender?: string | null;
   workspaceQuotaBytes?: number | null;
+  trace?: PersaiRuntimeTraceHandle;
 }): Promise<
   | { ok: true; assistantMessage: string; media: PersaiMediaArtifact[] }
   | { ok: false; error: PersaiRuntimeTurnError }
 > {
   const runId = randomUUID();
+  params.trace?.stage("agent_turn.run_id_created", { runId });
   const deps = createDefaultDeps();
+  params.trace?.stage("agent_turn.deps_created");
   const commandInput = buildPersaiWebIngressCommandInput({
     userMessage: params.userMessage,
     extraSystemPrompt: params.extraSystemPrompt,
@@ -154,6 +166,7 @@ export async function runPersaiWebRuntimeAgentTurnSync(params: {
     runId,
     workspaceDir: params.workspaceDir,
   });
+  params.trace?.stage("agent_turn.command_built");
 
   const runtimeCtx = {
     assistantId: params.assistantId,
@@ -167,14 +180,22 @@ export async function runPersaiWebRuntimeAgentTurnSync(params: {
     assistantGender: params.assistantGender,
     workspaceQuotaBytes: params.workspaceQuotaBytes,
   };
+  params.trace?.stage("agent_turn.runtime_ctx_built");
 
   try {
+    params.trace?.stage("agent_turn.request_context_enter");
     const result = await persaiRuntimeRequestContext.run(runtimeCtx, () =>
       agentCommandFromIngress(commandInput, defaultRuntime, deps),
     );
+    params.trace?.stage("agent_turn.command_completed");
     const response = resolveAgentResponse(result);
+    params.trace?.stage("agent_turn.response_resolved", {
+      mediaCount: response.media.length,
+      textLength: response.text.length,
+    });
     return { ok: true, assistantMessage: response.text, media: response.media };
   } catch (err) {
+    params.trace?.fail("agent_turn.sync_failed", err);
     const normalized = toPersaiRuntimeTurnError(err);
     logWarn(`persai-runtime: sync agent turn failed: ${normalized.message}`);
     return { ok: false, error: normalized };
@@ -201,12 +222,15 @@ export async function runPersaiTelegramAgentTurn(params: {
   workspaceDir?: string;
   assistantGender?: string | null;
   workspaceQuotaBytes?: number | null;
+  trace?: PersaiRuntimeTraceHandle;
 }): Promise<
   | { ok: true; assistantMessage: string; media: PersaiMediaArtifact[] }
   | { ok: false; error: PersaiRuntimeTurnError }
 > {
   const runId = randomUUID();
+  params.trace?.stage("agent_turn.run_id_created", { runId });
   const deps = createDefaultDeps();
+  params.trace?.stage("agent_turn.deps_created");
   const commandInput = {
     message: params.userMessage,
     extraSystemPrompt: params.extraSystemPrompt,
@@ -221,6 +245,7 @@ export async function runPersaiTelegramAgentTurn(params: {
     allowModelOverride: true as const,
     workspaceDir: params.workspaceDir,
   };
+  params.trace?.stage("agent_turn.command_built");
 
   const runtimeCtx = {
     assistantId: params.assistantId,
@@ -234,14 +259,22 @@ export async function runPersaiTelegramAgentTurn(params: {
     assistantGender: params.assistantGender,
     workspaceQuotaBytes: params.workspaceQuotaBytes,
   };
+  params.trace?.stage("agent_turn.runtime_ctx_built");
 
   try {
+    params.trace?.stage("agent_turn.request_context_enter");
     const result = await persaiRuntimeRequestContext.run(runtimeCtx, () =>
       agentCommandFromIngress(commandInput, defaultRuntime, deps),
     );
+    params.trace?.stage("agent_turn.command_completed");
     const response = resolveAgentResponse(result);
+    params.trace?.stage("agent_turn.response_resolved", {
+      mediaCount: response.media.length,
+      textLength: response.text.length,
+    });
     return { ok: true, assistantMessage: response.text, media: response.media };
   } catch (err) {
+    params.trace?.fail("agent_turn.telegram_failed", err);
     const normalized = toPersaiRuntimeTurnError(err);
     logWarn(
       `persai-runtime: telegram agent turn failed: ${normalized.message}`,
@@ -275,9 +308,12 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
   workspaceDir?: string;
   assistantGender?: string | null;
   workspaceQuotaBytes?: number | null;
+  trace?: PersaiRuntimeTraceHandle;
 }): Promise<void> {
   const runId = randomUUID();
+  params.trace?.stage("agent_turn.run_id_created", { runId });
   const deps = createDefaultDeps();
+  params.trace?.stage("agent_turn.deps_created");
   const commandInput = buildPersaiWebIngressCommandInput({
     userMessage: params.userMessage,
     extraSystemPrompt: params.extraSystemPrompt,
@@ -287,6 +323,7 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
     runId,
     workspaceDir: params.workspaceDir,
   });
+  params.trace?.stage("agent_turn.command_built");
 
   const runtimeCtx = {
     assistantId: params.assistantId,
@@ -300,9 +337,12 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
     assistantGender: params.assistantGender,
     workspaceQuotaBytes: params.workspaceQuotaBytes,
   };
+  params.trace?.stage("agent_turn.runtime_ctx_built");
 
   let closed = false;
   let sawAssistantDelta = false;
+  let sawThinkingDelta = false;
+  let finalTraceStatus: "ok" | "error" = "ok";
 
   const unsubscribe = onAgentEvent((evt) => {
     if (evt.runId !== runId || closed) {
@@ -315,7 +355,12 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
         !isSilentReplyText(content) &&
         !isSilentReplyPrefixText(content)
       ) {
-        sawAssistantDelta = true;
+        if (!sawAssistantDelta) {
+          sawAssistantDelta = true;
+          params.trace?.stage("agent_turn.first_assistant_delta", {
+            deltaLength: content.length,
+          });
+        }
         params.res.write(
           `${JSON.stringify({ type: "delta", delta: content })}\n`,
         );
@@ -326,6 +371,12 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
       const delta = typeof evt.data?.delta === "string" ? evt.data.delta : "";
       const text = typeof evt.data?.text === "string" ? evt.data.text : "";
       if (delta && text) {
+        if (!sawThinkingDelta) {
+          sawThinkingDelta = true;
+          params.trace?.stage("agent_turn.first_thinking_delta", {
+            deltaLength: delta.length,
+          });
+        }
         params.res.write(
           `${JSON.stringify({ type: "thinking", delta, text })}\n`,
         );
@@ -342,13 +393,20 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
   return new Promise((resolve) => {
     void (async () => {
       try {
+        params.trace?.stage("agent_turn.request_context_enter");
         const result = await persaiRuntimeRequestContext.run(runtimeCtx, () =>
           agentCommandFromIngress(commandInput, defaultRuntime, deps),
         );
+        params.trace?.stage("agent_turn.command_completed");
         if (closed) {
           return;
         }
         const response = resolveAgentResponse(result);
+        params.trace?.stage("agent_turn.response_resolved", {
+          mediaCount: response.media.length,
+          textLength: response.text.length,
+          sawAssistantDelta,
+        });
         if (!sawAssistantDelta && response.text) {
           params.res.write(
             `${JSON.stringify({ type: "delta", delta: response.text })}\n`,
@@ -360,6 +418,8 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
           );
         }
       } catch (err) {
+        finalTraceStatus = "error";
+        params.trace?.fail("agent_turn.stream_failed", err);
         const normalized = toPersaiRuntimeTurnError(err);
         logWarn(
           `persai-runtime: stream agent turn failed: ${normalized.message}`,
@@ -377,8 +437,13 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
         if (!closed) {
           closed = true;
           unsubscribe();
+          const runtimeTrace = params.trace?.finish(finalTraceStatus);
           params.res.write(
-            `${JSON.stringify({ type: "done", respondedAt: new Date().toISOString() })}\n`,
+            `${JSON.stringify({
+              type: "done",
+              respondedAt: new Date().toISOString(),
+              ...(runtimeTrace ? { runtimeTrace } : {})
+            })}\n`,
           );
           params.res.end();
         }
