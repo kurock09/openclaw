@@ -80,6 +80,7 @@ export const RUNTIME_CHAT_WEB_COMPACT_PATH = "/api/v1/runtime/chat/web/compact";
 export const RUNTIME_CHAT_WEB_STREAM_PATH = "/api/v1/runtime/chat/web/stream";
 export const RUNTIME_CHAT_CHANNEL_PATH = "/api/v1/runtime/chat/channel";
 export const RUNTIME_CHAT_CHANNEL_SESSION_STATE_PATH = "/api/v1/runtime/chat/channel/session/state";
+export const RUNTIME_CHAT_CHANNEL_COMPACT_PATH = "/api/v1/runtime/chat/channel/compact";
 export const RUNTIME_WORKSPACE_AVATAR_PATH = "/api/v1/runtime/workspace/avatar";
 export const RUNTIME_WORKSPACE_STORAGE_USAGE_PATH = "/api/v1/runtime/workspace/storage-usage";
 
@@ -994,6 +995,148 @@ export async function handleRuntimeChatWebCompactHttpRequest(params: {
     assistantId,
     chatId,
     surfaceThreadKey,
+  });
+  if (sessionState.entry === null || !sessionState.entry.sessionId) {
+    sendJson(res, 409, {
+      ok: false,
+      error: "Compaction is unavailable until this chat has an active runtime session.",
+      state: buildPersaiWebChatSessionStatePayload({
+        sessionKey: sessionState.sessionKey,
+        entry: sessionState.entry,
+      }),
+    });
+    return true;
+  }
+
+  const effectiveCfg = await resolvePersaiLayeredRuntimeConfig({ cfg: sessionState.cfg });
+  const sessionFile = resolveSessionFilePath(
+    sessionState.entry.sessionId,
+    sessionState.entry,
+    resolveSessionFilePathOptions({
+      agentId: sessionState.target.agentId,
+      storePath: sessionState.target.storePath,
+    }),
+  );
+  const defaultModel = resolveDefaultModelForAgent({
+    cfg: effectiveCfg,
+    agentId: sessionState.target.agentId,
+  });
+  const currentTokens =
+    sessionState.entry.totalTokensFresh === true
+      ? normalizeOptionalPositiveInteger(sessionState.entry.totalTokens)
+      : null;
+  const result = await compactEmbeddedPiSession({
+    sessionId: sessionState.entry.sessionId,
+    sessionKey: sessionState.target.canonicalKey,
+    sessionFile,
+    workspaceDir:
+      sessionState.entry.spawnedWorkspaceDir?.trim() ||
+      resolvePersaiAssistantWorkspaceDir(assistantId),
+    config: effectiveCfg,
+    provider: sessionState.entry.modelProvider?.trim() || defaultModel.provider,
+    model: sessionState.entry.model?.trim() || defaultModel.model,
+    ...(currentTokens !== null ? { currentTokenCount: currentTokens } : {}),
+    ...(instructions ? { customInstructions: instructions } : {}),
+    allowGatewaySubagentBinding: true,
+    trigger: "manual",
+  });
+
+  let nextCompactionCount =
+    typeof sessionState.entry.compactionCount === "number" &&
+    Number.isFinite(sessionState.entry.compactionCount) &&
+    sessionState.entry.compactionCount > 0
+      ? Math.floor(sessionState.entry.compactionCount)
+      : 0;
+  if (result.ok && result.compacted) {
+    nextCompactionCount =
+      (await incrementCompactionCount({
+        sessionEntry: sessionState.entry,
+        sessionStore: sessionState.store,
+        sessionKey: sessionState.target.canonicalKey,
+        storePath: sessionState.target.storePath,
+        tokensAfter: result.result?.tokensAfter,
+      })) ?? nextCompactionCount;
+  }
+
+  sendJson(res, 200, {
+    ok: true,
+    result: {
+      compacted: result.compacted,
+      reason: result.reason ?? null,
+      tokensBefore: normalizeOptionalPositiveInteger(result.result?.tokensBefore),
+      tokensAfter: normalizeOptionalPositiveInteger(result.result?.tokensAfter),
+    },
+    state: buildPersaiWebChatSessionStatePayload({
+      sessionKey: sessionState.sessionKey,
+      entry: sessionState.entry,
+      currentTokens: normalizeOptionalPositiveInteger(result.result?.tokensAfter),
+      compactionCount: nextCompactionCount,
+    }),
+  });
+  return true;
+}
+
+export async function handleRuntimeChatChannelCompactHttpRequest(params: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  requestPath: string;
+  resolvedAuth: ResolvedGatewayAuth;
+  trustedProxies: string[];
+  allowRealIpFallback: boolean;
+}): Promise<boolean> {
+  const { req, res, requestPath, resolvedAuth, trustedProxies, allowRealIpFallback } = params;
+  if (requestPath !== RUNTIME_CHAT_CHANNEL_COMPACT_PATH) {
+    return false;
+  }
+
+  const method = (req.method ?? "GET").toUpperCase();
+  if (method !== "POST") {
+    res.statusCode = 405;
+    res.setHeader("Allow", "POST");
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.end("Method Not Allowed");
+    return true;
+  }
+
+  const bearerToken = getBearerToken(req);
+  const auth = await authorizeHttpGatewayConnect({
+    auth: resolvedAuth,
+    connectAuth: bearerToken ? { token: bearerToken, password: bearerToken } : null,
+    req,
+    trustedProxies,
+    allowRealIpFallback,
+  });
+  if (!auth.ok) {
+    sendGatewayAuthFailure(res, auth);
+    return true;
+  }
+
+  const parsed = await readJsonBody(req, MAX_RUNTIME_JSON_BYTES);
+  if (!parsed.ok) {
+    sendJson(res, 400, { ok: false, error: parsed.error });
+    return true;
+  }
+
+  const payload = isRecord(parsed.value) ? parsed.value : {};
+  const assistantId = typeof payload.assistantId === "string" ? payload.assistantId.trim() : "";
+  const surface = typeof payload.surface === "string" ? payload.surface.trim().toLowerCase() : "";
+  const threadId = typeof payload.threadId === "string" ? payload.threadId.trim() : "";
+  const instructions =
+    typeof payload.instructions === "string" && payload.instructions.trim().length > 0
+      ? payload.instructions.trim()
+      : undefined;
+
+  if (!assistantId || surface !== "telegram" || !threadId) {
+    sendJson(res, 400, {
+      ok: false,
+      error: "assistantId, surface=telegram, and threadId are required.",
+    });
+    return true;
+  }
+
+  const sessionState = resolvePersaiTelegramSessionRuntimeState({
+    assistantId,
+    threadId,
   });
   if (sessionState.entry === null || !sessionState.entry.sessionId) {
     sendJson(res, 409, {

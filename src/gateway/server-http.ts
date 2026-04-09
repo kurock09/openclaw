@@ -59,6 +59,7 @@ import { handleOpenAiHttpRequest } from "./openai-http.js";
 import { handleOpenResponsesHttpRequest } from "./openresponses-http.js";
 import {
   handleRuntimeChatChannelSessionStateHttpRequest,
+  handleRuntimeChatChannelCompactHttpRequest,
   handleRuntimeCronControlHttpRequest,
   handleRuntimeChatChannelHttpRequest,
   handleRuntimeChatWebCompactHttpRequest,
@@ -1041,6 +1042,18 @@ export function createGatewayHttpServer(opts: {
         name: "persai-runtime-chat-web-compact",
         run: () =>
           handleRuntimeChatWebCompactHttpRequest({
+            req,
+            res,
+            requestPath,
+            resolvedAuth,
+            trustedProxies,
+            allowRealIpFallback,
+          }),
+      });
+      requestStages.push({
+        name: "persai-runtime-chat-channel-compact",
+        run: () =>
+          handleRuntimeChatChannelCompactHttpRequest({
             req,
             res,
             requestPath,
