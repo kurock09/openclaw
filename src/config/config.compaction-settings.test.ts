@@ -109,6 +109,25 @@ describe("config compaction settings", () => {
     );
   });
 
+  it("accepts truncateAfterCompaction through runtime config validation", async () => {
+    await withTempHomeConfig(
+      {
+        agents: {
+          defaults: {
+            compaction: {
+              mode: "safeguard",
+              truncateAfterCompaction: true,
+            },
+          },
+        },
+      },
+      async () => {
+        const cfg = loadConfig();
+        expect(cfg.agents?.defaults?.compaction?.truncateAfterCompaction).toBe(true);
+      },
+    );
+  });
+
   it("preserves oversized quality guard retry values for runtime clamping", async () => {
     await withTempHomeConfig(
       {
