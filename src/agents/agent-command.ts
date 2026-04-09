@@ -89,6 +89,7 @@ import {
   resolveDefaultModelForAgent,
   resolveThinkingDefault,
 } from "./model-selection.js";
+import { persaiRuntimeRequestContext } from "./persai-runtime-context.js";
 import { prepareSessionManagerForRun } from "./pi-embedded-runner/session-manager-init.js";
 import { runEmbeddedPiAgent } from "./pi-embedded.js";
 import { buildWorkspaceSkillSnapshot } from "./skills.js";
@@ -549,7 +550,8 @@ async function prepareAgentCommandExecution(
     throw new Error("Pass --to <E.164>, --session-id, or --agent to choose a session");
   }
 
-  const loadedRaw = loadConfig();
+  const loadedRawBase = loadConfig();
+  const requestConfigOverride = persaiRuntimeRequestContext.getStore()?.configOverride;
   const sourceConfig = await (async () => {
     try {
       const { snapshot } = await readConfigFileSnapshotForWrite();
@@ -559,13 +561,14 @@ async function prepareAgentCommandExecution(
     } catch {
       // Fall back to runtime-loaded config when source snapshot is unavailable.
     }
-    return loadedRaw;
+    return loadedRawBase;
   })();
-  const { resolvedConfig: cfg, diagnostics } = await resolveCommandSecretRefsViaGateway({
-    config: loadedRaw,
+  const { resolvedConfig, diagnostics } = await resolveCommandSecretRefsViaGateway({
+    config: loadedRawBase,
     commandName: "agent",
     targetIds: getAgentRuntimeCommandSecretTargetIds(),
   });
+  const cfg = requestConfigOverride ?? resolvedConfig;
   setRuntimeConfigSnapshot(cfg, sourceConfig);
   const normalizedSpawned = normalizeSpawnedRunMetadata({
     spawnedBy: opts.spawnedBy,

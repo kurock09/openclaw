@@ -8,6 +8,7 @@ import * as cliRunnerModule from "../agents/cli-runner.js";
 import { FailoverError } from "../agents/failover-error.js";
 import { loadModelCatalog } from "../agents/model-catalog.js";
 import * as modelSelectionModule from "../agents/model-selection.js";
+import { persaiRuntimeRequestContext } from "../agents/persai-runtime-context.js";
 import { runEmbeddedPiAgent } from "../agents/pi-embedded.js";
 import * as commandSecretGatewayModule from "../cli/command-secret-gateway.js";
 import type { OpenClawConfig } from "../config/config.js";
@@ -456,6 +457,48 @@ describe("agentCommand", () => {
       const ingressCall = vi.mocked(runEmbeddedPiAgent).mock.calls.at(-1)?.[0];
       expect(ingressCall?.senderIsOwner).toBe(false);
       expect(ingressCall).not.toHaveProperty("allowModelOverride");
+    });
+  });
+
+  it("uses PersAI request config override for ingress model allowlist checks", async () => {
+    await withTempHome(async (home) => {
+      const store = path.join(home, "sessions.json");
+      mockConfig(home, store, {
+        model: { primary: "openai/gpt-5.4" },
+        models: {
+          "openai/gpt-5.4": {},
+        },
+      });
+
+      const configOverride = {
+        agents: {
+          defaults: {
+            model: { primary: "openai/gpt-5.4" },
+            models: {
+              "openai/gpt-5.4": {},
+              "openai/gpt-4.1-mini": {},
+            },
+            workspace: path.join(home, "openclaw"),
+          },
+        },
+        session: { store, mainKey: "main" },
+      } as OpenClawConfig;
+
+      await persaiRuntimeRequestContext.run({ configOverride }, async () => {
+        await agentCommandFromIngress(
+          {
+            message: "hi",
+            to: "+1555",
+            senderIsOwner: true,
+            allowModelOverride: true,
+            provider: "openai",
+            model: "gpt-4.1-mini",
+          },
+          runtime,
+        );
+      });
+
+      expectLastRunProviderModel("openai", "gpt-4.1-mini");
     });
   });
 
