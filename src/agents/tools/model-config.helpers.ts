@@ -73,11 +73,14 @@ export function buildToolModelConfigFromCandidates(params: {
       continue;
     }
     const provider = trimmed.slice(0, trimmed.indexOf("/")).trim();
-    if (!provider || !hasAuthForProvider({
-      provider,
-      agentDir: params.agentDir,
-      toolName: params.toolName,
-    })) {
+    if (
+      !provider ||
+      !hasAuthForProvider({
+        provider,
+        agentDir: params.agentDir,
+        toolName: params.toolName,
+      })
+    ) {
       continue;
     }
     if (!deduped.includes(trimmed)) {

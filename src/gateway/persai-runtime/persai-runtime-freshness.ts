@@ -43,17 +43,9 @@ function getGatewayToken(): string | null {
 }
 
 function extractConfigGenerationFromBootstrap(bootstrap: unknown): number {
-  if (
-    typeof bootstrap === "object" &&
-    bootstrap !== null &&
-    !Array.isArray(bootstrap)
-  ) {
+  if (typeof bootstrap === "object" && bootstrap !== null && !Array.isArray(bootstrap)) {
     const gov = (bootstrap as Record<string, unknown>).governance;
-    if (
-      typeof gov === "object" &&
-      gov !== null &&
-      !Array.isArray(gov)
-    ) {
+    if (typeof gov === "object" && gov !== null && !Array.isArray(gov)) {
       const gen = (gov as Record<string, unknown>).configGeneration;
       if (typeof gen === "number" && Number.isFinite(gen)) {
         return gen;
@@ -101,9 +93,7 @@ async function requestEnsureFreshSpec(
   assistantId: string,
   currentConfigGeneration: number,
 ): Promise<
-  | { status: "fresh" }
-  | { status: "updated"; payload: PersaiRuntimeFreshSpecResponse }
-  | null
+  { status: "fresh" } | { status: "updated"; payload: PersaiRuntimeFreshSpecResponse } | null
 > {
   const baseUrl = getPersaiInternalBaseUrl();
   const token = getGatewayToken();

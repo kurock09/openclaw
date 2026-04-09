@@ -15,11 +15,12 @@ vi.mock("../../cli/deps.js", () => ({
 }));
 
 import { EventEmitter } from "node:events";
+import type { OpenClawConfig } from "../../config/config.js";
+import { emitAgentEvent, resetAgentEventsForTest } from "../../infra/agent-events.js";
 import {
   runPersaiWebRuntimeAgentTurnStream,
   runPersaiWebRuntimeAgentTurnSync,
 } from "./persai-runtime-agent-turn.js";
-import { emitAgentEvent, resetAgentEventsForTest } from "../../infra/agent-events.js";
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -95,6 +96,45 @@ describe("runPersaiWebRuntimeAgentTurnSync", () => {
       ok: true,
       assistantMessage: "",
       media: [{ url: "/tmp/reply.ogg", type: "audio", audioAsVoice: true }],
+    });
+  });
+
+  test("passes configOverride through PersAI runtime request context", async () => {
+    agentCommandFromIngressMock.mockImplementation(async () => {
+      const { persaiRuntimeRequestContext } =
+        await import("../../agents/persai-runtime-context.js");
+      return {
+        payloads: [
+          {
+            text:
+              persaiRuntimeRequestContext.getStore()?.configOverride?.agents?.defaults?.heartbeat
+                ?.every ?? "missing",
+          },
+        ],
+      };
+    });
+
+    const configOverride = {
+      agents: {
+        defaults: {
+          heartbeat: {
+            every: "7m",
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    await expect(
+      runPersaiWebRuntimeAgentTurnSync({
+        assistantId: "assistant-1",
+        userMessage: "hi",
+        sessionKey: "agent:persai:a:web:c:t",
+        configOverride,
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      assistantMessage: "7m",
+      media: [],
     });
   });
 });

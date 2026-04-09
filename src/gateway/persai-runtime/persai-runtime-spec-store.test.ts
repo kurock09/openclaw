@@ -60,7 +60,9 @@ describe("RedisPersaiRuntimeSpecStore", () => {
       },
       async del(key: string | string[]) {
         const keys = Array.isArray(key) ? key : [key];
-        for (const k of keys) state.delete(k);
+        for (const k of keys) {
+          state.delete(k);
+        }
         return keys.length;
       },
       async keys(pattern: string) {

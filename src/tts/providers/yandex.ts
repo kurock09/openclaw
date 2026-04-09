@@ -1,17 +1,16 @@
-import type { SpeechProviderPlugin } from "../../plugins/types.js";
 import {
   getPersaiAssistantGender,
   getPersaiToolCredential,
   resolvePersaiToolCredentialForEnvVars,
 } from "../../agents/persai-runtime-context.js";
+import type { SpeechProviderPlugin } from "../../plugins/types.js";
 
 const YANDEX_GENDER_VOICES: Record<string, string> = {
   male: "filipp",
   female: "alena",
 };
 
-const DEFAULT_YANDEX_TTS_URL =
-  "https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize";
+const DEFAULT_YANDEX_TTS_URL = "https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize";
 
 const YANDEX_VOICES = [
   "alena",
@@ -34,17 +33,11 @@ const YANDEX_VOICES = [
   "john",
 ] as const;
 
-function resolveYandexApiKey(config: {
-  yandex?: { apiKey?: string };
-}): string | undefined {
+function resolveYandexApiKey(config: { yandex?: { apiKey?: string } }): string | undefined {
   return (
     config.yandex?.apiKey ||
     resolvePersaiToolCredentialForEnvVars({
-      envVars: [
-        "YANDEX_TTS_API_KEY",
-        "YANDEX_SPEECHKIT_API_KEY",
-        "YANDEX_API_KEY",
-      ],
+      envVars: ["YANDEX_TTS_API_KEY", "YANDEX_SPEECHKIT_API_KEY", "YANDEX_API_KEY"],
       provider: "yandex",
       toolName: "tts",
     })?.value ||
@@ -55,15 +48,10 @@ function resolveYandexApiKey(config: {
 }
 
 function resolveYandexIamToken(): string | undefined {
-  return (
-    getPersaiToolCredential("YANDEX_IAM_TOKEN") ||
-    process.env.YANDEX_IAM_TOKEN
-  );
+  return getPersaiToolCredential("YANDEX_IAM_TOKEN") || process.env.YANDEX_IAM_TOKEN;
 }
 
-function resolveYandexFolderId(config: {
-  yandex?: { folderId?: string };
-}): string | undefined {
+function resolveYandexFolderId(config: { yandex?: { folderId?: string } }): string | undefined {
   return (
     config.yandex?.folderId ||
     getPersaiToolCredential("YANDEX_FOLDER_ID") ||
@@ -84,9 +72,7 @@ async function yandexTTS(params: {
   sampleRateHertz?: number;
   timeoutMs: number;
 }): Promise<Buffer> {
-  const authHeader = params.iamToken
-    ? `Bearer ${params.iamToken}`
-    : `Api-Key ${params.apiKey}`;
+  const authHeader = params.iamToken ? `Bearer ${params.iamToken}` : `Api-Key ${params.apiKey}`;
 
   if (!params.apiKey && !params.iamToken) {
     throw new Error("Yandex SpeechKit: API key or IAM token required");
@@ -122,9 +108,7 @@ async function yandexTTS(params: {
 
     if (!response.ok) {
       const errBody = await response.text().catch(() => "");
-      throw new Error(
-        `Yandex SpeechKit API error (${response.status}): ${errBody.slice(0, 200)}`,
-      );
+      throw new Error(`Yandex SpeechKit API error (${response.status}): ${errBody.slice(0, 200)}`);
     }
 
     return Buffer.from(await response.arrayBuffer());
@@ -140,14 +124,11 @@ export function buildYandexSpeechProvider(): SpeechProviderPlugin {
     aliases: ["yandex-speechkit", "yandexspeechkit"],
     voices: YANDEX_VOICES,
 
-    listVoices: async () =>
-      YANDEX_VOICES.map((v) => ({ id: v, name: v, locale: "ru-RU" })),
+    listVoices: async () => YANDEX_VOICES.map((v) => ({ id: v, name: v, locale: "ru-RU" })),
 
     isConfigured: ({ config }) => {
       const yandex = (config as { yandex?: { apiKey?: string } }).yandex;
-      return Boolean(
-        resolveYandexApiKey({ yandex }) || resolveYandexIamToken(),
-      );
+      return Boolean(resolveYandexApiKey({ yandex }) || resolveYandexIamToken());
     },
 
     synthesize: async (req) => {

@@ -891,7 +891,10 @@ async function resolvePersaiRefs(params: {
     });
   }
 
-  const timeoutMs = normalizePositiveInt(params.providerConfig.timeoutMs, DEFAULT_PERSAI_TIMEOUT_MS);
+  const timeoutMs = normalizePositiveInt(
+    params.providerConfig.timeoutMs,
+    DEFAULT_PERSAI_TIMEOUT_MS,
+  );
   const controller = new AbortController();
   const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
 

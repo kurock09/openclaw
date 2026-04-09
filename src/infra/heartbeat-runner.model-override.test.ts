@@ -198,22 +198,22 @@ describe("runHeartbeatOnce – heartbeat model override", () => {
 
   it("uses PersAI admin default model for heartbeat when no heartbeat model is configured", async () => {
     const originalFetch = globalThis.fetch;
-    const originalToken = process.env.OPENCLAW_GATEWAY_TOKEN;
-    process.env.OPENCLAW_GATEWAY_TOKEN = "gateway-token";
+    const originalToken = process.env.PERSAI_INTERNAL_API_TOKEN;
+    process.env.PERSAI_INTERNAL_API_TOKEN = "gateway-token";
     globalThis.fetch = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
           mode: "global_settings",
           primary: {
             provider: "openai",
-            model: "gpt-4.1"
-          }
+            model: "gpt-4.1",
+          },
         }),
         {
           status: 200,
-          headers: { "content-type": "application/json" }
-        }
-      )
+          headers: { "content-type": "application/json" },
+        },
+      ),
     ) as unknown as typeof fetch;
 
     try {
@@ -224,9 +224,9 @@ describe("runHeartbeatOnce – heartbeat model override", () => {
               workspace: tmpDir,
               heartbeat: {
                 every: "5m",
-                target: "whatsapp"
-              }
-            }
+                target: "whatsapp",
+              },
+            },
           },
           channels: { whatsapp: { allowFrom: ["*"] } },
           session: { store: storePath },
@@ -234,29 +234,38 @@ describe("runHeartbeatOnce – heartbeat model override", () => {
             providers: {
               "persai-runtime": {
                 source: "persai",
-                baseUrl: "http://persai.test"
-              }
-            }
-          }
+                baseUrl: "http://persai.test",
+              },
+            },
+          },
         };
         const sessionKey = resolveMainSessionKey(cfg);
         const result = await runHeartbeatWithSeed({
           seedSession,
           cfg,
-          sessionKey
+          sessionKey,
         });
 
         expect(result.replySpy).toHaveBeenCalledWith(
           expect.any(Object),
           expect.objectContaining({
             isHeartbeat: true,
-            heartbeatModelOverride: "openai/gpt-4.1"
+            heartbeatModelOverride: "openai/gpt-4.1",
           }),
-          cfg
+          expect.objectContaining({
+            agents: expect.objectContaining({
+              defaults: expect.objectContaining({
+                heartbeat: expect.objectContaining({
+                  every: "5m",
+                  target: "whatsapp",
+                }),
+              }),
+            }),
+          }),
         );
       });
     } finally {
-      process.env.OPENCLAW_GATEWAY_TOKEN = originalToken;
+      process.env.PERSAI_INTERNAL_API_TOKEN = originalToken;
       globalThis.fetch = originalFetch;
     }
   });

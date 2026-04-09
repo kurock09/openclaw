@@ -1,7 +1,7 @@
 import type { OpenClawConfig } from "../../config/config.js";
 import type { SecretRef } from "../../config/types.secrets.js";
-import { resolveSecretRefValues } from "../../secrets/resolve.js";
 import { secretRefKey } from "../../secrets/ref-contract.js";
+import { resolveSecretRefValues } from "../../secrets/resolve.js";
 
 export type PersaiToolCredentialRef = {
   toolCode: string;
@@ -44,10 +44,7 @@ const PROVIDER_ENV_OVERRIDES: Record<string, Record<string, string>> = {
   },
 };
 
-function resolveCredentialEnvVar(
-  secretId: string,
-  providerId?: string,
-): string | undefined {
+function resolveCredentialEnvVar(secretId: string, providerId?: string): string | undefined {
   if (providerId) {
     const overrides = PROVIDER_ENV_OVERRIDES[secretId];
     if (overrides?.[providerId]) {
@@ -66,9 +63,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 }
 
 function asNonEmptyString(value: unknown): string | null {
-  return typeof value === "string" && value.trim().length > 0
-    ? value.trim()
-    : null;
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
 export class PersaiToolPolicyValidationError extends Error {
@@ -84,16 +79,15 @@ function parseCredentialRefRow(
 ): PersaiToolCredentialRef | null {
   const configured = row.configured === true;
   const secretRefObj = asRecord(row.secretRef);
-  if (!secretRefObj) return null;
+  if (!secretRefObj) {
+    return null;
+  }
 
   const source = secretRefObj.source;
   const provider = asNonEmptyString(secretRefObj.provider);
   const id = asNonEmptyString(secretRefObj.id);
   if (
-    (source !== "env" &&
-      source !== "file" &&
-      source !== "exec" &&
-      source !== "persai") ||
+    (source !== "env" && source !== "file" && source !== "exec" && source !== "persai") ||
     !provider ||
     !id
   ) {
@@ -122,20 +116,32 @@ export function extractToolCredentialRefs(
   if (Array.isArray(refs)) {
     for (const entry of refs) {
       const row = asRecord(entry);
-      if (!row) continue;
+      if (!row) {
+        continue;
+      }
       const toolCode = asNonEmptyString(row.toolCode);
-      if (!toolCode) continue;
+      if (!toolCode) {
+        continue;
+      }
       const parsed = parseCredentialRefRow(toolCode, row);
-      if (parsed) result.set(toolCode, parsed);
+      if (parsed) {
+        result.set(toolCode, parsed);
+      }
     }
   } else if (isRecord(refs)) {
     for (const [key, value] of Object.entries(refs)) {
       const toolCode = asNonEmptyString(key);
-      if (!toolCode) continue;
+      if (!toolCode) {
+        continue;
+      }
       const row = asRecord(value);
-      if (!row) continue;
+      if (!row) {
+        continue;
+      }
       const parsed = parseCredentialRefRow(toolCode, row);
-      if (parsed) result.set(toolCode, parsed);
+      if (parsed) {
+        result.set(toolCode, parsed);
+      }
     }
   }
 
@@ -154,9 +160,7 @@ export function extractToolProviderOverrides(
   return overrides;
 }
 
-export function extractToolQuotaPolicy(
-  bootstrap: unknown,
-): Map<string, PersaiToolQuotaEntry> {
+export function extractToolQuotaPolicy(bootstrap: unknown): Map<string, PersaiToolQuotaEntry> {
   const result = new Map<string, PersaiToolQuotaEntry>();
   const governance = asRecord(asRecord(bootstrap)?.governance);
   if (!governance) {
@@ -169,10 +173,14 @@ export function extractToolQuotaPolicy(
 
   for (const entry of policy) {
     const row = asRecord(entry);
-    if (!row) continue;
+    if (!row) {
+      continue;
+    }
 
     const toolCode = asNonEmptyString(row.toolCode);
-    if (!toolCode) continue;
+    if (!toolCode) {
+      continue;
+    }
 
     const activationStatus =
       row.activationStatus === "active" || row.activationStatus === "inactive"
@@ -180,8 +188,7 @@ export function extractToolQuotaPolicy(
         : "inactive";
 
     const dailyCallLimit =
-      typeof row.dailyCallLimit === "number" &&
-      Number.isFinite(row.dailyCallLimit)
+      typeof row.dailyCallLimit === "number" && Number.isFinite(row.dailyCallLimit)
         ? row.dailyCallLimit
         : null;
 
@@ -191,9 +198,7 @@ export function extractToolQuotaPolicy(
   return result;
 }
 
-export function buildToolDenyList(
-  quotaPolicy: Map<string, PersaiToolQuotaEntry>,
-): string[] {
+export function buildToolDenyList(quotaPolicy: Map<string, PersaiToolQuotaEntry>): string[] {
   const denied: string[] = [];
   for (const entry of quotaPolicy.values()) {
     if (entry.activationStatus === "inactive") {
@@ -247,25 +252,23 @@ export async function resolveToolCredentials(
   return credentials;
 }
 
-export function extractWorkspaceQuotaBytes(
-  bootstrap: unknown,
-): number | null {
+export function extractWorkspaceQuotaBytes(bootstrap: unknown): number | null {
   const governance = asRecord(asRecord(bootstrap)?.governance);
-  if (!governance) return null;
+  if (!governance) {
+    return null;
+  }
   const raw = governance.workspaceQuotaBytes;
-  return typeof raw === "number" && Number.isFinite(raw) && raw > 0
-    ? raw
-    : null;
+  return typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : null;
 }
 
-export async function validateToolPolicyForApply(
-  bootstrap: unknown,
-): Promise<void> {
+export async function validateToolPolicyForApply(bootstrap: unknown): Promise<void> {
   const credentialRefs = extractToolCredentialRefs(bootstrap);
   const quotaPolicy = extractToolQuotaPolicy(bootstrap);
 
   for (const entry of credentialRefs.values()) {
-    if (!entry.configured) continue;
+    if (!entry.configured) {
+      continue;
+    }
     const ref = entry.secretRef;
     if (
       ref.source !== "persai" &&
@@ -274,16 +277,13 @@ export async function validateToolPolicyForApply(
       ref.source !== "exec"
     ) {
       throw new PersaiToolPolicyValidationError(
-        `Tool credential ref for "${entry.toolCode}" has unsupported source "${ref.source}".`,
+        `Tool credential ref for "${entry.toolCode}" has unsupported source.`,
       );
     }
   }
 
   for (const entry of quotaPolicy.values()) {
-    if (
-      entry.activationStatus !== "active" &&
-      entry.activationStatus !== "inactive"
-    ) {
+    if (entry.activationStatus !== "active" && entry.activationStatus !== "inactive") {
       throw new PersaiToolPolicyValidationError(
         `Tool quota policy for "${entry.toolCode}" has invalid activationStatus "${String(entry.activationStatus)}".`,
       );

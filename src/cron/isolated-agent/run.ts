@@ -38,6 +38,7 @@ import {
   setSessionRuntimeModel,
   updateSessionStore,
 } from "../../config/sessions.js";
+import { resolvePersaiRuntimeConfigOverride } from "../../gateway/persai-runtime/persai-runtime-heartbeat-model.js";
 import { registerAgentRunContext } from "../../infra/agent-events.js";
 import { logWarn } from "../../logger.js";
 import { normalizeAgentId } from "../../routing/session-key.js";
@@ -193,7 +194,8 @@ export async function runCronIsolatedAgentTurn(params: {
   };
   const isFastTestEnv = process.env.OPENCLAW_TEST_FAST === "1";
   const deliveryContract = params.deliveryContract ?? "cron-owned";
-  const defaultAgentId = resolveDefaultAgentId(params.cfg);
+  const effectiveBaseCfg = (await resolvePersaiRuntimeConfigOverride(params.cfg)) ?? params.cfg;
+  const defaultAgentId = resolveDefaultAgentId(effectiveBaseCfg);
   const requestedAgentId =
     typeof params.agentId === "string" && params.agentId.trim()
       ? params.agentId
@@ -202,19 +204,19 @@ export async function runCronIsolatedAgentTurn(params: {
         : undefined;
   const normalizedRequested = requestedAgentId ? normalizeAgentId(requestedAgentId) : undefined;
   const agentConfigOverride = normalizedRequested
-    ? resolveAgentConfig(params.cfg, normalizedRequested)
+    ? resolveAgentConfig(effectiveBaseCfg, normalizedRequested)
     : undefined;
   // Use the requested agentId even when there is no explicit agent config entry.
   // This ensures auth-profiles, workspace, and agentDir all resolve to the
   // correct per-agent paths (e.g. ~/.openclaw/agents/<agentId>/agent/).
   const agentId = normalizedRequested ?? defaultAgentId;
   const agentCfg = buildCronAgentDefaultsConfig({
-    defaults: params.cfg.agents?.defaults,
+    defaults: effectiveBaseCfg.agents?.defaults,
     agentConfigOverride,
   });
   const cfgWithAgentDefaults: OpenClawConfig = {
-    ...params.cfg,
-    agents: Object.assign({}, params.cfg.agents, { defaults: agentCfg }),
+    ...effectiveBaseCfg,
+    agents: Object.assign({}, effectiveBaseCfg.agents, { defaults: agentCfg }),
   };
   let catalog: Awaited<ReturnType<typeof loadModelCatalog>> | undefined;
   const loadCatalog = async () => {
@@ -227,8 +229,8 @@ export async function runCronIsolatedAgentTurn(params: {
   const baseSessionKey = (params.sessionKey?.trim() || `cron:${params.job.id}`).trim();
   const agentSessionKey = resolveCronAgentSessionKey({ sessionKey: baseSessionKey, agentId });
 
-  const workspaceDirRaw = resolveAgentWorkspaceDir(params.cfg, agentId);
-  const agentDir = resolveAgentDir(params.cfg, agentId);
+  const workspaceDirRaw = resolveAgentWorkspaceDir(effectiveBaseCfg, agentId);
+  const agentDir = resolveAgentDir(effectiveBaseCfg, agentId);
   const workspace = await ensureAgentWorkspace({
     dir: workspaceDirRaw,
     ensureBootstrapFiles: !agentCfg?.skipBootstrap && !isFastTestEnv,
@@ -239,7 +241,7 @@ export async function runCronIsolatedAgentTurn(params: {
   const isGmailHook = baseSessionKey.startsWith("hook:gmail:");
   const now = Date.now();
   const cronSession = resolveCronSession({
-    cfg: params.cfg,
+    cfg: effectiveBaseCfg,
     sessionKey: agentSessionKey,
     agentId,
     nowMs: now,
@@ -281,7 +283,7 @@ export async function runCronIsolatedAgentTurn(params: {
   }
 
   const resolvedModelSelection = await resolveCronModelSelection({
-    cfg: params.cfg,
+    cfg: effectiveBaseCfg,
     cfgWithAgentDefaults,
     agentConfigOverride,
     sessionEntry: cronSession.sessionEntry,
@@ -299,7 +301,7 @@ export async function runCronIsolatedAgentTurn(params: {
 
   // Resolve thinking level - job thinking > hooks.gmail.thinking > model/global defaults
   const hooksGmailThinking = isGmailHook
-    ? normalizeThinkLevel(params.cfg.hooks?.gmail?.thinking)
+    ? normalizeThinkLevel(effectiveBaseCfg.hooks?.gmail?.thinking)
     : undefined;
   const jobThink = normalizeThinkLevel(
     (params.job.payload.kind === "agentTurn" ? params.job.payload.thinking : undefined) ??
@@ -335,7 +337,7 @@ export async function runCronIsolatedAgentTurn(params: {
     deliveryContract,
   });
 
-  const { formattedTime, timeLine } = resolveCronStyleNow(params.cfg, now);
+  const { formattedTime, timeLine } = resolveCronStyleNow(effectiveBaseCfg, now);
   const base = `[cron:${params.job.id} ${params.job.name}] ${params.message}`.trim();
 
   // SECURITY: Wrap external hook content with security boundaries to prevent prompt injection
@@ -343,7 +345,7 @@ export async function runCronIsolatedAgentTurn(params: {
   const isExternalHook = isExternalHookSession(baseSessionKey);
   const allowUnsafeExternalContent =
     agentPayload?.allowUnsafeExternalContent === true ||
-    (isGmailHook && params.cfg.hooks?.gmail?.allowUnsafeExternalContent === true);
+    (isGmailHook && effectiveBaseCfg.hooks?.gmail?.allowUnsafeExternalContent === true);
   const shouldWrapExternal = isExternalHook && !allowUnsafeExternalContent;
   let commandBody: string;
 
@@ -454,7 +456,7 @@ export async function runCronIsolatedAgentTurn(params: {
         runId: cronSession.sessionEntry.sessionId,
         agentDir,
         fallbacksOverride:
-          payloadFallbacks ?? resolveAgentModelFallbacksOverride(params.cfg, agentId),
+          payloadFallbacks ?? resolveAgentModelFallbacksOverride(effectiveBaseCfg, agentId),
         run: async (providerOverride, modelOverride, runOptions) => {
           if (abortSignal?.aborted) {
             throw new Error(abortReason());
@@ -753,7 +755,7 @@ export async function runCronIsolatedAgentTurn(params: {
       }),
     );
   const deliveryResult = await dispatchCronDelivery({
-    cfg: params.cfg,
+    cfg: effectiveBaseCfg,
     cfgWithAgentDefaults,
     deps: params.deps,
     job: params.job,

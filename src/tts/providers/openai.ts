@@ -1,8 +1,8 @@
-import type { SpeechProviderPlugin } from "../../plugins/types.js";
 import {
   getPersaiAssistantGender,
   resolvePersaiToolCredentialForEnvVars,
 } from "../../agents/persai-runtime-context.js";
+import type { SpeechProviderPlugin } from "../../plugins/types.js";
 import { OPENAI_TTS_MODELS, OPENAI_TTS_VOICES, openaiTTS } from "../tts-core.js";
 
 const OPENAI_GENDER_VOICES: Record<string, string> = {
@@ -20,12 +20,12 @@ export function buildOpenAISpeechProvider(): SpeechProviderPlugin {
     isConfigured: ({ config }) =>
       Boolean(
         config.openai.apiKey ||
-          resolvePersaiToolCredentialForEnvVars({
-            envVars: ["OPENAI_API_KEY"],
-            provider: "openai",
-            toolName: "tts",
-          })?.value ||
-          process.env.OPENAI_API_KEY,
+        resolvePersaiToolCredentialForEnvVars({
+          envVars: ["OPENAI_API_KEY"],
+          provider: "openai",
+          toolName: "tts",
+        })?.value ||
+        process.env.OPENAI_API_KEY,
       ),
     synthesize: async (req) => {
       const apiKey =

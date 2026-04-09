@@ -117,7 +117,9 @@ export async function validatePersaiRuntimeMedia(params: {
   requireAudio?: boolean;
 }): Promise<{ mimeType: string; extension: string | null }> {
   if (params.buffer.length > PERSAI_MAX_MEDIA_BYTES) {
-    throw new Error(`Media file too large (max ${String(PERSAI_MAX_MEDIA_BYTES / (1024 * 1024))}MB).`);
+    throw new Error(
+      `Media file too large (max ${String(PERSAI_MAX_MEDIA_BYTES / (1024 * 1024))}MB).`,
+    );
   }
 
   const extension = normalizeExtension(params.fileName);
@@ -134,7 +136,10 @@ export async function validatePersaiRuntimeMedia(params: {
   );
   const headerMime = normalizeMimeType(params.mimeType ?? undefined);
   const extensionMime = extension ? SAFE_MIME_BY_EXTENSION[extension] : undefined;
-  const effectiveMime = detectedMime ?? extensionMime ?? (headerMime !== "application/octet-stream" ? headerMime : undefined);
+  const effectiveMime =
+    detectedMime ??
+    extensionMime ??
+    (headerMime !== "application/octet-stream" ? headerMime : undefined);
 
   if (!effectiveMime || !ALLOWED_MIMES.has(effectiveMime)) {
     throw new Error("Unsupported or unsafe file type.");

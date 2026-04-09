@@ -1,5 +1,5 @@
-import type { OpenClawConfig } from "../config/config.js";
 import { resolvePersaiToolCredentialForEnvVars } from "../agents/persai-runtime-context.js";
+import type { OpenClawConfig } from "../config/config.js";
 import { normalizeResolvedSecretInputString } from "../config/types.secrets.js";
 import { logVerbose } from "../globals.js";
 import type {
@@ -200,7 +200,7 @@ export function resolveWebSearchDefinition(
     options?.providerId ??
     (runtimeSelectedHasCredential
       ? runtimeSelectedProviderId
-      : credentialBackedProviderId ?? runtimeSelectedProviderId) ??
+      : (credentialBackedProviderId ?? runtimeSelectedProviderId)) ??
     resolveWebSearchProviderId({ config: options?.config, search, providers });
   const provider =
     providers.find((entry) => entry.id === providerId) ??

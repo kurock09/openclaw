@@ -83,7 +83,11 @@ describe("cleanupPersaiAssistantSessions", () => {
     await fs.writeFile(path.join(path.dirname(persaiStorePath), "session-a1.jsonl"), "{}", "utf-8");
     await fs.writeFile(path.join(path.dirname(persaiStorePath), "session-a2.jsonl"), "{}", "utf-8");
     await fs.writeFile(path.join(path.dirname(persaiStorePath), "session-b1.jsonl"), "{}", "utf-8");
-    await fs.writeFile(path.join(path.dirname(mainStorePath), "session-main-a1.jsonl"), "{}", "utf-8");
+    await fs.writeFile(
+      path.join(path.dirname(mainStorePath), "session-main-a1.jsonl"),
+      "{}",
+      "utf-8",
+    );
     await fs.writeFile(path.join(path.dirname(mainStorePath), "session-main.jsonl"), "{}", "utf-8");
     await fs.writeFile(
       path.join(path.dirname(mainStorePath), "session-main-a1.jsonl.reset.2026-03-31T13-01-31Z"),
@@ -96,9 +100,10 @@ describe("cleanupPersaiAssistantSessions", () => {
       removedCount: 3,
     });
 
-    const remainingPersai = JSON.parse(
-      await fs.readFile(persaiStorePath, "utf-8"),
-    ) as Record<string, unknown>;
+    const remainingPersai = JSON.parse(await fs.readFile(persaiStorePath, "utf-8")) as Record<
+      string,
+      unknown
+    >;
     expect(Object.keys(remainingPersai)).toEqual(["agent:persai:assistant-b:web:chat-2"]);
 
     const remainingMain = JSON.parse(await fs.readFile(mainStorePath, "utf-8")) as Record<
@@ -107,15 +112,23 @@ describe("cleanupPersaiAssistantSessions", () => {
     >;
     expect(Object.keys(remainingMain)).toEqual(["agent:main:main"]);
 
-    await expect(fs.stat(path.join(path.dirname(persaiStorePath), "session-a1.jsonl"))).rejects.toThrow();
-    await expect(fs.stat(path.join(path.dirname(persaiStorePath), "session-a2.jsonl"))).rejects.toThrow();
-    await expect(fs.stat(path.join(path.dirname(mainStorePath), "session-main-a1.jsonl"))).rejects.toThrow();
     await expect(
-      fs.stat(path.join(path.dirname(mainStorePath), "session-main-a1.jsonl.reset.2026-03-31T13-01-31Z")),
+      fs.stat(path.join(path.dirname(persaiStorePath), "session-a1.jsonl")),
     ).rejects.toThrow();
-    expect(await fs.readFile(path.join(path.dirname(mainStorePath), "session-main.jsonl"), "utf-8")).toBe(
-      "{}",
-    );
+    await expect(
+      fs.stat(path.join(path.dirname(persaiStorePath), "session-a2.jsonl")),
+    ).rejects.toThrow();
+    await expect(
+      fs.stat(path.join(path.dirname(mainStorePath), "session-main-a1.jsonl")),
+    ).rejects.toThrow();
+    await expect(
+      fs.stat(
+        path.join(path.dirname(mainStorePath), "session-main-a1.jsonl.reset.2026-03-31T13-01-31Z"),
+      ),
+    ).rejects.toThrow();
+    expect(
+      await fs.readFile(path.join(path.dirname(mainStorePath), "session-main.jsonl"), "utf-8"),
+    ).toBe("{}");
   });
 });
 
@@ -153,8 +166,16 @@ describe("cleanupPersaiWebChatSession", () => {
       "{}",
       "utf-8",
     );
-    await fs.writeFile(path.join(path.dirname(persaiStorePath), "session-other-web.jsonl"), "{}", "utf-8");
-    await fs.writeFile(path.join(path.dirname(mainStorePath), "session-legacy-web.jsonl"), "{}", "utf-8");
+    await fs.writeFile(
+      path.join(path.dirname(persaiStorePath), "session-other-web.jsonl"),
+      "{}",
+      "utf-8",
+    );
+    await fs.writeFile(
+      path.join(path.dirname(mainStorePath), "session-legacy-web.jsonl"),
+      "{}",
+      "utf-8",
+    );
 
     await expect(
       cleanupPersaiWebChatSession({
@@ -166,9 +187,10 @@ describe("cleanupPersaiWebChatSession", () => {
       removedCount: 2,
     });
 
-    const remainingPersai = JSON.parse(
-      await fs.readFile(persaiStorePath, "utf-8"),
-    ) as Record<string, unknown>;
+    const remainingPersai = JSON.parse(await fs.readFile(persaiStorePath, "utf-8")) as Record<
+      string,
+      unknown
+    >;
     expect(Object.keys(remainingPersai)).toEqual(["agent:persai:assistant-a:web:chat-2:thread-2"]);
 
     const remainingMain = JSON.parse(await fs.readFile(mainStorePath, "utf-8")) as Record<

@@ -68,7 +68,10 @@ export class InMemoryPersaiRuntimeSpecStore implements PersaiRuntimeSpecStore {
     this.map.set(storeKey(record.assistantId, record.publishedVersionId), record);
   }
 
-  async get(assistantId: string, publishedVersionId: string): Promise<PersaiAppliedRuntimeSpec | null> {
+  async get(
+    assistantId: string,
+    publishedVersionId: string,
+  ): Promise<PersaiAppliedRuntimeSpec | null> {
     return this.map.get(storeKey(assistantId, publishedVersionId)) ?? null;
   }
 
@@ -114,14 +117,21 @@ export class RedisPersaiRuntimeSpecStore implements PersaiRuntimeSpecStore {
 
   async put(record: PersaiAppliedRuntimeSpec): Promise<void> {
     await this.ensureConnected();
-    const key = redisStoreKey(this.options.keyPrefix, record.assistantId, record.publishedVersionId);
+    const key = redisStoreKey(
+      this.options.keyPrefix,
+      record.assistantId,
+      record.publishedVersionId,
+    );
     await this.client.set(key, JSON.stringify(record));
     if (this.options.ttlSeconds > 0) {
       await this.client.expire(key, this.options.ttlSeconds);
     }
   }
 
-  async get(assistantId: string, publishedVersionId: string): Promise<PersaiAppliedRuntimeSpec | null> {
+  async get(
+    assistantId: string,
+    publishedVersionId: string,
+  ): Promise<PersaiAppliedRuntimeSpec | null> {
     await this.ensureConnected();
     const key = redisStoreKey(this.options.keyPrefix, assistantId, publishedVersionId);
     const payload = await this.client.get(key);
@@ -189,7 +199,8 @@ export function createPersaiRuntimeSpecStoreFromEnv(params?: {
       process.env.PERSAI_RUNTIME_SPEC_STORE_TTL_SECONDS,
       "PERSAI_RUNTIME_SPEC_STORE_TTL_SECONDS",
     );
-    const createRedisClient = params?.createRedisClient ?? ((redisUrl: string) => createClient({ url: redisUrl }));
+    const createRedisClient =
+      params?.createRedisClient ?? ((redisUrl: string) => createClient({ url: redisUrl }));
     return new RedisPersaiRuntimeSpecStore(createRedisClient(url), {
       keyPrefix,
       ttlSeconds,

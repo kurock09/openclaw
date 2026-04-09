@@ -1,12 +1,10 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import type { OpenClawConfig } from "../config/config.js";
 
 export interface PersaiRuntimeRequestCtx {
   assistantId?: string;
   toolDenyList?: string[];
-  toolQuotaPolicy?: Map<
-    string,
-    { toolCode: string; dailyCallLimit: number | null }
-  >;
+  toolQuotaPolicy?: Map<string, { toolCode: string; dailyCallLimit: number | null }>;
   toolLimitWebhookUrl?: string;
   cronWebhookUrl?: string;
   workspaceDir?: string;
@@ -19,6 +17,8 @@ export interface PersaiRuntimeRequestCtx {
   assistantGender?: string | null;
   /** Per-plan workspace storage quota in bytes. Null = unlimited. */
   workspaceQuotaBytes?: number | null;
+  /** Per-request effective config overlay derived from PersAI materialized policy. */
+  configOverride?: OpenClawConfig;
 }
 
 /**
@@ -30,8 +30,7 @@ export interface PersaiRuntimeRequestCtx {
  * workspace resolution, extension credential resolvers) can read the store
  * without pulling in the full openclaw-tools graph.
  */
-export const persaiRuntimeRequestContext =
-  new AsyncLocalStorage<PersaiRuntimeRequestCtx>();
+export const persaiRuntimeRequestContext = new AsyncLocalStorage<PersaiRuntimeRequestCtx>();
 
 const TOOL_PROVIDER_ENV_FALLBACKS: Record<string, Record<string, string[]>> = {
   image_generate: {
@@ -39,11 +38,7 @@ const TOOL_PROVIDER_ENV_FALLBACKS: Record<string, Record<string, string[]>> = {
   },
   tts: {
     openai: ["OPENAI_TTS_API_KEY"],
-    yandex: [
-      "YANDEX_TTS_API_KEY",
-      "YANDEX_SPEECHKIT_API_KEY",
-      "YANDEX_API_KEY",
-    ],
+    yandex: ["YANDEX_TTS_API_KEY", "YANDEX_SPEECHKIT_API_KEY", "YANDEX_API_KEY"],
   },
   memory_search: {
     openai: ["OPENAI_EMBEDDINGS_API_KEY"],
@@ -85,12 +80,8 @@ export function getPersaiAssistantGender(): string | null | undefined {
   return persaiRuntimeRequestContext.getStore()?.assistantGender;
 }
 
-export function getPersaiToolProviderOverride(
-  toolCode: string,
-): string | undefined {
-  return persaiRuntimeRequestContext
-    .getStore()
-    ?.toolProviderOverrides?.get(toolCode);
+export function getPersaiToolProviderOverride(toolCode: string): string | undefined {
+  return persaiRuntimeRequestContext.getStore()?.toolProviderOverrides?.get(toolCode);
 }
 
 export function resolvePersaiToolCredentialForEnvVars(params: {
@@ -116,8 +107,7 @@ export function resolvePersaiToolCredentialForEnvVars(params: {
     return null;
   }
 
-  const fallbackEnvVars =
-    TOOL_PROVIDER_ENV_FALLBACKS[toolName]?.[provider] ?? [];
+  const fallbackEnvVars = TOOL_PROVIDER_ENV_FALLBACKS[toolName]?.[provider] ?? [];
   for (const envVar of fallbackEnvVars) {
     const value = store.toolCredentials.get(envVar);
     if (typeof value === "string" && value.trim().length > 0) {

@@ -2,11 +2,11 @@
 
 export type { OpenClawConfig } from "../config/config.js";
 export type { SecretInput } from "../config/types.secrets.js";
-import { promptSecretRefForSetup as promptSecretRefForSetupImpl } from "../plugins/provider-auth-ref.js";
-import type { SecretRef } from "../config/types.secrets.js";
 import type { OpenClawConfig } from "../config/config.js";
-import type { WizardPrompter } from "../wizard/prompts.js";
+import type { SecretRef } from "../config/types.secrets.js";
+import { promptSecretRefForSetup as promptSecretRefForSetupImpl } from "../plugins/provider-auth-ref.js";
 import type { SecretRefSetupPromptCopy } from "../plugins/provider-auth-ref.js";
+import type { WizardPrompter } from "../wizard/prompts.js";
 export type { ProviderAuthResult } from "../plugins/types.js";
 export type { ProviderAuthContext } from "../plugins/types.js";
 export type { AuthProfileStore, OAuthCredential } from "../agents/auth-profiles/types.js";

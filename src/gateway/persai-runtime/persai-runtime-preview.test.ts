@@ -1,6 +1,5 @@
 import fs from "node:fs/promises";
 import os from "node:os";
-import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runPersaiWebRuntimePreviewTurn } from "./persai-runtime-preview.js";
 
@@ -54,8 +53,8 @@ describe("runPersaiWebRuntimePreviewTurn", () => {
       {
         runAgentTurn: vi.fn(async (input) => {
           observedWorkspaceDir = input.workspaceDir ?? null;
-          const files = await fs.readdir(input.workspaceDir!);
-          expect(files.sort()).toEqual(["IDENTITY.md", "SOUL.md"]);
+          const files = await fs.readdir(input.workspaceDir ?? "");
+          expect(files.toSorted()).toEqual(["IDENTITY.md", "SOUL.md"]);
           return {
             ok: true,
             assistantMessage: "Hello from preview.",

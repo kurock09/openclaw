@@ -2,19 +2,32 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import * as path from "node:path";
+import { resolveDefaultModelForAgent } from "../../agents/model-selection.js";
+import { compactEmbeddedPiSession } from "../../agents/pi-embedded.js";
 import { createCronTool } from "../../agents/tools/cron-tool.js";
+import { getWorkspaceUsageBytes } from "../../agents/workspace-quota-guard.js";
+import { incrementCompactionCount } from "../../auto-reply/reply/session-updates.js";
 import { loadConfig } from "../../config/config.js";
+import {
+  loadSessionStore,
+  resolveSessionFilePath,
+  resolveSessionFilePathOptions,
+  updateSessionStore,
+  type SessionEntry,
+} from "../../config/sessions.js";
 import { logInfo, logWarn } from "../../logger.js";
 import { authorizeHttpGatewayConnect, type ResolvedGatewayAuth } from "../auth.js";
 import { readJsonBody } from "../hooks.js";
 import { sendGatewayAuthFailure } from "../http-common.js";
 import { getBearerToken } from "../http-utils.js";
+import { resolveGatewaySessionStoreTarget } from "../session-utils.js";
 import {
   runPersaiTelegramAgentTurn,
   runPersaiWebRuntimeAgentTurnStream,
   runPersaiWebRuntimeAgentTurnSync,
 } from "./persai-runtime-agent-turn.js";
 import { ensureSpecFreshness } from "./persai-runtime-freshness.js";
+import { resolvePersaiLayeredRuntimeConfig } from "./persai-runtime-heartbeat-model.js";
 import {
   applyPersaiRuntimeSpecLocally,
   PersaiRuntimeSpecApplyValidationError,
@@ -25,7 +38,10 @@ import {
   cleanupPersaiAssistantSessions,
   cleanupPersaiWebChatSession,
 } from "./persai-runtime-session-cleanup.js";
-import { derivePersaiWebRuntimeSessionKey } from "./persai-runtime-session.js";
+import {
+  derivePersaiTelegramRuntimeSessionKey,
+  derivePersaiWebRuntimeSessionKey,
+} from "./persai-runtime-session.js";
 import type { PersaiRuntimeSpecStore } from "./persai-runtime-spec-store.js";
 import {
   buildToolDenyList,
@@ -35,6 +51,7 @@ import {
   extractWorkspaceQuotaBytes,
   resolveToolCredentials,
 } from "./persai-runtime-tool-policy.js";
+import { createPersaiRuntimeTrace, readPersaiRuntimeTraceRequest } from "./persai-runtime-trace.js";
 import {
   buildSchedulingContext,
   extractAssistantGenderFromWorkspace,
@@ -42,16 +59,11 @@ import {
   mergeSystemPrompt,
 } from "./persai-runtime-turn-context.js";
 import {
-  createPersaiRuntimeTrace,
-  readPersaiRuntimeTraceRequest
-} from "./persai-runtime-trace.js";
-import {
   cleanupPersaiAssistantWorkspace,
   consumePersaiAssistantBootstrapFile,
   resetPersaiAssistantMemoryWorkspace,
   resolvePersaiAssistantWorkspaceDir,
 } from "./persai-runtime-workspace.js";
-import { getWorkspaceUsageBytes } from "../../agents/workspace-quota-guard.js";
 
 export const RUNTIME_SPEC_APPLY_PATH = "/api/v1/runtime/spec/apply";
 export const RUNTIME_WORKSPACE_CLEANUP_PATH = "/api/v1/runtime/workspace/cleanup";
@@ -63,11 +75,13 @@ export const RUNTIME_CRON_CONTROL_PATH = "/api/v1/runtime/cron/control";
 export const RUNTIME_CHAT_WEB_PATH = "/api/v1/runtime/chat/web";
 export const RUNTIME_CHAT_WEB_PREVIEW_PATH = "/api/v1/runtime/chat/web/preview";
 export const RUNTIME_CHAT_WEB_SESSION_DELETE_PATH = "/api/v1/runtime/chat/web/session/delete";
+export const RUNTIME_CHAT_WEB_SESSION_STATE_PATH = "/api/v1/runtime/chat/web/session/state";
+export const RUNTIME_CHAT_WEB_COMPACT_PATH = "/api/v1/runtime/chat/web/compact";
 export const RUNTIME_CHAT_WEB_STREAM_PATH = "/api/v1/runtime/chat/web/stream";
 export const RUNTIME_CHAT_CHANNEL_PATH = "/api/v1/runtime/chat/channel";
+export const RUNTIME_CHAT_CHANNEL_SESSION_STATE_PATH = "/api/v1/runtime/chat/channel/session/state";
 export const RUNTIME_WORKSPACE_AVATAR_PATH = "/api/v1/runtime/workspace/avatar";
-export const RUNTIME_WORKSPACE_STORAGE_USAGE_PATH =
-  "/api/v1/runtime/workspace/storage-usage";
+export const RUNTIME_WORKSPACE_STORAGE_USAGE_PATH = "/api/v1/runtime/workspace/storage-usage";
 
 const MAX_RUNTIME_JSON_BYTES = 1_000_000;
 const MISSING_APPLIED_SPEC_ERROR =
@@ -107,6 +121,125 @@ function resolveToolLimitWebhookUrl(): string | undefined {
     return undefined;
   }
   return `${baseUrl}/api/v1/internal/runtime/tools/consume`;
+}
+
+function normalizeOptionalPositiveInteger(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.floor(value)
+    : null;
+}
+
+function resolvePersaiWebChatSessionRuntimeState(params: {
+  assistantId: string;
+  chatId: string;
+  surfaceThreadKey: string;
+}) {
+  const cfg = loadConfig();
+  const sessionKey = derivePersaiWebRuntimeSessionKey({
+    assistantId: params.assistantId,
+    chatId: params.chatId,
+    surfaceThreadKey: params.surfaceThreadKey,
+  });
+  const target = resolveGatewaySessionStoreTarget({
+    cfg,
+    key: sessionKey,
+  });
+  const store = loadSessionStore(target.storePath);
+  const entry =
+    target.storeKeys
+      .map((key) => store[key])
+      .find((candidate): candidate is SessionEntry => Boolean(candidate?.sessionId)) ?? null;
+  return {
+    cfg,
+    sessionKey,
+    target,
+    store,
+    entry,
+  };
+}
+
+function resolvePersaiTelegramSessionRuntimeState(params: {
+  assistantId: string;
+  threadId: string;
+}) {
+  const cfg = loadConfig();
+  const sessionKey = derivePersaiTelegramRuntimeSessionKey({
+    assistantId: params.assistantId,
+    threadId: params.threadId,
+  });
+  const target = resolveGatewaySessionStoreTarget({
+    cfg,
+    key: sessionKey,
+  });
+  const store = loadSessionStore(target.storePath);
+  const entry =
+    target.storeKeys
+      .map((key) => store[key])
+      .find((candidate): candidate is SessionEntry => Boolean(candidate?.sessionId)) ?? null;
+  return {
+    cfg,
+    sessionKey,
+    target,
+    store,
+    entry,
+  };
+}
+
+function buildPersaiWebChatSessionStatePayload(params: {
+  sessionKey: string;
+  entry: SessionEntry | null;
+  currentTokens?: number | null;
+  compactionCount?: number | null;
+}) {
+  const currentTokens =
+    params.currentTokens !== undefined
+      ? params.currentTokens
+      : normalizeOptionalPositiveInteger(params.entry?.totalTokens);
+  const compactionCountRaw =
+    params.compactionCount !== undefined ? params.compactionCount : params.entry?.compactionCount;
+  const compactionCount =
+    typeof compactionCountRaw === "number" &&
+    Number.isFinite(compactionCountRaw) &&
+    compactionCountRaw > 0
+      ? Math.floor(compactionCountRaw)
+      : 0;
+  return {
+    sessionKey: params.sessionKey,
+    found: params.entry !== null,
+    currentTokens,
+    totalTokensFresh: params.entry?.totalTokensFresh === true || currentTokens !== null,
+    compactionCount,
+    compactionHintTokens:
+      typeof params.entry?.compactionHintTokens === "number" &&
+      Number.isFinite(params.entry.compactionHintTokens) &&
+      params.entry.compactionHintTokens > 0
+        ? Math.floor(params.entry.compactionHintTokens)
+        : null,
+    updatedAt:
+      typeof params.entry?.updatedAt === "number" && Number.isFinite(params.entry.updatedAt)
+        ? new Date(params.entry.updatedAt).toISOString()
+        : null,
+    provider: params.entry?.modelProvider?.trim() || null,
+    model: params.entry?.model?.trim() || null,
+  };
+}
+
+async function setTelegramCompactionHintTokens(params: {
+  storePath: string;
+  sessionKey: string;
+  tokens: number;
+}): Promise<void> {
+  await updateSessionStore(params.storePath, (store) => {
+    const entry = store[params.sessionKey];
+    if (!entry?.sessionId) {
+      return;
+    }
+    store[params.sessionKey] = {
+      ...entry,
+      compactionHintTokens: Math.max(1, Math.floor(params.tokens)),
+      updatedAt: Date.now(),
+    };
+  });
 }
 
 export async function handleRuntimeSpecApplyHttpRequest(params: {
@@ -295,6 +428,7 @@ export async function handleRuntimeChatWebPreviewHttpRequest(params: {
     userMessage,
     userTimezone,
     currentTimeIso,
+    configOverride: await resolvePersaiLayeredRuntimeConfig({ bootstrap: spec.bootstrap }),
     spec: {
       bootstrap: spec.bootstrap,
       workspace: spec.workspace,
@@ -639,6 +773,308 @@ export async function handleRuntimeChatWebSessionDeleteHttpRequest(params: {
   return true;
 }
 
+export async function handleRuntimeChatWebSessionStateHttpRequest(params: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  requestPath: string;
+  resolvedAuth: ResolvedGatewayAuth;
+  trustedProxies: string[];
+  allowRealIpFallback: boolean;
+}): Promise<boolean> {
+  const { req, res, requestPath, resolvedAuth, trustedProxies, allowRealIpFallback } = params;
+  if (requestPath !== RUNTIME_CHAT_WEB_SESSION_STATE_PATH) {
+    return false;
+  }
+
+  const method = (req.method ?? "GET").toUpperCase();
+  if (method !== "POST") {
+    res.statusCode = 405;
+    res.setHeader("Allow", "POST");
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.end("Method Not Allowed");
+    return true;
+  }
+
+  const bearerToken = getBearerToken(req);
+  const auth = await authorizeHttpGatewayConnect({
+    auth: resolvedAuth,
+    connectAuth: bearerToken ? { token: bearerToken, password: bearerToken } : null,
+    req,
+    trustedProxies,
+    allowRealIpFallback,
+  });
+  if (!auth.ok) {
+    sendGatewayAuthFailure(res, auth);
+    return true;
+  }
+
+  const parsed = await readJsonBody(req, MAX_RUNTIME_JSON_BYTES);
+  if (!parsed.ok) {
+    sendJson(res, 400, { ok: false, error: parsed.error });
+    return true;
+  }
+
+  const payload = isRecord(parsed.value) ? parsed.value : {};
+  const assistantId = typeof payload.assistantId === "string" ? payload.assistantId.trim() : "";
+  const chatId = typeof payload.chatId === "string" ? payload.chatId.trim() : "";
+  const surfaceThreadKey =
+    typeof payload.surfaceThreadKey === "string" ? payload.surfaceThreadKey.trim() : "";
+
+  if (!assistantId || !chatId || !surfaceThreadKey) {
+    sendJson(res, 400, {
+      ok: false,
+      error: "assistantId, chatId, and surfaceThreadKey are required.",
+    });
+    return true;
+  }
+
+  const sessionState = resolvePersaiWebChatSessionRuntimeState({
+    assistantId,
+    chatId,
+    surfaceThreadKey,
+  });
+  sendJson(res, 200, {
+    ok: true,
+    state: buildPersaiWebChatSessionStatePayload({
+      sessionKey: sessionState.sessionKey,
+      entry: sessionState.entry,
+    }),
+  });
+  return true;
+}
+
+export async function handleRuntimeChatChannelSessionStateHttpRequest(params: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  requestPath: string;
+  resolvedAuth: ResolvedGatewayAuth;
+  trustedProxies: string[];
+  allowRealIpFallback: boolean;
+}): Promise<boolean> {
+  const { req, res, requestPath, resolvedAuth, trustedProxies, allowRealIpFallback } = params;
+  if (requestPath !== RUNTIME_CHAT_CHANNEL_SESSION_STATE_PATH) {
+    return false;
+  }
+
+  const method = (req.method ?? "GET").toUpperCase();
+  if (method !== "POST") {
+    res.statusCode = 405;
+    res.setHeader("Allow", "POST");
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.end("Method Not Allowed");
+    return true;
+  }
+
+  const bearerToken = getBearerToken(req);
+  const auth = await authorizeHttpGatewayConnect({
+    auth: resolvedAuth,
+    connectAuth: bearerToken ? { token: bearerToken, password: bearerToken } : null,
+    req,
+    trustedProxies,
+    allowRealIpFallback,
+  });
+  if (!auth.ok) {
+    sendGatewayAuthFailure(res, auth);
+    return true;
+  }
+
+  const parsed = await readJsonBody(req, MAX_RUNTIME_JSON_BYTES);
+  if (!parsed.ok) {
+    sendJson(res, 400, { ok: false, error: parsed.error });
+    return true;
+  }
+
+  const payload = isRecord(parsed.value) ? parsed.value : {};
+  const assistantId = typeof payload.assistantId === "string" ? payload.assistantId.trim() : "";
+  const surface = typeof payload.surface === "string" ? payload.surface.trim().toLowerCase() : "";
+  const threadId = typeof payload.threadId === "string" ? payload.threadId.trim() : "";
+  const action = typeof payload.action === "string" ? payload.action.trim() : "";
+  const tokens =
+    typeof payload.tokens === "number" && Number.isFinite(payload.tokens) && payload.tokens > 0
+      ? Math.floor(payload.tokens)
+      : null;
+
+  if (!assistantId || surface !== "telegram" || !threadId) {
+    sendJson(res, 400, {
+      ok: false,
+      error: "assistantId, surface=telegram, and threadId are required.",
+    });
+    return true;
+  }
+
+  const sessionState = resolvePersaiTelegramSessionRuntimeState({
+    assistantId,
+    threadId,
+  });
+  if (action === "mark_compaction_hint_shown") {
+    if (tokens === null) {
+      sendJson(res, 400, { ok: false, error: "tokens must be a positive number." });
+      return true;
+    }
+    if (sessionState.entry?.sessionId) {
+      await setTelegramCompactionHintTokens({
+        storePath: sessionState.target.storePath,
+        sessionKey: sessionState.target.canonicalKey,
+        tokens,
+      });
+    }
+    sendJson(res, 200, { ok: true });
+    return true;
+  }
+  sendJson(res, 200, {
+    ok: true,
+    state: buildPersaiWebChatSessionStatePayload({
+      sessionKey: sessionState.sessionKey,
+      entry: sessionState.entry,
+    }),
+  });
+  return true;
+}
+
+export async function handleRuntimeChatWebCompactHttpRequest(params: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  requestPath: string;
+  resolvedAuth: ResolvedGatewayAuth;
+  trustedProxies: string[];
+  allowRealIpFallback: boolean;
+}): Promise<boolean> {
+  const { req, res, requestPath, resolvedAuth, trustedProxies, allowRealIpFallback } = params;
+  if (requestPath !== RUNTIME_CHAT_WEB_COMPACT_PATH) {
+    return false;
+  }
+
+  const method = (req.method ?? "GET").toUpperCase();
+  if (method !== "POST") {
+    res.statusCode = 405;
+    res.setHeader("Allow", "POST");
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.end("Method Not Allowed");
+    return true;
+  }
+
+  const bearerToken = getBearerToken(req);
+  const auth = await authorizeHttpGatewayConnect({
+    auth: resolvedAuth,
+    connectAuth: bearerToken ? { token: bearerToken, password: bearerToken } : null,
+    req,
+    trustedProxies,
+    allowRealIpFallback,
+  });
+  if (!auth.ok) {
+    sendGatewayAuthFailure(res, auth);
+    return true;
+  }
+
+  const parsed = await readJsonBody(req, MAX_RUNTIME_JSON_BYTES);
+  if (!parsed.ok) {
+    sendJson(res, 400, { ok: false, error: parsed.error });
+    return true;
+  }
+
+  const payload = isRecord(parsed.value) ? parsed.value : {};
+  const assistantId = typeof payload.assistantId === "string" ? payload.assistantId.trim() : "";
+  const chatId = typeof payload.chatId === "string" ? payload.chatId.trim() : "";
+  const surfaceThreadKey =
+    typeof payload.surfaceThreadKey === "string" ? payload.surfaceThreadKey.trim() : "";
+  const instructions =
+    typeof payload.instructions === "string" && payload.instructions.trim().length > 0
+      ? payload.instructions.trim()
+      : undefined;
+
+  if (!assistantId || !chatId || !surfaceThreadKey) {
+    sendJson(res, 400, {
+      ok: false,
+      error: "assistantId, chatId, and surfaceThreadKey are required.",
+    });
+    return true;
+  }
+
+  const sessionState = resolvePersaiWebChatSessionRuntimeState({
+    assistantId,
+    chatId,
+    surfaceThreadKey,
+  });
+  if (sessionState.entry === null || !sessionState.entry.sessionId) {
+    sendJson(res, 409, {
+      ok: false,
+      error: "Compaction is unavailable until this chat has an active runtime session.",
+      state: buildPersaiWebChatSessionStatePayload({
+        sessionKey: sessionState.sessionKey,
+        entry: sessionState.entry,
+      }),
+    });
+    return true;
+  }
+
+  const effectiveCfg = await resolvePersaiLayeredRuntimeConfig({ cfg: sessionState.cfg });
+  const sessionFile = resolveSessionFilePath(
+    sessionState.entry.sessionId,
+    sessionState.entry,
+    resolveSessionFilePathOptions({
+      agentId: sessionState.target.agentId,
+      storePath: sessionState.target.storePath,
+    }),
+  );
+  const defaultModel = resolveDefaultModelForAgent({
+    cfg: effectiveCfg,
+    agentId: sessionState.target.agentId,
+  });
+  const currentTokens =
+    sessionState.entry.totalTokensFresh === true
+      ? normalizeOptionalPositiveInteger(sessionState.entry.totalTokens)
+      : null;
+  const result = await compactEmbeddedPiSession({
+    sessionId: sessionState.entry.sessionId,
+    sessionKey: sessionState.target.canonicalKey,
+    sessionFile,
+    workspaceDir:
+      sessionState.entry.spawnedWorkspaceDir?.trim() ||
+      resolvePersaiAssistantWorkspaceDir(assistantId),
+    config: effectiveCfg,
+    provider: sessionState.entry.modelProvider?.trim() || defaultModel.provider,
+    model: sessionState.entry.model?.trim() || defaultModel.model,
+    ...(currentTokens !== null ? { currentTokenCount: currentTokens } : {}),
+    ...(instructions ? { customInstructions: instructions } : {}),
+    allowGatewaySubagentBinding: true,
+    trigger: "manual",
+  });
+
+  let nextCompactionCount =
+    typeof sessionState.entry.compactionCount === "number" &&
+    Number.isFinite(sessionState.entry.compactionCount) &&
+    sessionState.entry.compactionCount > 0
+      ? Math.floor(sessionState.entry.compactionCount)
+      : 0;
+  if (result.ok && result.compacted) {
+    nextCompactionCount =
+      (await incrementCompactionCount({
+        sessionEntry: sessionState.entry,
+        sessionStore: sessionState.store,
+        sessionKey: sessionState.target.canonicalKey,
+        storePath: sessionState.target.storePath,
+        tokensAfter: result.result?.tokensAfter,
+      })) ?? nextCompactionCount;
+  }
+
+  sendJson(res, 200, {
+    ok: true,
+    result: {
+      compacted: result.compacted,
+      reason: result.reason ?? null,
+      tokensBefore: normalizeOptionalPositiveInteger(result.result?.tokensBefore),
+      tokensAfter: normalizeOptionalPositiveInteger(result.result?.tokensAfter),
+    },
+    state: buildPersaiWebChatSessionStatePayload({
+      sessionKey: sessionState.sessionKey,
+      entry: sessionState.entry,
+      currentTokens: normalizeOptionalPositiveInteger(result.result?.tokensAfter),
+      compactionCount: nextCompactionCount,
+    }),
+  });
+  return true;
+}
+
 export async function handleRuntimeCronControlHttpRequest(params: {
   req: IncomingMessage;
   res: ServerResponse;
@@ -791,7 +1227,9 @@ export async function handleRuntimeChatWebHttpRequest(params: {
   const currentTimeIso =
     typeof payload.currentTimeIso === "string" ? payload.currentTimeIso.trim() : undefined;
   const providerOverrideRaw =
-    typeof payload.providerOverride === "string" ? payload.providerOverride.trim().toLowerCase() : "";
+    typeof payload.providerOverride === "string"
+      ? payload.providerOverride.trim().toLowerCase()
+      : "";
   const modelOverrideRaw =
     typeof payload.modelOverride === "string" ? payload.modelOverride.trim() : "";
   const requestProviderOverride =
@@ -820,7 +1258,7 @@ export async function handleRuntimeChatWebHttpRequest(params: {
   const webTrace = createPersaiRuntimeTrace({
     enabled: runtimeTraceRequest.enabled,
     scope: "runtime_chat_web",
-    traceId: runtimeTraceRequest.traceId ?? randomUUID()
+    traceId: runtimeTraceRequest.traceId ?? randomUUID(),
   });
   if (runtimeTraceRequest.enabled) {
     res.setHeader("X-Persai-Overview-Trace-Id", webTrace.traceId);
@@ -892,6 +1330,9 @@ export async function handleRuntimeChatWebHttpRequest(params: {
       `persai-runtime: web turn credentials=${[...resolvedToolCredentials.keys()].join(",") || "none"} overrides=${[...toolProviderOverrides.entries()].map(([k, v]) => `${k}=${v}`).join(",") || "none"}`,
     );
 
+    const configOverride = await resolvePersaiLayeredRuntimeConfig({
+      bootstrap: applied.bootstrap,
+    });
     const agentOut = await runPersaiWebRuntimeAgentTurnSync({
       assistantId,
       userMessage,
@@ -908,6 +1349,7 @@ export async function handleRuntimeChatWebHttpRequest(params: {
       workspaceDir: applied.workspaceDir,
       assistantGender: extractAssistantGenderFromWorkspace(applied.workspace),
       workspaceQuotaBytes,
+      configOverride,
       trace: webTrace,
     });
     webTrace.stage("handler.agent_turn_returned");
@@ -918,9 +1360,9 @@ export async function handleRuntimeChatWebHttpRequest(params: {
         error: {
           code: agentOut.error.code,
           category: agentOut.error.status === 409 ? "conflict" : "infra",
-          message: agentOut.error.message
+          message: agentOut.error.message,
         },
-        ...(runtimeTrace ? { runtimeTrace } : {})
+        ...(runtimeTrace ? { runtimeTrace } : {}),
       });
       return true;
     }
@@ -931,7 +1373,7 @@ export async function handleRuntimeChatWebHttpRequest(params: {
       assistantMessage,
       media: agentOut.media,
       respondedAt: new Date().toISOString(),
-      ...(runtimeTrace ? { runtimeTrace } : {})
+      ...(runtimeTrace ? { runtimeTrace } : {}),
     });
     return true;
   }
@@ -940,7 +1382,7 @@ export async function handleRuntimeChatWebHttpRequest(params: {
   sendJson(res, 503, {
     ok: false,
     error: MISSING_APPLIED_SPEC_ERROR,
-    ...(runtimeTrace ? { runtimeTrace } : {})
+    ...(runtimeTrace ? { runtimeTrace } : {}),
   });
   return true;
 }
@@ -1006,7 +1448,9 @@ export async function handleRuntimeChatChannelHttpRequest(params: {
   const currentTimeIso =
     typeof payload.currentTimeIso === "string" ? payload.currentTimeIso.trim() : undefined;
   const providerOverrideRaw =
-    typeof payload.providerOverride === "string" ? payload.providerOverride.trim().toLowerCase() : "";
+    typeof payload.providerOverride === "string"
+      ? payload.providerOverride.trim().toLowerCase()
+      : "";
   const modelOverrideRaw =
     typeof payload.modelOverride === "string" ? payload.modelOverride.trim() : "";
   const requestProviderOverride =
@@ -1028,7 +1472,7 @@ export async function handleRuntimeChatChannelHttpRequest(params: {
   const channelTrace = createPersaiRuntimeTrace({
     enabled: runtimeTraceRequest.enabled,
     scope: "runtime_chat_channel",
-    traceId: runtimeTraceRequest.traceId ?? randomUUID()
+    traceId: runtimeTraceRequest.traceId ?? randomUUID(),
   });
   channelTrace.stage("handler.payload_validated");
 
@@ -1037,7 +1481,7 @@ export async function handleRuntimeChatChannelHttpRequest(params: {
     sendJson(res, 400, {
       ok: false,
       error: `Unsupported runtime channel surface "${surface}".`,
-      ...(runtimeTrace ? { runtimeTrace } : {})
+      ...(runtimeTrace ? { runtimeTrace } : {}),
     });
     return true;
   }
@@ -1048,7 +1492,7 @@ export async function handleRuntimeChatChannelHttpRequest(params: {
     sendJson(res, 503, {
       ok: false,
       error: MISSING_APPLIED_SPEC_ERROR,
-      ...(runtimeTrace ? { runtimeTrace } : {})
+      ...(runtimeTrace ? { runtimeTrace } : {}),
     });
     return true;
   }
@@ -1107,6 +1551,9 @@ export async function handleRuntimeChatChannelHttpRequest(params: {
     `persai-runtime: tg turn credentials=${[...resolvedToolCredentials.keys()].join(",") || "none"} overrides=${[...tgToolProviderOverrides.entries()].map(([k, v]) => `${k}=${v}`).join(",") || "none"}`,
   );
 
+  const configOverride = await resolvePersaiLayeredRuntimeConfig({
+    bootstrap: applied.bootstrap,
+  });
   const agentOut = await runPersaiTelegramAgentTurn({
     assistantId,
     userMessage,
@@ -1123,6 +1570,7 @@ export async function handleRuntimeChatChannelHttpRequest(params: {
     workspaceDir: applied.workspaceDir,
     assistantGender: extractAssistantGenderFromWorkspace(applied.workspace),
     workspaceQuotaBytes: tgWorkspaceQuotaBytes,
+    configOverride,
     trace: channelTrace,
   });
   channelTrace.stage("handler.agent_turn_returned");
@@ -1133,9 +1581,9 @@ export async function handleRuntimeChatChannelHttpRequest(params: {
       error: {
         code: agentOut.error.code,
         category: agentOut.error.status === 409 ? "conflict" : "infra",
-        message: agentOut.error.message
+        message: agentOut.error.message,
       },
-      ...(runtimeTrace ? { runtimeTrace } : {})
+      ...(runtimeTrace ? { runtimeTrace } : {}),
     });
     return true;
   }
@@ -1147,7 +1595,7 @@ export async function handleRuntimeChatChannelHttpRequest(params: {
     assistantMessage,
     media: agentOut.media,
     respondedAt: new Date().toISOString(),
-    ...(runtimeTrace ? { runtimeTrace } : {})
+    ...(runtimeTrace ? { runtimeTrace } : {}),
   });
   return true;
 }
@@ -1216,7 +1664,9 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
   const currentTimeIso =
     typeof payload.currentTimeIso === "string" ? payload.currentTimeIso.trim() : undefined;
   const providerOverrideRaw =
-    typeof payload.providerOverride === "string" ? payload.providerOverride.trim().toLowerCase() : "";
+    typeof payload.providerOverride === "string"
+      ? payload.providerOverride.trim().toLowerCase()
+      : "";
   const modelOverrideRaw =
     typeof payload.modelOverride === "string" ? payload.modelOverride.trim() : "";
   const requestProviderOverride =
@@ -1245,7 +1695,7 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
   const streamTrace = createPersaiRuntimeTrace({
     enabled: runtimeTraceRequest.enabled,
     scope: "runtime_chat_web_stream",
-    traceId: runtimeTraceRequest.traceId ?? randomUUID()
+    traceId: runtimeTraceRequest.traceId ?? randomUUID(),
   });
   if (runtimeTraceRequest.enabled) {
     res.setHeader("X-Persai-Overview-Trace-Id", streamTrace.traceId);
@@ -1266,7 +1716,7 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
     sendJson(res, 503, {
       ok: false,
       error: MISSING_APPLIED_SPEC_ERROR,
-      ...(runtimeTrace ? { runtimeTrace } : {})
+      ...(runtimeTrace ? { runtimeTrace } : {}),
     });
     return true;
   }
@@ -1331,6 +1781,9 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
     `persai-runtime: stream turn credentials=${[...streamResolvedToolCredentials.keys()].join(",") || "none"} overrides=${[...streamToolProviderOverrides.entries()].map(([k, v]) => `${k}=${v}`).join(",") || "none"}`,
   );
 
+  const configOverride = await resolvePersaiLayeredRuntimeConfig({
+    bootstrap: applied.bootstrap,
+  });
   await runPersaiWebRuntimeAgentTurnStream({
     req,
     res,
@@ -1349,7 +1802,8 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
     workspaceDir: applied.workspaceDir,
     assistantGender: extractAssistantGenderFromWorkspace(applied.workspace),
     workspaceQuotaBytes: streamWorkspaceQuotaBytes,
-    trace: streamTrace
+    configOverride,
+    trace: streamTrace,
   });
   return true;
 }

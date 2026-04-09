@@ -42,6 +42,7 @@ export type PersaiRuntimePreviewPayload = {
   userMessage: string;
   currentTimeIso?: string;
   userTimezone?: string;
+  configOverride?: ReturnType<typeof loadConfig>;
   spec: {
     bootstrap: unknown;
     workspace: unknown;
@@ -157,6 +158,7 @@ export async function runPersaiWebRuntimePreviewTurn(
       toolQuotaPolicy: quotaPolicy,
       workspaceDir: bootstrapFiles.workspaceDir,
       assistantGender: extractAssistantGenderFromWorkspace(payload.spec.workspace),
+      configOverride: payload.configOverride,
     });
   } finally {
     await deps.cleanupSessionKey(sessionKey).catch(() => {});

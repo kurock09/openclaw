@@ -5,13 +5,13 @@ import type { Api, Model } from "@mariozechner/pi-ai";
 import { describe, expect, it } from "vitest";
 import { withEnvAsync } from "../test-utils/env.js";
 import { ensureAuthProfileStore } from "./auth-profiles.js";
-import { persaiRuntimeRequestContext } from "./persai-runtime-context.js";
 import {
   getApiKeyForModel,
   hasAvailableAuthForProvider,
   resolveApiKeyForProvider,
   resolveEnvApiKey,
 } from "./model-auth.js";
+import { persaiRuntimeRequestContext } from "./persai-runtime-context.js";
 
 const envVar = (...parts: string[]) => parts.join("_");
 

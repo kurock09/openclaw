@@ -1,6 +1,15 @@
 import { resolveGlobalSingleton } from "../shared/global-singleton.js";
 
 export type HeartbeatIndicatorType = "ok" | "alert" | "error";
+export type HeartbeatTriggerKind =
+  | "retry"
+  | "interval"
+  | "manual"
+  | "exec-event"
+  | "wake"
+  | "cron"
+  | "hook"
+  | "other";
 
 export type HeartbeatEventPayload = {
   ts: number;
@@ -11,6 +20,7 @@ export type HeartbeatEventPayload = {
   durationMs?: number;
   hasMedia?: boolean;
   reason?: string;
+  triggerKind?: HeartbeatTriggerKind;
   /** The channel this heartbeat was sent to. */
   channel?: string;
   /** Whether the message was silently suppressed (showOk: false). */

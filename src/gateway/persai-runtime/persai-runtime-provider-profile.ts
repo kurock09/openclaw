@@ -1,10 +1,11 @@
-import { DEFAULT_PROVIDER } from "../../agents/defaults.js";
-import { buildConfiguredAllowlistKeys, modelKey } from "../../agents/model-selection.js";
+import { modelKey } from "../../agents/model-selection.js";
 import { loadConfig } from "../../config/config.js";
 import type { SecretRef } from "../../config/types.secrets.js";
 import { resolveSecretRefString } from "../../secrets/resolve.js";
 
-type ManagedRuntimeProvider = "openai" | "anthropic";
+export type ManagedRuntimeProvider = "openai" | "anthropic";
+
+export type PersaiAvailableModelsByProvider = Record<ManagedRuntimeProvider, string[]>;
 
 type RuntimeProviderCredentialRef = {
   refKey: string;
@@ -14,23 +15,23 @@ type RuntimeProviderCredentialRef = {
 type AdminManagedRuntimeProviderProfile = {
   schema: "persai.runtimeProviderProfile.v1";
   mode: "admin_managed";
+  availableModelsByProvider: PersaiAvailableModelsByProvider;
   primary: {
     provider: ManagedRuntimeProvider;
     model: string;
     credentialRef: RuntimeProviderCredentialRef;
   };
-  fallback:
-    | {
-        provider: ManagedRuntimeProvider;
-        model: string;
-        credentialRef: RuntimeProviderCredentialRef;
-      }
-    | null;
+  fallback: {
+    provider: ManagedRuntimeProvider;
+    model: string;
+    credentialRef: RuntimeProviderCredentialRef;
+  } | null;
 };
 
 type LegacyRuntimeProviderProfile = {
   schema: "persai.runtimeProviderProfile.v1";
   mode: "legacy_openclaw_default";
+  availableModelsByProvider: PersaiAvailableModelsByProvider;
 };
 
 export type PersaiRuntimeProviderProfile =
@@ -132,7 +133,8 @@ function parseCredentialRef(value: unknown, path: string): RuntimeProviderCreden
   }
   const secretRef = parseSecretRef(row.secretRef, `${path}.secretRef`);
   return {
-    refKey: asNonEmptyString(row.refKey) ?? `${secretRef.source}:${secretRef.provider}:${secretRef.id}`,
+    refKey:
+      asNonEmptyString(row.refKey) ?? `${secretRef.source}:${secretRef.provider}:${secretRef.id}`,
     secretRef,
   };
 }
@@ -156,6 +158,34 @@ function parseSelection(
   };
 }
 
+function parseAvailableModelsByProvider(
+  value: unknown,
+  path: string,
+): PersaiAvailableModelsByProvider {
+  const row = asRecord(value);
+  const providers: ManagedRuntimeProvider[] = ["openai", "anthropic"];
+  const result: PersaiAvailableModelsByProvider = {
+    openai: [],
+    anthropic: [],
+  };
+  for (const provider of providers) {
+    const rawList = row?.[provider];
+    if (rawList === undefined || rawList === null) {
+      result[provider] = [];
+      continue;
+    }
+    if (!Array.isArray(rawList)) {
+      throw new PersaiRuntimeProviderProfileValidationError(
+        `${path}.${provider} must be an array of model names.`,
+      );
+    }
+    result[provider] = rawList.map((entry, index) =>
+      parseModel(entry, `${path}.${provider}[${String(index)}]`),
+    );
+  }
+  return result;
+}
+
 export function resolvePersaiRuntimeProviderProfile(
   bootstrap: unknown,
 ): PersaiRuntimeProviderProfile | null {
@@ -174,6 +204,10 @@ export function resolvePersaiRuntimeProviderProfile(
     return {
       schema: "persai.runtimeProviderProfile.v1",
       mode: "legacy_openclaw_default",
+      availableModelsByProvider: parseAvailableModelsByProvider(
+        rawProfile.availableModelsByProvider,
+        "governance.runtimeProviderProfile.availableModelsByProvider",
+      ),
     };
   }
   if (rawProfile.mode !== "admin_managed") {
@@ -184,6 +218,10 @@ export function resolvePersaiRuntimeProviderProfile(
   return {
     schema: "persai.runtimeProviderProfile.v1",
     mode: "admin_managed",
+    availableModelsByProvider: parseAvailableModelsByProvider(
+      rawProfile.availableModelsByProvider,
+      "governance.runtimeProviderProfile.availableModelsByProvider",
+    ),
     primary: parseSelection(rawProfile.primary, "governance.runtimeProviderProfile.primary"),
     fallback:
       rawProfile.fallback === undefined || rawProfile.fallback === null
@@ -192,21 +230,13 @@ export function resolvePersaiRuntimeProviderProfile(
   };
 }
 
-function assertAllowlistedModel(provider: ManagedRuntimeProvider, model: string): void {
-  const cfg = loadConfig();
-  const allowlist = buildConfiguredAllowlistKeys({
-    cfg,
-    defaultProvider: DEFAULT_PROVIDER,
-  });
-  if (allowlist === null) {
-    return;
-  }
-  const key = modelKey(provider, model);
-  if (!allowlist.has(key)) {
-    throw new PersaiRuntimeProviderProfileValidationError(
-      `Runtime provider profile model "${key}" is not configured in the OpenClaw allowlist.`,
-    );
-  }
+function assertModelInProfileCatalog(
+  profile: PersaiRuntimeProviderProfile,
+  provider: ManagedRuntimeProvider,
+  model: string,
+): boolean {
+  const available = profile.availableModelsByProvider[provider] ?? [];
+  return available.includes(model);
 }
 
 async function assertResolvableSecretRef(ref: RuntimeProviderCredentialRef): Promise<void> {
@@ -231,10 +261,18 @@ export async function validatePersaiRuntimeProviderProfileForApply(
   if (profile === null || profile.mode === "legacy_openclaw_default") {
     return;
   }
-  assertAllowlistedModel(profile.primary.provider, profile.primary.model);
+  if (!assertModelInProfileCatalog(profile, profile.primary.provider, profile.primary.model)) {
+    throw new PersaiRuntimeProviderProfileValidationError(
+      `Runtime provider profile model "${modelKey(profile.primary.provider, profile.primary.model)}" is not listed in governance.runtimeProviderProfile.availableModelsByProvider.`,
+    );
+  }
   await assertResolvableSecretRef(profile.primary.credentialRef);
   if (profile.fallback !== null) {
-    assertAllowlistedModel(profile.fallback.provider, profile.fallback.model);
+    if (!assertModelInProfileCatalog(profile, profile.fallback.provider, profile.fallback.model)) {
+      throw new PersaiRuntimeProviderProfileValidationError(
+        `Runtime provider profile model "${modelKey(profile.fallback.provider, profile.fallback.model)}" is not listed in governance.runtimeProviderProfile.availableModelsByProvider.`,
+      );
+    }
     await assertResolvableSecretRef(profile.fallback.credentialRef);
   }
 }

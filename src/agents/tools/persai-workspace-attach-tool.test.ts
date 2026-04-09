@@ -12,16 +12,13 @@ describe("createPersaiWorkspaceAttachTool", () => {
     await fs.writeFile(path.join(workspaceDir, "media", "payload.js"), "console.log('x');");
 
     await expect(
-      persaiRuntimeRequestContext.run(
-        { assistantId: "assistant-1", workspaceDir },
-        async () => {
-          const tool = createPersaiWorkspaceAttachTool();
-          if (!tool) {
-            throw new Error("Tool unavailable");
-          }
-          await tool.execute("call-1", { relativePath: "media/payload.js" });
-        },
-      ),
+      persaiRuntimeRequestContext.run({ assistantId: "assistant-1", workspaceDir }, async () => {
+        const tool = createPersaiWorkspaceAttachTool();
+        if (!tool) {
+          throw new Error("Tool unavailable");
+        }
+        await tool.execute("call-1", { relativePath: "media/payload.js" });
+      }),
     ).rejects.toThrow(/Blocked dangerous file extension/);
   });
 

@@ -5,30 +5,23 @@ import * as path from "node:path";
 import { loadConfig } from "../../config/config.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { transcribeAudioFile } from "../../media-understanding/transcribe-audio.js";
-import {
-  authorizeHttpGatewayConnect,
-  type ResolvedGatewayAuth,
-} from "../auth.js";
+import { authorizeHttpGatewayConnect, type ResolvedGatewayAuth } from "../auth.js";
 import { sendGatewayAuthFailure } from "../http-common.js";
 import { getBearerToken } from "../http-utils.js";
-import { resolvePersaiAssistantWorkspaceDir } from "./persai-runtime-workspace.js";
 import {
   PERSAI_MAX_MEDIA_BYTES,
   validatePersaiRuntimeMedia,
 } from "./persai-runtime-file-security.js";
+import { resolvePersaiAssistantWorkspaceDir } from "./persai-runtime-workspace.js";
 
 const log = createSubsystemLogger("persai-runtime-media");
 
-export const RUNTIME_WORKSPACE_MEDIA_UPLOAD_PATH =
-  "/api/v1/runtime/workspace/media/upload";
-export const RUNTIME_WORKSPACE_MEDIA_DOWNLOAD_PATH =
-  "/api/v1/runtime/workspace/media/download";
-export const RUNTIME_WORKSPACE_MEDIA_DELETE_PATH =
-  "/api/v1/runtime/workspace/media/delete";
+export const RUNTIME_WORKSPACE_MEDIA_UPLOAD_PATH = "/api/v1/runtime/workspace/media/upload";
+export const RUNTIME_WORKSPACE_MEDIA_DOWNLOAD_PATH = "/api/v1/runtime/workspace/media/download";
+export const RUNTIME_WORKSPACE_MEDIA_DELETE_PATH = "/api/v1/runtime/workspace/media/delete";
 export const RUNTIME_WORKSPACE_MEDIA_DELETE_CHAT_PATH =
   "/api/v1/runtime/workspace/media/delete-chat";
-export const RUNTIME_WORKSPACE_MEDIA_TRANSCRIBE_PATH =
-  "/api/v1/runtime/workspace/media/transcribe";
+export const RUNTIME_WORKSPACE_MEDIA_TRANSCRIBE_PATH = "/api/v1/runtime/workspace/media/transcribe";
 
 const MEDIA_DIR_NAME = "media";
 
@@ -73,10 +66,7 @@ export function resolvePersaiWorkspaceMediaStoragePath(
   const assistantDir = resolvePersaiAssistantWorkspaceDir(assistantId);
   const mediaDir = resolveMediaDir(assistantId);
   const resolved = path.resolve(mediaDir, storagePath);
-  if (
-    resolved.startsWith(assistantDir + path.sep) ||
-    resolved === assistantDir
-  ) {
+  if (resolved.startsWith(assistantDir + path.sep) || resolved === assistantDir) {
     return resolved;
   }
   return null;
@@ -121,14 +111,7 @@ export async function handleRuntimeWorkspaceMediaUploadHttpRequest(params: {
   trustedProxies: string[];
   allowRealIpFallback: boolean;
 }): Promise<boolean> {
-  const {
-    req,
-    res,
-    requestPath,
-    resolvedAuth,
-    trustedProxies,
-    allowRealIpFallback,
-  } = params;
+  const { req, res, requestPath, resolvedAuth, trustedProxies, allowRealIpFallback } = params;
   if (requestPath !== RUNTIME_WORKSPACE_MEDIA_UPLOAD_PATH) {
     return false;
   }
@@ -140,9 +123,7 @@ export async function handleRuntimeWorkspaceMediaUploadHttpRequest(params: {
   const bearerToken = getBearerToken(req);
   const auth = await authorizeHttpGatewayConnect({
     auth: resolvedAuth,
-    connectAuth: bearerToken
-      ? { token: bearerToken, password: bearerToken }
-      : null,
+    connectAuth: bearerToken ? { token: bearerToken, password: bearerToken } : null,
     req,
     trustedProxies,
     allowRealIpFallback,
@@ -156,9 +137,7 @@ export async function handleRuntimeWorkspaceMediaUploadHttpRequest(params: {
   const assistantId = url.searchParams.get("assistantId")?.trim();
   const chatId = url.searchParams.get("chatId")?.trim();
   const messageId = url.searchParams.get("messageId")?.trim();
-  const mimeType = (req.headers["content-type"] ?? "application/octet-stream")
-    .split(";")[0]
-    .trim();
+  const mimeType = (req.headers["content-type"] ?? "application/octet-stream").split(";")[0].trim();
 
   if (!assistantId || !chatId || !messageId) {
     sendJson(res, 400, {
@@ -223,14 +202,7 @@ export async function handleRuntimeWorkspaceMediaDownloadHttpRequest(params: {
   trustedProxies: string[];
   allowRealIpFallback: boolean;
 }): Promise<boolean> {
-  const {
-    req,
-    res,
-    requestPath,
-    resolvedAuth,
-    trustedProxies,
-    allowRealIpFallback,
-  } = params;
+  const { req, res, requestPath, resolvedAuth, trustedProxies, allowRealIpFallback } = params;
   if (requestPath !== RUNTIME_WORKSPACE_MEDIA_DOWNLOAD_PATH) {
     return false;
   }
@@ -242,9 +214,7 @@ export async function handleRuntimeWorkspaceMediaDownloadHttpRequest(params: {
   const bearerToken = getBearerToken(req);
   const auth = await authorizeHttpGatewayConnect({
     auth: resolvedAuth,
-    connectAuth: bearerToken
-      ? { token: bearerToken, password: bearerToken }
-      : null,
+    connectAuth: bearerToken ? { token: bearerToken, password: bearerToken } : null,
     req,
     trustedProxies,
     allowRealIpFallback,
@@ -293,14 +263,7 @@ export async function handleRuntimeWorkspaceMediaDeleteHttpRequest(params: {
   trustedProxies: string[];
   allowRealIpFallback: boolean;
 }): Promise<boolean> {
-  const {
-    req,
-    res,
-    requestPath,
-    resolvedAuth,
-    trustedProxies,
-    allowRealIpFallback,
-  } = params;
+  const { req, res, requestPath, resolvedAuth, trustedProxies, allowRealIpFallback } = params;
   if (requestPath !== RUNTIME_WORKSPACE_MEDIA_DELETE_PATH) {
     return false;
   }
@@ -312,9 +275,7 @@ export async function handleRuntimeWorkspaceMediaDeleteHttpRequest(params: {
   const bearerToken = getBearerToken(req);
   const auth = await authorizeHttpGatewayConnect({
     auth: resolvedAuth,
-    connectAuth: bearerToken
-      ? { token: bearerToken, password: bearerToken }
-      : null,
+    connectAuth: bearerToken ? { token: bearerToken, password: bearerToken } : null,
     req,
     trustedProxies,
     allowRealIpFallback,
@@ -357,14 +318,7 @@ export async function handleRuntimeWorkspaceMediaDeleteChatHttpRequest(params: {
   trustedProxies: string[];
   allowRealIpFallback: boolean;
 }): Promise<boolean> {
-  const {
-    req,
-    res,
-    requestPath,
-    resolvedAuth,
-    trustedProxies,
-    allowRealIpFallback,
-  } = params;
+  const { req, res, requestPath, resolvedAuth, trustedProxies, allowRealIpFallback } = params;
   if (requestPath !== RUNTIME_WORKSPACE_MEDIA_DELETE_CHAT_PATH) {
     return false;
   }
@@ -376,9 +330,7 @@ export async function handleRuntimeWorkspaceMediaDeleteChatHttpRequest(params: {
   const bearerToken = getBearerToken(req);
   const auth = await authorizeHttpGatewayConnect({
     auth: resolvedAuth,
-    connectAuth: bearerToken
-      ? { token: bearerToken, password: bearerToken }
-      : null,
+    connectAuth: bearerToken ? { token: bearerToken, password: bearerToken } : null,
     req,
     trustedProxies,
     allowRealIpFallback,
@@ -418,14 +370,7 @@ export async function handleRuntimeWorkspaceMediaTranscribeHttpRequest(params: {
   trustedProxies: string[];
   allowRealIpFallback: boolean;
 }): Promise<boolean> {
-  const {
-    req,
-    res,
-    requestPath,
-    resolvedAuth,
-    trustedProxies,
-    allowRealIpFallback,
-  } = params;
+  const { req, res, requestPath, resolvedAuth, trustedProxies, allowRealIpFallback } = params;
   if (requestPath !== RUNTIME_WORKSPACE_MEDIA_TRANSCRIBE_PATH) {
     return false;
   }
@@ -437,9 +382,7 @@ export async function handleRuntimeWorkspaceMediaTranscribeHttpRequest(params: {
   const bearerToken = getBearerToken(req);
   const auth = await authorizeHttpGatewayConnect({
     auth: resolvedAuth,
-    connectAuth: bearerToken
-      ? { token: bearerToken, password: bearerToken }
-      : null,
+    connectAuth: bearerToken ? { token: bearerToken, password: bearerToken } : null,
     req,
     trustedProxies,
     allowRealIpFallback,

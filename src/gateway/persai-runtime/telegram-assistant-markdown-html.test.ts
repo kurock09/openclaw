@@ -51,9 +51,7 @@ describe("segmentSourceByFencedBlocks", () => {
 
 describe("convertAssistantParagraphToTelegramHtml", () => {
   test("wraps fenced code in pre", () => {
-    expect(convertAssistantParagraphToTelegramHtml("```\nline1\n```")).toBe(
-      "<pre>line1\n</pre>",
-    );
+    expect(convertAssistantParagraphToTelegramHtml("```\nline1\n```")).toBe("<pre>line1\n</pre>");
   });
 
   test("fenced block with language uses nested pre/code", () => {
@@ -77,14 +75,20 @@ describe("convertAssistantParagraphToTelegramHtml", () => {
 
 describe("buildTelegramHtmlMessageBodies", () => {
   test("packs short paragraphs into one message", () => {
-    const bodies = buildTelegramHtmlMessageBodies("Hello\n\nWorld", TELEGRAM_BOT_API_MAX_MESSAGE_LENGTH);
+    const bodies = buildTelegramHtmlMessageBodies(
+      "Hello\n\nWorld",
+      TELEGRAM_BOT_API_MAX_MESSAGE_LENGTH,
+    );
     expect(bodies).toEqual(["Hello\n\nWorld"]);
   });
 
   test("splits when combined length exceeds limit", () => {
     const a = "a".repeat(3000);
     const b = "b".repeat(3000);
-    const bodies = buildTelegramHtmlMessageBodies(`${a}\n\n${b}`, TELEGRAM_BOT_API_MAX_MESSAGE_LENGTH);
+    const bodies = buildTelegramHtmlMessageBodies(
+      `${a}\n\n${b}`,
+      TELEGRAM_BOT_API_MAX_MESSAGE_LENGTH,
+    );
     expect(bodies.length).toBeGreaterThanOrEqual(2);
     for (const body of bodies) {
       expect(body.length).toBeLessThanOrEqual(TELEGRAM_BOT_API_MAX_MESSAGE_LENGTH);

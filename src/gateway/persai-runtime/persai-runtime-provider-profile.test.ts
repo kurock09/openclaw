@@ -34,6 +34,10 @@ function createBootstrap() {
       runtimeProviderProfile: {
         schema: "persai.runtimeProviderProfile.v1",
         mode: "admin_managed",
+        availableModelsByProvider: {
+          openai: ["gpt-5.4"],
+          anthropic: ["claude-sonnet-4-5"],
+        },
         primary: {
           provider: "openai",
           model: "gpt-5.4",
@@ -89,7 +93,9 @@ describe("persai runtime provider profile", () => {
     process.env.OPENAI_API_KEY = "sk-openai-test";
     process.env.ANTHROPIC_API_KEY = "sk-anthropic-test";
 
-    await expect(validatePersaiRuntimeProviderProfileForApply(createBootstrap())).resolves.toBeUndefined();
+    await expect(
+      validatePersaiRuntimeProviderProfileForApply(createBootstrap()),
+    ).resolves.toBeUndefined();
   });
 
   test("validates allowlisted models and resolvable persai credential refs", async () => {
@@ -181,7 +187,7 @@ describe("persai runtime provider profile", () => {
     );
   });
 
-  test("rejects models outside the configured allowlist", async () => {
+  test("accepts models when they are present in the runtime provider profile catalog", async () => {
     setRuntimeConfigSnapshot(createRuntimeConfig());
     process.env.OPENAI_API_KEY = "sk-openai-test";
     process.env.ANTHROPIC_API_KEY = "sk-anthropic-test";
@@ -189,11 +195,32 @@ describe("persai runtime provider profile", () => {
     (
       bootstrap.governance.runtimeProviderProfile as {
         primary: { model: string };
+        availableModelsByProvider: { openai: string[] };
       }
     ).primary.model = "gpt-not-allowed";
+    (
+      bootstrap.governance.runtimeProviderProfile as {
+        primary: { model: string };
+        availableModelsByProvider: { openai: string[] };
+      }
+    ).availableModelsByProvider.openai = ["gpt-not-allowed"];
+
+    await expect(validatePersaiRuntimeProviderProfileForApply(bootstrap)).resolves.toBeUndefined();
+  });
+
+  test("rejects models missing from runtime provider profile catalog", async () => {
+    setRuntimeConfigSnapshot(createRuntimeConfig());
+    process.env.OPENAI_API_KEY = "sk-openai-test";
+    process.env.ANTHROPIC_API_KEY = "sk-anthropic-test";
+    const bootstrap = createBootstrap();
+    (
+      bootstrap.governance.runtimeProviderProfile as {
+        availableModelsByProvider: { openai: string[]; anthropic: string[] };
+      }
+    ).availableModelsByProvider.openai = [];
 
     await expect(validatePersaiRuntimeProviderProfileForApply(bootstrap)).rejects.toThrow(
-      'Runtime provider profile model "openai/gpt-not-allowed" is not configured in the OpenClaw allowlist.',
+      'Runtime provider profile model "openai/gpt-5.4" is not listed in governance.runtimeProviderProfile.availableModelsByProvider.',
     );
   });
 });

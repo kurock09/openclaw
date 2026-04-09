@@ -1429,6 +1429,7 @@ type PersaiTelegramTurnResult = {
   text: string;
   media: PersaiTurnMedia[];
   deduplicated?: boolean;
+  compactionHint?: string;
 };
 
 function parseTurnMedia(raw: unknown): PersaiTurnMedia[] {
@@ -1524,6 +1525,9 @@ export async function requestPersaiTelegramTurn(params: {
       return {
         text: deduplicated ? "" : trimmedAssistantMessage || "...",
         media: parseTurnMedia(payload.media),
+        ...(typeof payload.compactionHint === "string" && payload.compactionHint.trim().length > 0
+          ? { compactionHint: payload.compactionHint.trim() }
+          : {}),
         ...(deduplicated ? { deduplicated: true } : {}),
       };
     }
@@ -1619,6 +1623,9 @@ export async function sendTelegramAssistantTurnReply(
   }
   if (turnResult.media.length > 0) {
     await deliverTelegramMedia(bot, chatId, assistantId, turnResult.media);
+  }
+  if (turnResult.compactionHint) {
+    await sendTelegramReplyWithConfiguredParseMode(ctx, turnResult.compactionHint, parseMode);
   }
 }
 

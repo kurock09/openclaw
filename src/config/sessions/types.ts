@@ -162,6 +162,12 @@ export type SessionEntry = {
   fallbackNoticeReason?: string;
   contextTokens?: number;
   compactionCount?: number;
+  /**
+   * Telegram compaction hint watermark.
+   * When present, the hint should not be shown again until session tokens
+   * grow meaningfully beyond this level.
+   */
+  compactionHintTokens?: number;
   memoryFlushAt?: number;
   memoryFlushCompactionCount?: number;
   memoryFlushContextHash?: string;

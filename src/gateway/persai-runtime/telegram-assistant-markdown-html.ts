@@ -15,14 +15,14 @@ const STASH_OPEN = "\uE000";
 const STASH_CLOSE = "\uE001";
 
 /** First line after ``` is a language id when it matches this (Telegram / libprisma style ids). */
-const FENCE_INFO_LINE = /^[A-Za-z0-9][A-Za-z0-9_#.+\-]*$/;
+const FENCE_INFO_LINE = /^[A-Za-z0-9][A-Za-z0-9_#.+-]*$/;
 
 const LANGUAGE_ALIASES: Record<string, string> = {
   "c++": "cpp",
   "c#": "csharp",
   "f#": "fsharp",
   "objective-c": "objc",
-  "objectivec": "objc",
+  objectivec: "objc",
   js: "javascript",
   ts: "typescript",
   py: "python",
@@ -59,7 +59,9 @@ export function fencedBlockToHtml(language: string, code: string): string {
   return `<pre>${escaped}</pre>`;
 }
 
-type SourceSegment = { kind: "text"; raw: string } | { kind: "fence"; language: string; code: string };
+type SourceSegment =
+  | { kind: "text"; raw: string }
+  | { kind: "fence"; language: string; code: string };
 
 /**
  * Split markdown source into text spans and fenced code blocks so inner blank lines do not break paragraphs.
@@ -143,10 +145,7 @@ function splitFencedHtmlToFit(language: string, code: string, maxChars: number):
 }
 
 export function escapeTelegramHtmlText(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 function escapeHtmlAttrValue(text: string): string {
@@ -269,7 +268,10 @@ function flushBuffer(buf: string, out: string[]): string {
 }
 
 function emitOversizedParagraph(messages: string[], markdown: string, maxChars: number): void {
-  const lines = markdown.split(/\n/).map((l) => l.trim()).filter(Boolean);
+  const lines = markdown
+    .split(/\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
   if (lines.length > 1) {
     for (const line of lines) {
       emitOversizedParagraph(messages, line, maxChars);

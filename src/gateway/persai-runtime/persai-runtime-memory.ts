@@ -1,17 +1,14 @@
-import fs from "node:fs/promises";
-import path from "node:path";
 import { randomUUID } from "node:crypto";
+import fs from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import {
-  authorizeHttpGatewayConnect,
-  type ResolvedGatewayAuth,
-} from "../auth.js";
+import path from "node:path";
+import { createSubsystemLogger } from "../../logging/subsystem.js";
+import { authorizeHttpGatewayConnect, type ResolvedGatewayAuth } from "../auth.js";
 import { readJsonBody } from "../hooks.js";
 import { sendGatewayAuthFailure } from "../http-common.js";
 import { getBearerToken } from "../http-utils.js";
 import type { PersaiRuntimeSpecStore } from "./persai-runtime-spec-store.js";
 import { resolvePersaiAssistantWorkspaceDir } from "./persai-runtime-workspace.js";
-import { createSubsystemLogger } from "../../logging/subsystem.js";
 
 const log = createSubsystemLogger("persai-runtime-memory");
 const MAX_JSON_BYTES = 512_000;
@@ -55,13 +52,17 @@ async function readMemoryFile(filePath: string): Promise<string> {
 }
 
 function parseMemoryItems(raw: string): MemoryItem[] {
-  if (!raw.trim()) return [];
+  if (!raw.trim()) {
+    return [];
+  }
   const items: MemoryItem[] = [];
   const blocks = raw.split(ITEM_SEPARATOR);
 
   for (const block of blocks) {
     const trimmed = block.trim();
-    if (!trimmed) continue;
+    if (!trimmed) {
+      continue;
+    }
 
     const idMatch = trimmed.match(/<!-- id:(\S+) -->/);
     const dateMatch = trimmed.match(/<!-- date:(\S+) -->/);
@@ -75,7 +76,9 @@ function parseMemoryItems(raw: string): MemoryItem[] {
 
     if (content.startsWith("# MEMORY.md")) {
       content = content.replace(/^# MEMORY\.md\s*\n?/, "").trim();
-      if (!content) continue;
+      if (!content) {
+        continue;
+      }
     }
 
     items.push({ id, content, createdAt, source: "user" });
@@ -88,7 +91,9 @@ function serializeMemoryItems(items: MemoryItem[]): string {
   const lines = ["# MEMORY.md\n"];
   for (const item of items) {
     const meta = [`<!-- id:${item.id} -->`];
-    if (item.createdAt) meta.push(`<!-- date:${item.createdAt} -->`);
+    if (item.createdAt) {
+      meta.push(`<!-- date:${item.createdAt} -->`);
+    }
     lines.push(`${meta.join("\n")}\n${item.content}`);
   }
   return lines.join(ITEM_SEPARATOR) + "\n";
@@ -104,9 +109,7 @@ async function authenticateRequest(params: {
   const bearerToken = getBearerToken(params.req);
   const auth = await authorizeHttpGatewayConnect({
     auth: params.resolvedAuth,
-    connectAuth: bearerToken
-      ? { token: bearerToken, password: bearerToken }
-      : null,
+    connectAuth: bearerToken ? { token: bearerToken, password: bearerToken } : null,
     req: params.req,
     trustedProxies: params.trustedProxies,
     allowRealIpFallback: params.allowRealIpFallback,
@@ -127,9 +130,9 @@ function extractAssistantId(params: {
   const url = new URL(req.url ?? "/", "http://localhost");
 
   const id =
-    (payload && typeof payload.assistantId === "string"
-      ? payload.assistantId.trim()
-      : "") || url.searchParams.get("assistantId")?.trim() || "";
+    (payload && typeof payload.assistantId === "string" ? payload.assistantId.trim() : "") ||
+    url.searchParams.get("assistantId")?.trim() ||
+    "";
 
   if (!id) {
     sendJson(res, 400, {
@@ -150,7 +153,9 @@ export async function handleRuntimeMemoryItemsHttpRequest(params: {
   allowRealIpFallback: boolean;
   store: PersaiRuntimeSpecStore;
 }): Promise<boolean> {
-  if (params.requestPath !== RUNTIME_MEMORY_ITEMS_PATH) return false;
+  if (params.requestPath !== RUNTIME_MEMORY_ITEMS_PATH) {
+    return false;
+  }
 
   if ((params.req.method ?? "GET").toUpperCase() !== "GET") {
     params.res.statusCode = 405;
@@ -159,16 +164,17 @@ export async function handleRuntimeMemoryItemsHttpRequest(params: {
     return true;
   }
 
-  if (
-    !(await authenticateRequest(params))
-  )
+  if (!(await authenticateRequest(params))) {
     return true;
+  }
 
   const assistantId = extractAssistantId({
     req: params.req,
     res: params.res,
   });
-  if (!assistantId) return true;
+  if (!assistantId) {
+    return true;
+  }
 
   const filePath = resolveMemoryFilePath(assistantId);
   const raw = await readMemoryFile(filePath);
@@ -187,7 +193,9 @@ export async function handleRuntimeMemoryAddHttpRequest(params: {
   allowRealIpFallback: boolean;
   store: PersaiRuntimeSpecStore;
 }): Promise<boolean> {
-  if (params.requestPath !== RUNTIME_MEMORY_ADD_PATH) return false;
+  if (params.requestPath !== RUNTIME_MEMORY_ADD_PATH) {
+    return false;
+  }
 
   if ((params.req.method ?? "GET").toUpperCase() !== "POST") {
     params.res.statusCode = 405;
@@ -196,7 +204,9 @@ export async function handleRuntimeMemoryAddHttpRequest(params: {
     return true;
   }
 
-  if (!(await authenticateRequest(params))) return true;
+  if (!(await authenticateRequest(params))) {
+    return true;
+  }
 
   const parsed = await readJsonBody(params.req, MAX_JSON_BYTES);
   if (!parsed.ok) {
@@ -210,10 +220,11 @@ export async function handleRuntimeMemoryAddHttpRequest(params: {
     res: params.res,
     payload,
   });
-  if (!assistantId) return true;
+  if (!assistantId) {
+    return true;
+  }
 
-  const content =
-    typeof payload.content === "string" ? payload.content.trim() : "";
+  const content = typeof payload.content === "string" ? payload.content.trim() : "";
   if (!content) {
     sendJson(params.res, 400, {
       ok: false,
@@ -251,7 +262,9 @@ export async function handleRuntimeMemoryEditHttpRequest(params: {
   allowRealIpFallback: boolean;
   store: PersaiRuntimeSpecStore;
 }): Promise<boolean> {
-  if (params.requestPath !== RUNTIME_MEMORY_EDIT_PATH) return false;
+  if (params.requestPath !== RUNTIME_MEMORY_EDIT_PATH) {
+    return false;
+  }
 
   if ((params.req.method ?? "GET").toUpperCase() !== "PATCH") {
     params.res.statusCode = 405;
@@ -260,7 +273,9 @@ export async function handleRuntimeMemoryEditHttpRequest(params: {
     return true;
   }
 
-  if (!(await authenticateRequest(params))) return true;
+  if (!(await authenticateRequest(params))) {
+    return true;
+  }
 
   const parsed = await readJsonBody(params.req, MAX_JSON_BYTES);
   if (!parsed.ok) {
@@ -274,12 +289,12 @@ export async function handleRuntimeMemoryEditHttpRequest(params: {
     res: params.res,
     payload,
   });
-  if (!assistantId) return true;
+  if (!assistantId) {
+    return true;
+  }
 
-  const itemId =
-    typeof payload.itemId === "string" ? payload.itemId.trim() : "";
-  const content =
-    typeof payload.content === "string" ? payload.content.trim() : "";
+  const itemId = typeof payload.itemId === "string" ? payload.itemId.trim() : "";
+  const content = typeof payload.content === "string" ? payload.content.trim() : "";
   if (!itemId || !content) {
     sendJson(params.res, 400, {
       ok: false,
@@ -318,7 +333,9 @@ export async function handleRuntimeMemoryForgetHttpRequest(params: {
   allowRealIpFallback: boolean;
   store: PersaiRuntimeSpecStore;
 }): Promise<boolean> {
-  if (params.requestPath !== RUNTIME_MEMORY_FORGET_PATH) return false;
+  if (params.requestPath !== RUNTIME_MEMORY_FORGET_PATH) {
+    return false;
+  }
 
   if ((params.req.method ?? "GET").toUpperCase() !== "POST") {
     params.res.statusCode = 405;
@@ -327,7 +344,9 @@ export async function handleRuntimeMemoryForgetHttpRequest(params: {
     return true;
   }
 
-  if (!(await authenticateRequest(params))) return true;
+  if (!(await authenticateRequest(params))) {
+    return true;
+  }
 
   const parsed = await readJsonBody(params.req, MAX_JSON_BYTES);
   if (!parsed.ok) {
@@ -341,10 +360,11 @@ export async function handleRuntimeMemoryForgetHttpRequest(params: {
     res: params.res,
     payload,
   });
-  if (!assistantId) return true;
+  if (!assistantId) {
+    return true;
+  }
 
-  const itemId =
-    typeof payload.itemId === "string" ? payload.itemId.trim() : "";
+  const itemId = typeof payload.itemId === "string" ? payload.itemId.trim() : "";
   if (!itemId) {
     sendJson(params.res, 400, {
       ok: false,
@@ -383,7 +403,9 @@ export async function handleRuntimeMemorySearchHttpRequest(params: {
   allowRealIpFallback: boolean;
   store: PersaiRuntimeSpecStore;
 }): Promise<boolean> {
-  if (params.requestPath !== RUNTIME_MEMORY_SEARCH_PATH) return false;
+  if (params.requestPath !== RUNTIME_MEMORY_SEARCH_PATH) {
+    return false;
+  }
 
   if ((params.req.method ?? "GET").toUpperCase() !== "GET") {
     params.res.statusCode = 405;
@@ -392,7 +414,9 @@ export async function handleRuntimeMemorySearchHttpRequest(params: {
     return true;
   }
 
-  if (!(await authenticateRequest(params))) return true;
+  if (!(await authenticateRequest(params))) {
+    return true;
+  }
 
   const url = new URL(params.req.url ?? "/", "http://localhost");
   const assistantId = url.searchParams.get("assistantId")?.trim() ?? "";
@@ -418,9 +442,7 @@ export async function handleRuntimeMemorySearchHttpRequest(params: {
   const raw = await readMemoryFile(filePath);
   const items = parseMemoryItems(raw);
   const lowerQuery = query.toLowerCase();
-  const results = items.filter((item) =>
-    item.content.toLowerCase().includes(lowerQuery),
-  );
+  const results = items.filter((item) => item.content.toLowerCase().includes(lowerQuery));
 
   sendJson(params.res, 200, { ok: true, items: results });
   return true;

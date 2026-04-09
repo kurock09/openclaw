@@ -5,6 +5,7 @@ import { PersaiRuntimeToolLimitError } from "../../agents/persai-runtime-tool-li
 import { isSilentReplyPrefixText, isSilentReplyText } from "../../auto-reply/tokens.js";
 import { createDefaultDeps } from "../../cli/deps.js";
 import { agentCommandFromIngress } from "../../commands/agent.js";
+import type { OpenClawConfig } from "../../config/config.js";
 import { onAgentEvent } from "../../infra/agent-events.js";
 import { normalizeOutboundPayloads } from "../../infra/outbound/payloads.js";
 import { logWarn } from "../../logger.js";
@@ -138,15 +139,13 @@ export async function runPersaiWebRuntimeAgentTurnSync(params: {
   resolvedToolCredentials?: Map<string, string>;
   toolProviderOverrides?: Map<string, string>;
   toolDenyList?: string[];
-  toolQuotaPolicy?: Map<
-    string,
-    { toolCode: string; dailyCallLimit: number | null }
-  >;
+  toolQuotaPolicy?: Map<string, { toolCode: string; dailyCallLimit: number | null }>;
   toolLimitWebhookUrl?: string;
   cronWebhookUrl?: string;
   workspaceDir?: string;
   assistantGender?: string | null;
   workspaceQuotaBytes?: number | null;
+  configOverride?: OpenClawConfig;
   trace?: PersaiRuntimeTraceHandle;
 }): Promise<
   | { ok: true; assistantMessage: string; media: PersaiMediaArtifact[] }
@@ -179,6 +178,7 @@ export async function runPersaiWebRuntimeAgentTurnSync(params: {
     toolProviderOverrides: params.toolProviderOverrides,
     assistantGender: params.assistantGender,
     workspaceQuotaBytes: params.workspaceQuotaBytes,
+    configOverride: params.configOverride,
   };
   params.trace?.stage("agent_turn.runtime_ctx_built");
 
@@ -213,15 +213,13 @@ export async function runPersaiTelegramAgentTurn(params: {
   resolvedToolCredentials?: Map<string, string>;
   toolProviderOverrides?: Map<string, string>;
   toolDenyList?: string[];
-  toolQuotaPolicy?: Map<
-    string,
-    { toolCode: string; dailyCallLimit: number | null }
-  >;
+  toolQuotaPolicy?: Map<string, { toolCode: string; dailyCallLimit: number | null }>;
   toolLimitWebhookUrl?: string;
   cronWebhookUrl?: string;
   workspaceDir?: string;
   assistantGender?: string | null;
   workspaceQuotaBytes?: number | null;
+  configOverride?: OpenClawConfig;
   trace?: PersaiRuntimeTraceHandle;
 }): Promise<
   | { ok: true; assistantMessage: string; media: PersaiMediaArtifact[] }
@@ -258,6 +256,7 @@ export async function runPersaiTelegramAgentTurn(params: {
     toolProviderOverrides: params.toolProviderOverrides,
     assistantGender: params.assistantGender,
     workspaceQuotaBytes: params.workspaceQuotaBytes,
+    configOverride: params.configOverride,
   };
   params.trace?.stage("agent_turn.runtime_ctx_built");
 
@@ -276,9 +275,7 @@ export async function runPersaiTelegramAgentTurn(params: {
   } catch (err) {
     params.trace?.fail("agent_turn.telegram_failed", err);
     const normalized = toPersaiRuntimeTurnError(err);
-    logWarn(
-      `persai-runtime: telegram agent turn failed: ${normalized.message}`,
-    );
+    logWarn(`persai-runtime: telegram agent turn failed: ${normalized.message}`);
     return { ok: false, error: normalized };
   }
 }
@@ -299,15 +296,13 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
   resolvedToolCredentials?: Map<string, string>;
   toolProviderOverrides?: Map<string, string>;
   toolDenyList?: string[];
-  toolQuotaPolicy?: Map<
-    string,
-    { toolCode: string; dailyCallLimit: number | null }
-  >;
+  toolQuotaPolicy?: Map<string, { toolCode: string; dailyCallLimit: number | null }>;
   toolLimitWebhookUrl?: string;
   cronWebhookUrl?: string;
   workspaceDir?: string;
   assistantGender?: string | null;
   workspaceQuotaBytes?: number | null;
+  configOverride?: OpenClawConfig;
   trace?: PersaiRuntimeTraceHandle;
 }): Promise<void> {
   const runId = randomUUID();
@@ -336,6 +331,7 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
     toolProviderOverrides: params.toolProviderOverrides,
     assistantGender: params.assistantGender,
     workspaceQuotaBytes: params.workspaceQuotaBytes,
+    configOverride: params.configOverride,
   };
   params.trace?.stage("agent_turn.runtime_ctx_built");
 
@@ -348,22 +344,30 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
     if (evt.runId !== runId || closed) {
       return;
     }
+    if (evt.stream === "compaction") {
+      const phase = typeof evt.data?.phase === "string" ? evt.data.phase : "";
+      if (phase === "start" || phase === "end") {
+        params.res.write(
+          `${JSON.stringify({
+            type: "compaction",
+            phase,
+            completed: evt.data?.completed === true,
+            willRetry: evt.data?.willRetry === true,
+          })}\n`,
+        );
+      }
+      return;
+    }
     if (evt.stream === "assistant") {
       const content = resolveAssistantStreamDeltaText(evt) ?? "";
-      if (
-        content &&
-        !isSilentReplyText(content) &&
-        !isSilentReplyPrefixText(content)
-      ) {
+      if (content && !isSilentReplyText(content) && !isSilentReplyPrefixText(content)) {
         if (!sawAssistantDelta) {
           sawAssistantDelta = true;
           params.trace?.stage("agent_turn.first_assistant_delta", {
             deltaLength: content.length,
           });
         }
-        params.res.write(
-          `${JSON.stringify({ type: "delta", delta: content })}\n`,
-        );
+        params.res.write(`${JSON.stringify({ type: "delta", delta: content })}\n`);
       }
       return;
     }
@@ -377,9 +381,7 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
             deltaLength: delta.length,
           });
         }
-        params.res.write(
-          `${JSON.stringify({ type: "thinking", delta, text })}\n`,
-        );
+        params.res.write(`${JSON.stringify({ type: "thinking", delta, text })}\n`);
       }
       return;
     }
@@ -408,22 +410,16 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
           sawAssistantDelta,
         });
         if (!sawAssistantDelta && response.text) {
-          params.res.write(
-            `${JSON.stringify({ type: "delta", delta: response.text })}\n`,
-          );
+          params.res.write(`${JSON.stringify({ type: "delta", delta: response.text })}\n`);
         }
         if (response.media.length > 0) {
-          params.res.write(
-            `${JSON.stringify({ type: "media", media: response.media })}\n`,
-          );
+          params.res.write(`${JSON.stringify({ type: "media", media: response.media })}\n`);
         }
       } catch (err) {
         finalTraceStatus = "error";
         params.trace?.fail("agent_turn.stream_failed", err);
         const normalized = toPersaiRuntimeTurnError(err);
-        logWarn(
-          `persai-runtime: stream agent turn failed: ${normalized.message}`,
-        );
+        logWarn(`persai-runtime: stream agent turn failed: ${normalized.message}`);
         if (!closed) {
           params.res.write(
             `${JSON.stringify({
@@ -442,7 +438,7 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
             `${JSON.stringify({
               type: "done",
               respondedAt: new Date().toISOString(),
-              ...(runtimeTrace ? { runtimeTrace } : {})
+              ...(runtimeTrace ? { runtimeTrace } : {}),
             })}\n`,
           );
           params.res.end();

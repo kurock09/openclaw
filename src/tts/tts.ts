@@ -10,8 +10,11 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-payload";
+import {
+  getPersaiToolProviderOverride,
+  resolvePersaiToolCredentialForEnvVars,
+} from "../agents/persai-runtime-context.js";
 import type { ReplyPayload } from "../auto-reply/types.js";
-import { normalizeMessageChannel } from "../utils/message-channel.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { normalizeResolvedSecretInputString } from "../config/types.secrets.js";
 import type {
@@ -28,11 +31,8 @@ import {
   OPENAI_DEFAULT_TTS_MODEL as DEFAULT_OPENAI_MODEL,
   OPENAI_DEFAULT_TTS_VOICE as DEFAULT_OPENAI_VOICE,
 } from "../providers/openai-defaults.js";
-import {
-  getPersaiToolProviderOverride,
-  resolvePersaiToolCredentialForEnvVars,
-} from "../agents/persai-runtime-context.js";
 import { CONFIG_DIR, resolveUserPath } from "../utils.js";
+import { normalizeMessageChannel } from "../utils/message-channel.js";
 import {
   getSpeechProvider,
   listSpeechProviders,
@@ -89,12 +89,7 @@ const DEFAULT_OUTPUT = {
   voiceCompatible: false,
 };
 
-const TTS_AUTO_MODES = new Set<TtsAutoMode>([
-  "off",
-  "always",
-  "inbound",
-  "tagged",
-]);
+const TTS_AUTO_MODES = new Set<TtsAutoMode>(["off", "always", "inbound", "tagged"]);
 
 export type ResolvedTtsConfig = {
   auto: TtsAutoMode;
@@ -275,8 +270,7 @@ function resolveModelOverridePolicy(
       allowSeed: false,
     };
   }
-  const allow = (value: boolean | undefined, defaultValue = true) =>
-    value ?? defaultValue;
+  const allow = (value: boolean | undefined, defaultValue = true) => value ?? defaultValue;
   return {
     enabled: true,
     allowText: allow(overrides?.allowText),
@@ -295,8 +289,7 @@ export function resolveTtsConfig(cfg: OpenClawConfig): ResolvedTtsConfig {
   const providerSource = raw.provider ? "config" : "default";
   const rawMicrosoft = { ...raw.edge, ...raw.microsoft };
   const edgeOutputFormat = rawMicrosoft.outputFormat?.trim();
-  const auto =
-    normalizeTtsAutoMode(raw.auto) ?? (raw.enabled ? "always" : "off");
+  const auto = normalizeTtsAutoMode(raw.auto) ?? (raw.enabled ? "always" : "off");
   return {
     auto,
     mode: raw.mode ?? "final",
@@ -317,20 +310,15 @@ export function resolveTtsConfig(cfg: OpenClawConfig): ResolvedTtsConfig {
       languageCode: raw.elevenlabs?.languageCode,
       voiceSettings: {
         stability:
-          raw.elevenlabs?.voiceSettings?.stability ??
-          DEFAULT_ELEVENLABS_VOICE_SETTINGS.stability,
+          raw.elevenlabs?.voiceSettings?.stability ?? DEFAULT_ELEVENLABS_VOICE_SETTINGS.stability,
         similarityBoost:
           raw.elevenlabs?.voiceSettings?.similarityBoost ??
           DEFAULT_ELEVENLABS_VOICE_SETTINGS.similarityBoost,
-        style:
-          raw.elevenlabs?.voiceSettings?.style ??
-          DEFAULT_ELEVENLABS_VOICE_SETTINGS.style,
+        style: raw.elevenlabs?.voiceSettings?.style ?? DEFAULT_ELEVENLABS_VOICE_SETTINGS.style,
         useSpeakerBoost:
           raw.elevenlabs?.voiceSettings?.useSpeakerBoost ??
           DEFAULT_ELEVENLABS_VOICE_SETTINGS.useSpeakerBoost,
-        speed:
-          raw.elevenlabs?.voiceSettings?.speed ??
-          DEFAULT_ELEVENLABS_VOICE_SETTINGS.speed,
+        speed: raw.elevenlabs?.voiceSettings?.speed ?? DEFAULT_ELEVENLABS_VOICE_SETTINGS.speed,
       },
     },
     openai: {
@@ -392,9 +380,7 @@ export function resolveTtsPrefsPath(config: ResolvedTtsConfig): string {
   return path.join(CONFIG_DIR, "settings", "tts.json");
 }
 
-function resolveTtsAutoModeFromPrefs(
-  prefs: TtsUserPrefs,
-): TtsAutoMode | undefined {
+function resolveTtsAutoModeFromPrefs(prefs: TtsUserPrefs): TtsAutoMode | undefined {
   const auto = normalizeTtsAutoMode(prefs.tts?.auto);
   if (auto) {
     return auto;
@@ -421,9 +407,7 @@ export function resolveTtsAutoMode(params: {
   return params.config.auto;
 }
 
-export function buildTtsSystemPromptHint(
-  cfg: OpenClawConfig,
-): string | undefined {
+export function buildTtsSystemPromptHint(cfg: OpenClawConfig): string | undefined {
   const config = resolveTtsConfig(cfg);
   const prefsPath = resolveTtsPrefsPath(config);
   const autoMode = resolveTtsAutoMode({ config, prefsPath });
@@ -474,10 +458,7 @@ function atomicWriteFileSync(filePath: string, content: string): void {
   }
 }
 
-function updatePrefs(
-  prefsPath: string,
-  update: (prefs: TtsUserPrefs) => void,
-): void {
+function updatePrefs(prefsPath: string, update: (prefs: TtsUserPrefs) => void): void {
   const prefs = readPrefs(prefsPath);
   update(prefs);
   mkdirSync(path.dirname(prefsPath), { recursive: true });
@@ -505,13 +486,8 @@ export function setTtsEnabled(prefsPath: string, enabled: boolean): void {
   setTtsAutoMode(prefsPath, enabled ? "always" : "off");
 }
 
-export function getTtsProvider(
-  config: ResolvedTtsConfig,
-  prefsPath: string,
-): TtsProvider {
-  const persaiOverride = normalizeSpeechProviderId(
-    getPersaiToolProviderOverride("tts"),
-  );
+export function getTtsProvider(config: ResolvedTtsConfig, prefsPath: string): TtsProvider {
+  const persaiOverride = normalizeSpeechProviderId(getPersaiToolProviderOverride("tts"));
   if (persaiOverride) {
     return persaiOverride;
   }
@@ -559,10 +535,7 @@ export function isSummarizationEnabled(prefsPath: string): boolean {
   return prefs.tts?.summarize ?? DEFAULT_TTS_SUMMARIZE;
 }
 
-export function setSummarizationEnabled(
-  prefsPath: string,
-  enabled: boolean,
-): void {
+export function setSummarizationEnabled(prefsPath: string, enabled: boolean): void {
   updatePrefs(prefsPath, (prefs) => {
     prefs.tts = { ...prefs.tts, summarize: enabled };
   });
@@ -577,12 +550,7 @@ export function setLastTtsAttempt(entry: TtsStatusEntry | undefined): void {
 }
 
 /** Channels that require opus audio and support voice-bubble playback */
-const VOICE_BUBBLE_CHANNELS = new Set([
-  "telegram",
-  "feishu",
-  "whatsapp",
-  "matrix",
-]);
+const VOICE_BUBBLE_CHANNELS = new Set(["telegram", "feishu", "whatsapp", "matrix"]);
 
 function resolveOutputFormat(channelId?: string | null) {
   if (channelId && VOICE_BUBBLE_CHANNELS.has(channelId)) {
@@ -592,7 +560,7 @@ function resolveOutputFormat(channelId?: string | null) {
 }
 
 function resolveChannelId(channel: string | undefined): string | null {
-  return channel ? normalizeMessageChannel(channel) ?? null : null;
+  return channel ? (normalizeMessageChannel(channel) ?? null) : null;
 }
 
 function resolveEdgeOutputFormat(config: ResolvedTtsConfig): string {
@@ -631,11 +599,7 @@ export function resolveTtsApiKey(
     return (
       config.yandex?.apiKey ||
       resolvePersaiToolCredentialForEnvVars({
-        envVars: [
-          "YANDEX_TTS_API_KEY",
-          "YANDEX_SPEECHKIT_API_KEY",
-          "YANDEX_API_KEY",
-        ],
+        envVars: ["YANDEX_TTS_API_KEY", "YANDEX_SPEECHKIT_API_KEY", "YANDEX_API_KEY"],
         provider: "yandex",
         toolName: "tts",
       })?.value ||
@@ -647,17 +611,9 @@ export function resolveTtsApiKey(
   return undefined;
 }
 
-export const TTS_PROVIDERS = [
-  "openai",
-  "elevenlabs",
-  "microsoft",
-  "yandex",
-] as const;
+export const TTS_PROVIDERS = ["openai", "elevenlabs", "microsoft", "yandex"] as const;
 
-export function resolveTtsProviderOrder(
-  primary: TtsProvider,
-  cfg?: OpenClawConfig,
-): TtsProvider[] {
+export function resolveTtsProviderOrder(primary: TtsProvider, cfg?: OpenClawConfig): TtsProvider[] {
   const normalizedPrimary = normalizeSpeechProviderId(primary) ?? primary;
   const ordered = new Set<TtsProvider>([normalizedPrimary]);
   for (const provider of TTS_PROVIDERS) {
@@ -713,9 +669,7 @@ function resolveReadySpeechProvider(params: {
     params.errors.push(`${params.provider}: no provider registered`);
     return null;
   }
-  if (
-    !resolvedProvider.isConfigured({ cfg: params.cfg, config: params.config })
-  ) {
+  if (!resolvedProvider.isConfigured({ cfg: params.cfg, config: params.config })) {
     params.errors.push(`${params.provider}: not configured`);
     return null;
   }
@@ -749,13 +703,10 @@ function resolveTtsRequestSetup(params: {
   }
 
   const userProvider = getTtsProvider(config, prefsPath);
-  const provider =
-    normalizeSpeechProviderId(params.providerOverride) ?? userProvider;
+  const provider = normalizeSpeechProviderId(params.providerOverride) ?? userProvider;
   return {
     config,
-    providers: params.disableFallback
-      ? [provider]
-      : resolveTtsProviderOrder(provider, params.cfg),
+    providers: params.disableFallback ? [provider] : resolveTtsProviderOrder(provider, params.cfg),
   };
 }
 
@@ -769,30 +720,20 @@ export async function textToSpeech(params: {
   outputDir?: string;
 }): Promise<TtsResult> {
   const synthesis = await synthesizeSpeech(params);
-  if (
-    !synthesis.success ||
-    !synthesis.audioBuffer ||
-    !synthesis.fileExtension
-  ) {
+  if (!synthesis.success || !synthesis.audioBuffer || !synthesis.fileExtension) {
     return buildTtsFailureResult([synthesis.error ?? "TTS conversion failed"]);
   }
 
   let audioPath: string;
   if (params.outputDir) {
     mkdirSync(params.outputDir, { recursive: true });
-    audioPath = path.join(
-      params.outputDir,
-      `voice-${Date.now()}${synthesis.fileExtension}`,
-    );
+    audioPath = path.join(params.outputDir, `voice-${Date.now()}${synthesis.fileExtension}`);
     writeFileSync(audioPath, synthesis.audioBuffer);
   } else {
     const tempRoot = resolvePreferredOpenClawTmpDir();
     mkdirSync(tempRoot, { recursive: true, mode: 0o700 });
     const tempDir = mkdtempSync(path.join(tempRoot, "tts-"));
-    audioPath = path.join(
-      tempDir,
-      `voice-${Date.now()}${synthesis.fileExtension}`,
-    );
+    audioPath = path.join(tempDir, `voice-${Date.now()}${synthesis.fileExtension}`);
     writeFileSync(audioPath, synthesis.audioBuffer);
     scheduleCleanup(tempDir);
   }
@@ -828,10 +769,7 @@ export async function synthesizeSpeech(params: {
 
   const { config, providers } = setup;
   const channelId = resolveChannelId(params.channel);
-  const target =
-    channelId && VOICE_BUBBLE_CHANNELS.has(channelId)
-      ? "voice-note"
-      : "audio-file";
+  const target = channelId && VOICE_BUBBLE_CHANNELS.has(channelId) ? "voice-note" : "audio-file";
 
   const errors: string[] = [];
 
@@ -857,7 +795,9 @@ export async function synthesizeSpeech(params: {
         target,
         overrides: params.overrides,
       });
-      logVerbose(`TTS: provider ${provider} succeeded in ${Date.now() - providerStart}ms, format=${synthesis.outputFormat}`);
+      logVerbose(
+        `TTS: provider ${provider} succeeded in ${Date.now() - providerStart}ms, format=${synthesis.outputFormat}`,
+      );
       return {
         success: true,
         audioBuffer: synthesis.audioBuffer,
@@ -869,7 +809,9 @@ export async function synthesizeSpeech(params: {
       };
     } catch (err) {
       const errMsg = formatTtsProviderError(provider, err);
-      logVerbose(`TTS: provider ${provider} failed after ${Date.now() - providerStart}ms: ${errMsg}`);
+      logVerbose(
+        `TTS: provider ${provider} failed after ${Date.now() - providerStart}ms: ${errMsg}`,
+      );
       errors.push(errMsg);
     }
   }
@@ -941,21 +883,16 @@ export async function listSpeechVoices(params: {
   if (!provider) {
     throw new Error("speech provider id is required");
   }
-  const config =
-    params.config ?? (params.cfg ? resolveTtsConfig(params.cfg) : undefined);
+  const config = params.config ?? (params.cfg ? resolveTtsConfig(params.cfg) : undefined);
   if (!config) {
-    throw new Error(
-      `speech provider ${provider} requires cfg or resolved config`,
-    );
+    throw new Error(`speech provider ${provider} requires cfg or resolved config`);
   }
   const resolvedProvider = getSpeechProvider(provider, params.cfg);
   if (!resolvedProvider) {
     throw new Error(`speech provider ${provider} is not registered`);
   }
   if (!resolvedProvider.listVoices) {
-    throw new Error(
-      `speech provider ${provider} does not support voice listing`,
-    );
+    throw new Error(`speech provider ${provider} does not support voice listing`);
   }
   return await resolvedProvider.listVoices({
     cfg: params.cfg,
@@ -990,15 +927,9 @@ export async function maybeApplyTtsToPayload(params: {
 
   const reply = resolveSendableOutboundReplyParts(params.payload);
   const text = reply.text;
-  const directives = parseTtsDirectives(
-    text,
-    config.modelOverrides,
-    config.openai.baseUrl,
-  );
+  const directives = parseTtsDirectives(text, config.modelOverrides, config.openai.baseUrl);
   if (directives.warnings.length > 0) {
-    logVerbose(
-      `TTS: ignored directive overrides (${directives.warnings.join("; ")})`,
-    );
+    logVerbose(`TTS: ignored directive overrides (${directives.warnings.join("; ")})`);
   }
 
   const cleanedText = directives.cleanedText;
@@ -1068,9 +999,7 @@ export async function maybeApplyTtsToPayload(params: {
         }
       } catch (err) {
         const error = err as Error;
-        logVerbose(
-          `TTS: summarization failed, truncating instead: ${error.message}`,
-        );
+        logVerbose(`TTS: summarization failed, truncating instead: ${error.message}`);
         textForAudio = `${textForAudio.slice(0, maxLength - 3)}...`;
       }
     }
@@ -1102,9 +1031,7 @@ export async function maybeApplyTtsToPayload(params: {
 
     const channelId = resolveChannelId(params.channel);
     const shouldVoice =
-      channelId !== null &&
-      VOICE_BUBBLE_CHANNELS.has(channelId) &&
-      result.voiceCompatible === true;
+      channelId !== null && VOICE_BUBBLE_CHANNELS.has(channelId) && result.voiceCompatible === true;
     const finalPayload = {
       ...nextPayload,
       mediaUrl: result.audioPath,
@@ -1122,9 +1049,7 @@ export async function maybeApplyTtsToPayload(params: {
   };
 
   const latency = Date.now() - ttsStart;
-  logVerbose(
-    `TTS: conversion failed after ${latency}ms (${result.error ?? "unknown"}).`,
-  );
+  logVerbose(`TTS: conversion failed after ${latency}ms (${result.error ?? "unknown"}).`);
   return nextPayload;
 }
 

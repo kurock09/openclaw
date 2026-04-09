@@ -17,6 +17,7 @@ import type { ChatAbortControllerEntry } from "./chat-abort.js";
 import type { ControlUiRootState } from "./control-ui.js";
 import type { HooksConfigResolved } from "./hooks.js";
 import { isLoopbackHost, resolveGatewayListenHosts } from "./net.js";
+import { createPersaiRuntimeSpecStoreFromEnv } from "./persai-runtime/persai-runtime-spec-store.js";
 import {
   createGatewayBroadcaster,
   type GatewayBroadcastFn,
@@ -28,7 +29,6 @@ import {
   createToolEventRecipientRegistry,
 } from "./server-chat.js";
 import { MAX_PREAUTH_PAYLOAD_BYTES } from "./server-constants.js";
-import { createPersaiRuntimeSpecStoreFromEnv } from "./persai-runtime/persai-runtime-spec-store.js";
 import {
   attachGatewayUpgradeHandler,
   createGatewayHttpServer,

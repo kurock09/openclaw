@@ -1,5 +1,5 @@
-import type { SpeechProviderPlugin } from "../../plugins/types.js";
 import { resolvePersaiToolCredentialForEnvVars } from "../../agents/persai-runtime-context.js";
+import type { SpeechProviderPlugin } from "../../plugins/types.js";
 import type { SpeechVoiceOption } from "../provider-types.js";
 import { elevenLabsTTS } from "../tts-core.js";
 
@@ -75,9 +75,9 @@ export function buildElevenLabsSpeechProvider(): SpeechProviderPlugin {
     isConfigured: ({ config }) =>
       Boolean(
         config.elevenlabs.apiKey ||
-          resolveRuntimeApiKey() ||
-          process.env.ELEVENLABS_API_KEY ||
-          process.env.XI_API_KEY,
+        resolveRuntimeApiKey() ||
+        process.env.ELEVENLABS_API_KEY ||
+        process.env.XI_API_KEY,
       ),
     synthesize: async (req) => {
       const apiKey =

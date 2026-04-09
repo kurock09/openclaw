@@ -6,7 +6,7 @@ describe("validatePersaiRuntimeMedia", () => {
     const validated = await validatePersaiRuntimeMedia({
       buffer: Buffer.from("ogg-placeholder"),
       mimeType: "audio/x-opus+ogg",
-      requireAudio: true
+      requireAudio: true,
     });
 
     expect(validated.mimeType).toBe("audio/x-opus+ogg");
@@ -17,8 +17,8 @@ describe("validatePersaiRuntimeMedia", () => {
       validatePersaiRuntimeMedia({
         buffer: Buffer.from("not-a-real-media-file"),
         mimeType: "application/octet-stream",
-        fileName: "payload.bin"
-      })
+        fileName: "payload.bin",
+      }),
     ).rejects.toThrow("Unsupported or unsafe file type.");
   });
 });

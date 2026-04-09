@@ -58,10 +58,13 @@ import { resolveRequestClientIp } from "./net.js";
 import { handleOpenAiHttpRequest } from "./openai-http.js";
 import { handleOpenResponsesHttpRequest } from "./openresponses-http.js";
 import {
+  handleRuntimeChatChannelSessionStateHttpRequest,
   handleRuntimeCronControlHttpRequest,
   handleRuntimeChatChannelHttpRequest,
+  handleRuntimeChatWebCompactHttpRequest,
   handleRuntimeChatWebHttpRequest,
   handleRuntimeChatWebPreviewHttpRequest,
+  handleRuntimeChatWebSessionStateHttpRequest,
   handleRuntimeChatWebSessionDeleteHttpRequest,
   handleRuntimeChatWebStreamHttpRequest,
   handleRuntimeSpecApplyHttpRequest,
@@ -999,9 +1002,45 @@ export function createGatewayHttpServer(opts: {
           }),
       });
       requestStages.push({
+        name: "persai-runtime-chat-channel-session-state",
+        run: () =>
+          handleRuntimeChatChannelSessionStateHttpRequest({
+            req,
+            res,
+            requestPath,
+            resolvedAuth,
+            trustedProxies,
+            allowRealIpFallback,
+          }),
+      });
+      requestStages.push({
+        name: "persai-runtime-chat-web-session-state",
+        run: () =>
+          handleRuntimeChatWebSessionStateHttpRequest({
+            req,
+            res,
+            requestPath,
+            resolvedAuth,
+            trustedProxies,
+            allowRealIpFallback,
+          }),
+      });
+      requestStages.push({
         name: "persai-runtime-chat-web-session-delete",
         run: () =>
           handleRuntimeChatWebSessionDeleteHttpRequest({
+            req,
+            res,
+            requestPath,
+            resolvedAuth,
+            trustedProxies,
+            allowRealIpFallback,
+          }),
+      });
+      requestStages.push({
+        name: "persai-runtime-chat-web-compact",
+        run: () =>
+          handleRuntimeChatWebCompactHttpRequest({
             req,
             res,
             requestPath,

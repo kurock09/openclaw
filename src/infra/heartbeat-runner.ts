@@ -38,6 +38,10 @@ import {
 } from "../config/sessions.js";
 import type { AgentDefaultsConfig } from "../config/types.agent-defaults.js";
 import { resolveCronSession } from "../cron/isolated-agent/session.js";
+import {
+  resolvePersaiHeartbeatModelOverride,
+  resolvePersaiRuntimeConfigOverride,
+} from "../gateway/persai-runtime/persai-runtime-heartbeat-model.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { getQueueSize } from "../process/command-queue.js";
 import { CommandLane } from "../process/lanes.js";
@@ -48,7 +52,6 @@ import {
 } from "../routing/session-key.js";
 import { defaultRuntime, type RuntimeEnv } from "../runtime.js";
 import { escapeRegExp } from "../utils.js";
-import { resolvePersaiHeartbeatModelOverride } from "../gateway/persai-runtime/persai-runtime-heartbeat-model.js";
 import { formatErrorMessage, hasErrnoCode } from "./errors.js";
 import { isWithinActiveHours } from "./heartbeat-active-hours.js";
 import {
@@ -120,6 +123,11 @@ export type HeartbeatRunner = {
   stop: () => void;
   updateConfig: (cfg: OpenClawConfig) => void;
 };
+
+function shouldRefreshPersaiRuntimeConfig(cfg: OpenClawConfig): boolean {
+  const provider = cfg.secrets?.providers?.["persai-runtime"];
+  return provider?.source === "persai" && typeof provider.baseUrl === "string";
+}
 
 function hasExplicitHeartbeatAgents(cfg: OpenClawConfig) {
   const list = cfg.agents?.list ?? [];
@@ -413,6 +421,13 @@ function resolveHeartbeatReasonFlags(reason?: string): HeartbeatReasonFlags {
   };
 }
 
+function buildHeartbeatEventMeta(reason?: string) {
+  return {
+    reason,
+    triggerKind: resolveHeartbeatReasonKind(reason),
+  } as const;
+}
+
 async function resolveHeartbeatPreflight(params: {
   cfg: OpenClawConfig;
   agentId: string;
@@ -529,7 +544,8 @@ export async function runHeartbeatOnce(opts: {
   reason?: string;
   deps?: HeartbeatDeps;
 }): Promise<HeartbeatRunResult> {
-  const cfg = opts.cfg ?? loadConfig();
+  const baseCfg = opts.cfg ?? loadConfig();
+  const cfg = (await resolvePersaiRuntimeConfigOverride(baseCfg)) ?? baseCfg;
   const explicitAgentId = typeof opts.agentId === "string" ? opts.agentId.trim() : "";
   const forcedSessionAgentId =
     explicitAgentId.length > 0 ? undefined : parseAgentSessionKey(opts.sessionKey)?.agentId;
@@ -568,6 +584,7 @@ export async function runHeartbeatOnce(opts: {
   if (preflight.skipReason) {
     emitHeartbeatEvent({
       status: "skipped",
+      ...buildHeartbeatEventMeta(opts.reason),
       reason: preflight.skipReason,
       durationMs: Date.now() - startedAt,
     });
@@ -651,6 +668,7 @@ export async function runHeartbeatOnce(opts: {
   if (!visibility.showAlerts && !visibility.showOk && !visibility.useIndicator) {
     emitHeartbeatEvent({
       status: "skipped",
+      ...buildHeartbeatEventMeta(opts.reason),
       reason: "alerts-disabled",
       durationMs: Date.now() - startedAt,
       channel: delivery.channel !== "none" ? delivery.channel : undefined,
@@ -736,7 +754,7 @@ export async function runHeartbeatOnce(opts: {
       const okSent = await maybeSendHeartbeatOk();
       emitHeartbeatEvent({
         status: "ok-empty",
-        reason: opts.reason,
+        ...buildHeartbeatEventMeta(opts.reason),
         durationMs: Date.now() - startedAt,
         channel: delivery.channel !== "none" ? delivery.channel : undefined,
         accountId: delivery.accountId,
@@ -772,7 +790,7 @@ export async function runHeartbeatOnce(opts: {
       const okSent = await maybeSendHeartbeatOk();
       emitHeartbeatEvent({
         status: "ok-token",
-        reason: opts.reason,
+        ...buildHeartbeatEventMeta(opts.reason),
         durationMs: Date.now() - startedAt,
         channel: delivery.channel !== "none" ? delivery.channel : undefined,
         accountId: delivery.accountId,
@@ -808,6 +826,7 @@ export async function runHeartbeatOnce(opts: {
       await pruneHeartbeatTranscript(transcriptState);
       emitHeartbeatEvent({
         status: "skipped",
+        ...buildHeartbeatEventMeta(opts.reason),
         reason: "duplicate",
         preview: normalized.text.slice(0, 200),
         durationMs: Date.now() - startedAt,
@@ -829,6 +848,7 @@ export async function runHeartbeatOnce(opts: {
     if (delivery.channel === "none" || !delivery.to) {
       emitHeartbeatEvent({
         status: "skipped",
+        ...buildHeartbeatEventMeta(opts.reason),
         reason: delivery.reason ?? "no-target",
         preview: previewText?.slice(0, 200),
         durationMs: Date.now() - startedAt,
@@ -846,6 +866,7 @@ export async function runHeartbeatOnce(opts: {
       });
       emitHeartbeatEvent({
         status: "skipped",
+        ...buildHeartbeatEventMeta(opts.reason),
         reason: "alerts-disabled",
         preview: previewText?.slice(0, 200),
         durationMs: Date.now() - startedAt,
@@ -868,6 +889,7 @@ export async function runHeartbeatOnce(opts: {
       if (!readiness.ok) {
         emitHeartbeatEvent({
           status: "skipped",
+          ...buildHeartbeatEventMeta(opts.reason),
           reason: readiness.reason,
           preview: previewText?.slice(0, 200),
           durationMs: Date.now() - startedAt,
@@ -920,6 +942,7 @@ export async function runHeartbeatOnce(opts: {
 
     emitHeartbeatEvent({
       status: "sent",
+      ...buildHeartbeatEventMeta(opts.reason),
       to: delivery.to,
       preview: previewText?.slice(0, 200),
       durationMs: Date.now() - startedAt,
@@ -933,6 +956,7 @@ export async function runHeartbeatOnce(opts: {
     const reason = formatErrorMessage(err);
     emitHeartbeatEvent({
       status: "failed",
+      ...buildHeartbeatEventMeta(opts.reason),
       reason,
       durationMs: Date.now() - startedAt,
       channel: delivery.channel !== "none" ? delivery.channel : undefined,
@@ -957,6 +981,7 @@ export function startHeartbeatRunner(opts: {
     runtime,
     agents: new Map<string, HeartbeatAgentState>(),
     timer: null as NodeJS.Timeout | null,
+    refreshTimer: null as NodeJS.Timeout | null,
     stopped: false,
   };
   let initialized = false;
@@ -1005,6 +1030,21 @@ export function startHeartbeatRunner(opts: {
     state.timer.unref?.();
   };
 
+  const scheduleRefresh = () => {
+    if (state.stopped || !shouldRefreshPersaiRuntimeConfig(state.cfg)) {
+      return;
+    }
+    if (state.refreshTimer) {
+      clearTimeout(state.refreshTimer);
+      state.refreshTimer = null;
+    }
+    state.refreshTimer = setTimeout(() => {
+      state.refreshTimer = null;
+      void refreshRuntimeConfig();
+    }, 30_000);
+    state.refreshTimer.unref?.();
+  };
+
   const updateConfig = (cfg: OpenClawConfig) => {
     if (state.stopped) {
       return;
@@ -1050,6 +1090,15 @@ export function startHeartbeatRunner(opts: {
     }
 
     scheduleNext();
+    scheduleRefresh();
+  };
+
+  const refreshRuntimeConfig = async () => {
+    if (state.stopped) {
+      return;
+    }
+    const nextCfg = (await resolvePersaiRuntimeConfigOverride(state.cfg)) ?? state.cfg;
+    updateConfig(nextCfg);
   };
 
   const run: HeartbeatWakeHandler = async (params) => {
@@ -1174,7 +1223,11 @@ export function startHeartbeatRunner(opts: {
     if (state.timer) {
       clearTimeout(state.timer);
     }
+    if (state.refreshTimer) {
+      clearTimeout(state.refreshTimer);
+    }
     state.timer = null;
+    state.refreshTimer = null;
   };
 
   opts.abortSignal?.addEventListener("abort", cleanup, { once: true });

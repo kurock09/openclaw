@@ -33,13 +33,17 @@ function fileExists(relPath) {
 }
 
 function fileContains(relPath, needle) {
-  if (!fileExists(relPath)) return false;
+  if (!fileExists(relPath)) {
+    return false;
+  }
   const content = fs.readFileSync(path.join(root, relPath), "utf8");
   return content.includes(needle);
 }
 
 function fileContainsCount(relPath, needle) {
-  if (!fileExists(relPath)) return 0;
+  if (!fileExists(relPath)) {
+    return 0;
+  }
   const content = fs.readFileSync(path.join(root, relPath), "utf8");
   return content.split(needle).length - 1;
 }
@@ -375,8 +379,9 @@ check("yandex.ts TTS provider exists", () => fileExists("src/tts/providers/yande
 check("provider-registry.ts has buildYandexSpeechProvider", () =>
   fileContains("src/tts/provider-registry.ts", "buildYandexSpeechProvider"),
 );
-check("tts.ts includes yandex in providers", () =>
-  fileContainsCount("src/tts/tts.ts", '"yandex"') >= 2,
+check(
+  "tts.ts includes yandex in providers",
+  () => fileContainsCount("src/tts/tts.ts", '"yandex"') >= 2,
 );
 check("types.tts.ts has yandex config section", () =>
   fileContains("src/config/types.tts.ts", "yandex"),
@@ -389,48 +394,70 @@ check("persai-runtime-context.ts has Yandex TTS env fallback", () =>
 );
 
 console.log("\n[19] Tool-generated media saves to user workspace (M-series M8 hotfix)");
-check("store.ts has baseDirOverride parameter", () =>
-  fileContainsCount("src/media/store.ts", "baseDirOverride") >= 2,
+check(
+  "store.ts has baseDirOverride parameter",
+  () => fileContainsCount("src/media/store.ts", "baseDirOverride") >= 2,
 );
-check("image-generate-tool.ts redirects saves to workspaceDir/media", () =>
-  fileContainsCount("src/agents/tools/image-generate-tool.ts", "mediaBaseDir") >= 2,
+check(
+  "image-generate-tool.ts redirects saves to workspaceDir/media",
+  () => fileContainsCount("src/agents/tools/image-generate-tool.ts", "mediaBaseDir") >= 2,
 );
 check("persai-runtime-media.ts imports resolvePersaiWorkspaceRoot", () =>
   fileContains("src/gateway/persai-runtime/persai-runtime-media.ts", "resolvePersaiWorkspaceRoot"),
 );
 
 console.log("\n[20] Stream race condition fix — lifecycle handler removed from stream function");
-check("persai-runtime-agent-turn.ts has NO lifecycle handler in stream function", () =>
-  fileContainsCount("src/gateway/persai-runtime/persai-runtime-agent-turn.ts", 'evt.stream === "lifecycle"') === 0,
+check(
+  "persai-runtime-agent-turn.ts has NO lifecycle handler in stream function",
+  () =>
+    fileContainsCount(
+      "src/gateway/persai-runtime/persai-runtime-agent-turn.ts",
+      'evt.stream === "lifecycle"',
+    ) === 0,
 );
 
 console.log("\n[21] Tool media capture fallback in runEmbeddedPiAgent");
-check("run.ts has _capturedBlockReplyMedia array", () =>
-  fileContainsCount("src/agents/pi-embedded-runner/run.ts", "_capturedBlockReplyMedia") >= 4,
+check(
+  "run.ts has _capturedBlockReplyMedia array",
+  () => fileContainsCount("src/agents/pi-embedded-runner/run.ts", "_capturedBlockReplyMedia") >= 4,
 );
-check("run.ts has _effectiveOnBlockReply callback", () =>
-  fileContainsCount("src/agents/pi-embedded-runner/run.ts", "_effectiveOnBlockReply") >= 2,
+check(
+  "run.ts has _effectiveOnBlockReply callback",
+  () => fileContainsCount("src/agents/pi-embedded-runner/run.ts", "_effectiveOnBlockReply") >= 2,
 );
 
 console.log("\n[22] Telegram agent turn includes media in response");
-check("persai-runtime-agent-turn.ts uses resolveAgentResponse in telegram turn", () =>
-  fileContainsCount("src/gateway/persai-runtime/persai-runtime-agent-turn.ts", "resolveAgentResponse(result)") >= 2,
+check(
+  "persai-runtime-agent-turn.ts uses resolveAgentResponse in telegram turn",
+  () =>
+    fileContainsCount(
+      "src/gateway/persai-runtime/persai-runtime-agent-turn.ts",
+      "resolveAgentResponse(result)",
+    ) >= 2,
 );
-check("persai-runtime-http.ts includes media in telegram channel response", () =>
-  fileContainsCount("src/gateway/persai-runtime/persai-runtime-http.ts", "media: agentOut.media") >= 2,
+check(
+  "persai-runtime-http.ts includes media in telegram channel response",
+  () =>
+    fileContainsCount(
+      "src/gateway/persai-runtime/persai-runtime-http.ts",
+      "media: agentOut.media",
+    ) >= 2,
 );
 
 console.log("\n[23] TTS audio output redirected to user workspace");
-check("tts.ts accepts outputDir parameter", () =>
-  fileContainsCount("src/tts/tts.ts", "outputDir") >= 3,
+check(
+  "tts.ts accepts outputDir parameter",
+  () => fileContainsCount("src/tts/tts.ts", "outputDir") >= 3,
 );
-check("tts-tool.ts passes workspaceDir to textToSpeech", () =>
-  fileContainsCount("src/agents/tools/tts-tool.ts", "workspaceDir") >= 2,
+check(
+  "tts-tool.ts passes workspaceDir to textToSpeech",
+  () => fileContainsCount("src/agents/tools/tts-tool.ts", "workspaceDir") >= 2,
 );
 
 console.log("\n[24] TTS provider selection from PersAI admin override");
-check("persai-runtime-context.ts has toolProviderOverrides", () =>
-  fileContainsCount("src/agents/persai-runtime-context.ts", "toolProviderOverrides") >= 2,
+check(
+  "persai-runtime-context.ts has toolProviderOverrides",
+  () => fileContainsCount("src/agents/persai-runtime-context.ts", "toolProviderOverrides") >= 2,
 );
 check("persai-runtime-context.ts has getPersaiToolProviderOverride", () =>
   fileContains("src/agents/persai-runtime-context.ts", "getPersaiToolProviderOverride"),
@@ -438,14 +465,25 @@ check("persai-runtime-context.ts has getPersaiToolProviderOverride", () =>
 check("tts.ts uses getPersaiToolProviderOverride", () =>
   fileContains("src/tts/tts.ts", "getPersaiToolProviderOverride"),
 );
-check("persai-runtime-http.ts extracts toolProviderOverrides", () =>
-  fileContainsCount("src/gateway/persai-runtime/persai-runtime-http.ts", "extractToolProviderOverrides") >= 3,
+check(
+  "persai-runtime-http.ts extracts toolProviderOverrides",
+  () =>
+    fileContainsCount(
+      "src/gateway/persai-runtime/persai-runtime-http.ts",
+      "extractToolProviderOverrides",
+    ) >= 3,
 );
-check("persai-runtime-agent-turn.ts propagates toolProviderOverrides", () =>
-  fileContainsCount("src/gateway/persai-runtime/persai-runtime-agent-turn.ts", "toolProviderOverrides") >= 6,
+check(
+  "persai-runtime-agent-turn.ts propagates toolProviderOverrides",
+  () =>
+    fileContainsCount(
+      "src/gateway/persai-runtime/persai-runtime-agent-turn.ts",
+      "toolProviderOverrides",
+    ) >= 6,
 );
-check("yandex.ts has YANDEX_TTS_API_KEY in primary lookup", () =>
-  fileContainsCount("src/tts/providers/yandex.ts", "YANDEX_TTS_API_KEY") >= 2,
+check(
+  "yandex.ts has YANDEX_TTS_API_KEY in primary lookup",
+  () => fileContainsCount("src/tts/providers/yandex.ts", "YANDEX_TTS_API_KEY") >= 2,
 );
 
 console.log(`\n--- Result: ${checks - failures}/${checks} passed ---`);

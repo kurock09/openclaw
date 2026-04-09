@@ -2,8 +2,8 @@ import { completeSimple, type AssistantMessage } from "@mariozechner/pi-ai";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ensureCustomApiRegistered } from "../agents/custom-api-registry.js";
 import { getApiKeyForModel } from "../agents/model-auth.js";
-import { resolveModelAsync } from "../agents/pi-embedded-runner/model.js";
 import { persaiRuntimeRequestContext } from "../agents/persai-runtime-context.js";
+import { resolveModelAsync } from "../agents/pi-embedded-runner/model.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { withEnv } from "../test-utils/env.js";
 import * as tts from "./tts.js";
@@ -21,11 +21,7 @@ vi.mock("@mariozechner/pi-ai/oauth", () => ({
   getOAuthApiKey: vi.fn(async () => null),
 }));
 
-function createResolvedModel(
-  provider: string,
-  modelId: string,
-  api = "openai-completions",
-) {
+function createResolvedModel(provider: string, modelId: string, api = "openai-completions") {
   return {
     model: {
       provider,
@@ -81,9 +77,7 @@ const {
   resolveEdgeOutputFormat,
 } = _test;
 
-const mockAssistantMessage = (
-  content: AssistantMessage["content"],
-): AssistantMessage => ({
+const mockAssistantMessage = (content: AssistantMessage["content"]): AssistantMessage => ({
   role: "assistant",
   content,
   api: "openai-completions",
@@ -107,9 +101,7 @@ const mockAssistantMessage = (
   timestamp: Date.now(),
 });
 
-function createOpenAiTelephonyCfg(
-  model: "tts-1" | "gpt-4o-mini-tts",
-): OpenClawConfig {
+function createOpenAiTelephonyCfg(model: "tts-1" | "gpt-4o-mini-tts"): OpenClawConfig {
   return {
     messages: {
       tts: {
@@ -153,9 +145,7 @@ describe("tts", () => {
         { value: "voice?param=value", expected: false },
       ] as const;
       for (const testCase of cases) {
-        expect(isValidVoiceId(testCase.value), testCase.value).toBe(
-          testCase.expected,
-        );
+        expect(isValidVoiceId(testCase.value), testCase.value).toBe(testCase.expected);
       }
     });
   });
@@ -165,13 +155,7 @@ describe("tts", () => {
       for (const voice of OPENAI_TTS_VOICES) {
         expect(isValidOpenAIVoice(voice)).toBe(true);
       }
-      for (const newerVoice of [
-        "ballad",
-        "cedar",
-        "juniper",
-        "marin",
-        "verse",
-      ]) {
+      for (const newerVoice of ["ballad", "cedar", "juniper", "marin", "verse"]) {
         expect(isValidOpenAIVoice(newerVoice), newerVoice).toBe(true);
       }
     });
@@ -185,9 +169,7 @@ describe("tts", () => {
     });
 
     it("treats the default endpoint with trailing slash as the default endpoint", () => {
-      expect(
-        isValidOpenAIVoice("kokoro-custom-voice", "https://api.openai.com/v1/"),
-      ).toBe(false);
+      expect(isValidOpenAIVoice("kokoro-custom-voice", "https://api.openai.com/v1/")).toBe(false);
     });
   });
 
@@ -208,39 +190,26 @@ describe("tts", () => {
         { model: "gpt-4", expected: false },
       ] as const;
       for (const testCase of cases) {
-        expect(isValidOpenAIModel(testCase.model), testCase.model).toBe(
-          testCase.expected,
-        );
+        expect(isValidOpenAIModel(testCase.model), testCase.model).toBe(testCase.expected);
       }
     });
 
     it("treats the default endpoint with trailing slash as the default endpoint", () => {
-      expect(
-        isValidOpenAIModel("kokoro-custom-model", "https://api.openai.com/v1/"),
-      ).toBe(false);
+      expect(isValidOpenAIModel("kokoro-custom-model", "https://api.openai.com/v1/")).toBe(false);
     });
   });
 
   describe("resolveOpenAITtsInstructions", () => {
     it("keeps instructions only for gpt-4o-mini-tts variants", () => {
-      expect(
-        resolveOpenAITtsInstructions("gpt-4o-mini-tts", " Speak warmly "),
-      ).toBe("Speak warmly");
-      expect(
-        resolveOpenAITtsInstructions(
-          "gpt-4o-mini-tts-2025-12-15",
-          "Speak warmly",
-        ),
-      ).toBe("Speak warmly");
-      expect(
-        resolveOpenAITtsInstructions("tts-1", "Speak warmly"),
-      ).toBeUndefined();
-      expect(
-        resolveOpenAITtsInstructions("tts-1-hd", "Speak warmly"),
-      ).toBeUndefined();
-      expect(
-        resolveOpenAITtsInstructions("gpt-4o-mini-tts", "   "),
-      ).toBeUndefined();
+      expect(resolveOpenAITtsInstructions("gpt-4o-mini-tts", " Speak warmly ")).toBe(
+        "Speak warmly",
+      );
+      expect(resolveOpenAITtsInstructions("gpt-4o-mini-tts-2025-12-15", "Speak warmly")).toBe(
+        "Speak warmly",
+      );
+      expect(resolveOpenAITtsInstructions("tts-1", "Speak warmly")).toBeUndefined();
+      expect(resolveOpenAITtsInstructions("tts-1-hd", "Speak warmly")).toBeUndefined();
+      expect(resolveOpenAITtsInstructions("gpt-4o-mini-tts", "   ")).toBeUndefined();
     });
   });
 
@@ -296,15 +265,9 @@ describe("tts", () => {
       for (const testCase of cases) {
         const output = resolveOutputFormat(testCase.channel);
         expect(output.openai, testCase.channel).toBe(testCase.expected.openai);
-        expect(output.elevenlabs, testCase.channel).toBe(
-          testCase.expected.elevenlabs,
-        );
-        expect(output.extension, testCase.channel).toBe(
-          testCase.expected.extension,
-        );
-        expect(output.voiceCompatible, testCase.channel).toBe(
-          testCase.expected.voiceCompatible,
-        );
+        expect(output.elevenlabs, testCase.channel).toBe(testCase.expected.elevenlabs);
+        expect(output.extension, testCase.channel).toBe(testCase.expected.extension);
+        expect(output.voiceCompatible, testCase.channel).toBe(testCase.expected.voiceCompatible);
       }
     });
   });
@@ -337,9 +300,7 @@ describe("tts", () => {
       ] as const;
       for (const testCase of cases) {
         const config = resolveTtsConfig(testCase.cfg);
-        expect(resolveEdgeOutputFormat(config), testCase.name).toBe(
-          testCase.expected,
-        );
+        expect(resolveEdgeOutputFormat(config), testCase.name).toBe(testCase.expected);
       }
     });
   });
@@ -412,9 +373,7 @@ describe("tts", () => {
       const result = parseTtsDirectives(input, policy, defaultBaseUrl);
 
       expect(result.overrides.openai?.voice).toBeUndefined();
-      expect(result.warnings).toContain(
-        'invalid OpenAI voice "kokoro-chinese"',
-      );
+      expect(result.warnings).toContain('invalid OpenAI voice "kokoro-chinese"');
     });
   });
 
@@ -432,10 +391,8 @@ describe("tts", () => {
     };
 
     beforeAll(async () => {
-      ({ completeSimple: completeSimpleForTest } =
-        await import("@mariozechner/pi-ai"));
-      ({ getApiKeyForModel: getApiKeyForModelForTest } =
-        await import("../agents/model-auth.js"));
+      ({ completeSimple: completeSimpleForTest } = await import("@mariozechner/pi-ai"));
+      ({ getApiKeyForModel: getApiKeyForModelForTest } = await import("../agents/model-auth.js"));
       ({ resolveModelAsync: resolveModelAsyncForTest } =
         await import("../agents/pi-embedded-runner/model.js"));
       ({ ensureCustomApiRegistered: ensureCustomApiRegisteredForTest } =
@@ -533,10 +490,7 @@ describe("tts", () => {
         timeoutMs: 30_000,
       });
 
-      expect(ensureCustomApiRegisteredForTest).toHaveBeenCalledWith(
-        "ollama",
-        expect.any(Function),
-      );
+      expect(ensureCustomApiRegisteredForTest).toHaveBeenCalledWith("ollama", expect.any(Function));
     });
 
     it("validates targetLength bounds", async () => {
@@ -560,10 +514,7 @@ describe("tts", () => {
             `Invalid targetLength: ${testCase.targetLength}`,
           );
         } else {
-          await expect(
-            call,
-            String(testCase.targetLength),
-          ).resolves.toBeDefined();
+          await expect(call, String(testCase.targetLength)).resolves.toBeDefined();
         }
       }
     });
@@ -643,9 +594,7 @@ describe("tts", () => {
       const config = resolveTtsConfig(baseCfg);
       const provider = persaiRuntimeRequestContext.run(
         {
-          toolCredentials: new Map([
-            ["OPENAI_TTS_API_KEY", "openai-tts-test-key"],
-          ]),
+          toolCredentials: new Map([["OPENAI_TTS_API_KEY", "openai-tts-test-key"]]),
         },
         () => getTtsProvider(config, "/tmp/tts-prefs-persai-openai.json"),
       );
@@ -697,9 +646,7 @@ describe("tts", () => {
       });
 
       expect(config.provider).toBe("microsoft");
-      expect(getTtsProvider(config, "/tmp/tts-prefs-normalized.json")).toBe(
-        "microsoft",
-      );
+      expect(getTtsProvider(config, "/tmp/tts-prefs-normalized.json")).toBe("microsoft");
     });
   });
 
@@ -801,10 +748,7 @@ describe("tts", () => {
         { model: "tts-1", expectedInstructions: undefined },
         { model: "gpt-4o-mini-tts", expectedInstructions: "Speak warmly" },
       ] as const) {
-        await expectTelephonyInstructions(
-          testCase.model,
-          testCase.expectedInstructions,
-        );
+        await expectTelephonyInstructions(testCase.model, testCase.expectedInstructions);
       }
     });
   });
@@ -885,9 +829,7 @@ describe("tts", () => {
             kind: "final",
             inboundAudio: testCase.inboundAudio,
           });
-          expect(fetchMock, testCase.name).toHaveBeenCalledTimes(
-            testCase.expectedFetchCalls,
-          );
+          expect(fetchMock, testCase.name).toHaveBeenCalledTimes(testCase.expectedFetchCalls);
           if (testCase.expectSamePayload) {
             expect(result, testCase.name).toBe(testCase.payload);
           } else {
@@ -919,9 +861,7 @@ describe("tts", () => {
             kind: "final",
           });
 
-          expect(fetchMock, testCase.name).toHaveBeenCalledTimes(
-            testCase.expectedFetchCalls,
-          );
+          expect(fetchMock, testCase.name).toHaveBeenCalledTimes(testCase.expectedFetchCalls);
           if (testCase.expectSamePayload) {
             expect(result, testCase.name).toBe(testCase.payload);
           } else {

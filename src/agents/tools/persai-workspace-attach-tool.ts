@@ -1,10 +1,10 @@
 import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import { Type } from "@sinclair/typebox";
+import { validatePersaiRuntimeMedia } from "../../gateway/persai-runtime/persai-runtime-file-security.js";
 import { persaiRuntimeRequestContext } from "../persai-runtime-context.js";
 import type { AnyAgentTool } from "./common.js";
 import { ToolInputError } from "./common.js";
-import { validatePersaiRuntimeMedia } from "../../gateway/persai-runtime/persai-runtime-file-security.js";
 
 const PersaiWorkspaceAttachSchema = Type.Object(
   {
@@ -38,8 +38,7 @@ export function createPersaiWorkspaceAttachTool(): AnyAgentTool | null {
       }
 
       const params = args as { relativePath?: unknown; audioAsVoice?: unknown };
-      const rawPath =
-        typeof params.relativePath === "string" ? params.relativePath.trim() : "";
+      const rawPath = typeof params.relativePath === "string" ? params.relativePath.trim() : "";
       if (!rawPath) {
         throw new ToolInputError("relativePath is required.");
       }
@@ -71,7 +70,9 @@ export function createPersaiWorkspaceAttachTool(): AnyAgentTool | null {
         });
       } catch (err) {
         throw new ToolInputError(
-          err instanceof Error ? err.message : "File is blocked by workspace attach security policy.",
+          err instanceof Error
+            ? err.message
+            : "File is blocked by workspace attach security policy.",
         );
       }
 

@@ -60,9 +60,7 @@ const ImageGenerateToolSchema = Type.Object({
         'Optional action: "generate" (default) or "list" to inspect available providers/models.',
     }),
   ),
-  prompt: Type.Optional(
-    Type.String({ description: "Image generation prompt." }),
-  ),
+  prompt: Type.Optional(Type.String({ description: "Image generation prompt." })),
   image: Type.Optional(
     Type.String({
       description: "Optional reference image path or URL for edit mode.",
@@ -147,9 +145,7 @@ export function resolveImageGenerationModelConfigForTool(params: {
   cfg?: OpenClawConfig;
   agentDir?: string;
 }): ToolModelConfig | null {
-  const explicit = coerceToolModelConfig(
-    params.cfg?.agents?.defaults?.imageGenerationModel,
-  );
+  const explicit = coerceToolModelConfig(params.cfg?.agents?.defaults?.imageGenerationModel);
   if (hasToolModelConfig(explicit)) {
     return explicit;
   }
@@ -184,9 +180,7 @@ function resolveRequestedCount(args: Record<string, unknown>): number {
   return count;
 }
 
-function normalizeResolution(
-  raw: string | undefined,
-): ImageGenerationResolution | undefined {
+function normalizeResolution(raw: string | undefined): ImageGenerationResolution | undefined {
   const normalized = raw?.trim().toUpperCase();
   if (!normalized) {
     return undefined;
@@ -217,9 +211,7 @@ function normalizeReferenceImages(args: Record<string, unknown>): string[] {
   }
   if (Array.isArray(args.images)) {
     imageCandidates.push(
-      ...args.images.filter(
-        (value): value is string => typeof value === "string",
-      ),
+      ...args.images.filter((value): value is string => typeof value === "string"),
     );
   }
 
@@ -290,9 +282,7 @@ function validateImageGenerationCapabilities(params: {
     return;
   }
   const isEdit = params.inputImageCount > 0;
-  const modeCaps = isEdit
-    ? provider.capabilities.edit
-    : provider.capabilities.generate;
+  const modeCaps = isEdit ? provider.capabilities.edit : provider.capabilities.generate;
   const geometry = provider.capabilities.geometry;
   const maxCount = modeCaps.maxCount ?? MAX_COUNT;
   if (params.count > maxCount) {
@@ -303,12 +293,9 @@ function validateImageGenerationCapabilities(params: {
 
   if (isEdit) {
     if (!provider.capabilities.edit.enabled) {
-      throw new ToolInputError(
-        `${provider.id} does not support reference-image edits.`,
-      );
+      throw new ToolInputError(`${provider.id} does not support reference-image edits.`);
     }
-    const maxInputImages =
-      provider.capabilities.edit.maxInputImages ?? MAX_INPUT_IMAGES;
+    const maxInputImages = provider.capabilities.edit.maxInputImages ?? MAX_INPUT_IMAGES;
     if (params.inputImageCount > maxInputImages) {
       throw new ToolInputError(
         `${provider.id} edit supports at most ${maxInputImages} reference image${maxInputImages === 1 ? "" : "s"}.`,
@@ -322,10 +309,7 @@ function validateImageGenerationCapabilities(params: {
         `${provider.id} ${isEdit ? "edit" : "generate"} does not support size overrides.`,
       );
     }
-    if (
-      (geometry?.sizes?.length ?? 0) > 0 &&
-      !geometry?.sizes?.includes(params.size)
-    ) {
+    if ((geometry?.sizes?.length ?? 0) > 0 && !geometry?.sizes?.includes(params.size)) {
       throw new ToolInputError(
         `${provider.id} ${isEdit ? "edit" : "generate"} size must be one of ${geometry?.sizes?.join(", ")}.`,
       );
@@ -394,9 +378,7 @@ async function loadReferenceImages(params: {
 
   for (const imageRawInput of params.imageInputs) {
     const trimmed = imageRawInput.trim();
-    const imageRaw = trimmed.startsWith("@")
-      ? trimmed.slice(1).trim()
-      : trimmed;
+    const imageRaw = trimmed.startsWith("@") ? trimmed.slice(1).trim() : trimmed;
     if (!imageRaw) {
       throw new ToolInputError("image required (empty string in array)");
     }
@@ -405,21 +387,13 @@ async function loadReferenceImages(params: {
     const isFileUrl = /^file:/i.test(imageRaw);
     const isHttpUrl = /^https?:\/\//i.test(imageRaw);
     const isDataUrl = /^data:/i.test(imageRaw);
-    if (
-      hasScheme &&
-      !looksLikeWindowsDrivePath &&
-      !isFileUrl &&
-      !isHttpUrl &&
-      !isDataUrl
-    ) {
+    if (hasScheme && !looksLikeWindowsDrivePath && !isFileUrl && !isHttpUrl && !isDataUrl) {
       throw new ToolInputError(
         `Unsupported image reference: ${imageRawInput}. Use a file path, a file:// URL, a data: URL, or an http(s) URL.`,
       );
     }
     if (params.sandboxConfig && isHttpUrl) {
-      throw new ToolInputError(
-        "Sandboxed image_generate does not allow remote URLs.",
-      );
+      throw new ToolInputError("Sandboxed image_generate does not allow remote URLs.");
     }
 
     const resolvedImage = (() => {
@@ -432,20 +406,19 @@ async function loadReferenceImages(params: {
       return imageRaw;
     })();
 
-    const resolvedPathInfo: { resolved: string; rewrittenFrom?: string } =
-      isDataUrl
-        ? { resolved: "" }
-        : params.sandboxConfig
-          ? await resolveSandboxedBridgeMediaPath({
-              sandbox: params.sandboxConfig,
-              mediaPath: resolvedImage,
-              inboundFallbackDir: "media/inbound",
-            })
-          : {
-              resolved: resolvedImage.startsWith("file://")
-                ? resolvedImage.slice("file://".length)
-                : resolvedImage,
-            };
+    const resolvedPathInfo: { resolved: string; rewrittenFrom?: string } = isDataUrl
+      ? { resolved: "" }
+      : params.sandboxConfig
+        ? await resolveSandboxedBridgeMediaPath({
+            sandbox: params.sandboxConfig,
+            mediaPath: resolvedImage,
+            inboundFallbackDir: "media/inbound",
+          })
+        : {
+            resolved: resolvedImage.startsWith("file://")
+              ? resolvedImage.slice("file://".length)
+              : resolvedImage,
+          };
     const resolvedPath = isDataUrl ? null : resolvedPathInfo.resolved;
 
     const media = isDataUrl
@@ -477,9 +450,7 @@ async function loadReferenceImages(params: {
         mimeType,
       },
       resolvedImage,
-      ...(resolvedPathInfo.rewrittenFrom
-        ? { rewrittenFrom: resolvedPathInfo.rewrittenFrom }
-        : {}),
+      ...(resolvedPathInfo.rewrittenFrom ? { rewrittenFrom: resolvedPathInfo.rewrittenFrom } : {}),
     });
   }
 
@@ -520,8 +491,7 @@ export function createImageGenerateTool(options?: {
     return null;
   }
   const effectiveCfg =
-    applyImageGenerationModelConfigDefaults(cfg, imageGenerationModelConfig) ??
-    cfg;
+    applyImageGenerationModelConfigDefaults(cfg, imageGenerationModelConfig) ?? cfg;
   const localRoots = resolveMediaToolLocalRoots(options?.workspaceDir, {
     workspaceOnly: options?.fsPolicy?.workspaceOnly === true,
   });
@@ -549,12 +519,8 @@ export function createImageGenerateTool(options?: {
         }).map((provider) => ({
           id: provider.id,
           ...(provider.label ? { label: provider.label } : {}),
-          ...(provider.defaultModel
-            ? { defaultModel: provider.defaultModel }
-            : {}),
-          models:
-            provider.models ??
-            (provider.defaultModel ? [provider.defaultModel] : []),
+          ...(provider.defaultModel ? { defaultModel: provider.defaultModel } : {}),
+          models: provider.models ?? (provider.defaultModel ? [provider.defaultModel] : []),
           capabilities: provider.capabilities,
         }));
         const lines = providers.flatMap((provider) => {
@@ -566,19 +532,13 @@ export function createImageGenerateTool(options?: {
             );
           }
           if ((provider.capabilities.geometry?.resolutions?.length ?? 0) > 0) {
-            caps.push(
-              `resolutions ${provider.capabilities.geometry?.resolutions?.join("/")}`,
-            );
+            caps.push(`resolutions ${provider.capabilities.geometry?.resolutions?.join("/")}`);
           }
           if ((provider.capabilities.geometry?.sizes?.length ?? 0) > 0) {
-            caps.push(
-              `sizes ${provider.capabilities.geometry?.sizes?.join(", ")}`,
-            );
+            caps.push(`sizes ${provider.capabilities.geometry?.sizes?.join(", ")}`);
           }
           if ((provider.capabilities.geometry?.aspectRatios?.length ?? 0) > 0) {
-            caps.push(
-              `aspect ratios ${provider.capabilities.geometry?.aspectRatios?.join(", ")}`,
-            );
+            caps.push(`aspect ratios ${provider.capabilities.geometry?.aspectRatios?.join(", ")}`);
           }
           const modelLine =
             provider.models.length > 0
@@ -601,21 +561,15 @@ export function createImageGenerateTool(options?: {
       const model = readStringParam(params, "model");
       const filename = readStringParam(params, "filename");
       const size = readStringParam(params, "size");
-      const aspectRatio = normalizeAspectRatio(
-        readStringParam(params, "aspectRatio"),
-      );
-      const explicitResolution = normalizeResolution(
-        readStringParam(params, "resolution"),
-      );
+      const aspectRatio = normalizeAspectRatio(readStringParam(params, "aspectRatio"));
+      const explicitResolution = normalizeResolution(readStringParam(params, "resolution"));
       const count = resolveRequestedCount(params);
       const loadedReferenceImages = await loadReferenceImages({
         imageInputs,
         localRoots,
         sandboxConfig,
       });
-      const inputImages = loadedReferenceImages.map(
-        (entry) => entry.sourceImage,
-      );
+      const inputImages = loadedReferenceImages.map((entry) => entry.sourceImage);
       const resolution =
         explicitResolution ??
         (size
@@ -693,9 +647,7 @@ export function createImageGenerateTool(options?: {
               ? {
                   images: loadedReferenceImages.map((entry) => ({
                     image: entry.resolvedImage,
-                    ...(entry.rewrittenFrom
-                      ? { rewrittenFrom: entry.rewrittenFrom }
-                      : {}),
+                    ...(entry.rewrittenFrom ? { rewrittenFrom: entry.rewrittenFrom } : {}),
                   })),
                 }
               : {}),

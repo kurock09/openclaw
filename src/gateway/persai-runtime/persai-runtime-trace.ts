@@ -28,7 +28,7 @@ function computeStages(points: ActivePoint[]): PersaiRuntimeTraceStagePayload[] 
     }
     result.push({
       key: `${previous.key} -> ${current.key}`,
-      durationMs: Math.max(0, current.atMs - previous.atMs)
+      durationMs: Math.max(0, current.atMs - previous.atMs),
     });
   }
   return result;
@@ -44,7 +44,7 @@ export function readPersaiRuntimeTraceRequest(req: IncomingMessage): {
       : "";
   return {
     enabled: raw.length > 0,
-    traceId: raw.length > 0 ? raw : null
+    traceId: raw.length > 0 ? raw : null,
   };
 }
 
@@ -85,7 +85,7 @@ export function createPersaiRuntimeTrace(params: {
         scope: params.scope,
         status,
         totalMs: Math.max(0, finishedAtMs - startedAtMs),
-        stages: computeStages(finalPoints)
+        stages: computeStages(finalPoints),
       };
     },
     fail(stage: string, _error: unknown, _details?: Record<string, unknown>) {
@@ -93,6 +93,6 @@ export function createPersaiRuntimeTrace(params: {
         return;
       }
       points.push({ key: `${stage}:error`, atMs: Date.now() });
-    }
+    },
   };
 }

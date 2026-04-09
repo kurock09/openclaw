@@ -33,9 +33,7 @@ export function createTtsTool(opts?: {
         text,
         cfg,
         channel: channel ?? opts?.agentChannel,
-        outputDir: opts?.workspaceDir
-          ? `${opts.workspaceDir}/media/tts`
-          : undefined,
+        outputDir: opts?.workspaceDir ? `${opts.workspaceDir}/media/tts` : undefined,
       });
 
       if (result.success && result.audioPath) {

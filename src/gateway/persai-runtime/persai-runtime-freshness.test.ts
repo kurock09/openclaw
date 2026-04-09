@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { InMemoryPersaiRuntimeSpecStore, type PersaiAppliedRuntimeSpec } from "./persai-runtime-spec-store.js";
+import {
+  InMemoryPersaiRuntimeSpecStore,
+  type PersaiAppliedRuntimeSpec,
+} from "./persai-runtime-spec-store.js";
 
 const { applyPersaiRuntimeSpecLocallyMock } = vi.hoisted(() => ({
   applyPersaiRuntimeSpecLocallyMock: vi.fn(),

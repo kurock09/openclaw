@@ -636,9 +636,7 @@ export function createExecTool(
         }
         scheduleQuotaWatch();
       };
-      const scheduleQuotaWatch = (
-        delayMs: number = WORKSPACE_QUOTA_WATCH_INTERVAL_MS,
-      ) => {
+      const scheduleQuotaWatch = (delayMs: number = WORKSPACE_QUOTA_WATCH_INTERVAL_MS) => {
         if (!wsQuota || isCleanupCommand || quotaWatchStopped || quotaExceededDuringRun) {
           return;
         }
