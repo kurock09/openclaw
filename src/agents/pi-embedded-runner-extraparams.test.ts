@@ -1805,6 +1805,38 @@ describe("applyExtraParamsToAgent", () => {
     expect(payload.service_tier).toBe("priority");
   });
 
+  it("does not inject reasoning.effort for OpenAI fast mode on non-reasoning models (gpt-4.1-mini)", () => {
+    const payload = runResponsesPayloadMutationCase({
+      applyProvider: "openai",
+      applyModelId: "gpt-4.1-mini",
+      cfg: {
+        agents: {
+          defaults: {
+            models: {
+              "openai/gpt-4.1-mini": {
+                params: {
+                  fastMode: true,
+                },
+              },
+            },
+          },
+        },
+      },
+      model: {
+        api: "openai-responses",
+        provider: "openai",
+        id: "gpt-4.1-mini",
+        baseUrl: "https://api.openai.com/v1",
+      } as unknown as Model<"openai-responses">,
+      payload: {
+        store: false,
+      },
+    });
+    expect(payload).not.toHaveProperty("reasoning");
+    expect(payload.text).toEqual({ verbosity: "low" });
+    expect(payload.service_tier).toBe("priority");
+  });
+
   it("preserves caller-provided OpenAI payload fields when fast mode is enabled", () => {
     const payload = runResponsesPayloadMutationCase({
       applyProvider: "openai",

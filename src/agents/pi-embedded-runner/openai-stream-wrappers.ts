@@ -276,11 +276,41 @@ function resolveFastModeReasoningEffort(modelId: unknown): OpenAIReasoningEffort
   return "low";
 }
 
+/**
+ * OpenAI Responses rejects `reasoning.effort` on models that do not implement
+ * the reasoning API surface (e.g. gpt-4.1-mini returns 400).
+ */
+export function openaiResponsesModelSupportsReasoningEffort(model: {
+  id?: unknown;
+  reasoning?: unknown;
+}): boolean {
+  if (model.reasoning === false) {
+    return false;
+  }
+  if (model.reasoning === true) {
+    return true;
+  }
+  if (typeof model.id !== "string") {
+    return false;
+  }
+  const id = model.id.trim().toLowerCase();
+  if (id.startsWith("o1") || id.startsWith("o3") || id.startsWith("o4")) {
+    return true;
+  }
+  if (id.startsWith("gpt-5")) {
+    return true;
+  }
+  return false;
+}
+
 function applyOpenAIFastModePayloadOverrides(params: {
   payloadObj: Record<string, unknown>;
-  model: { provider?: unknown; id?: unknown; baseUrl?: unknown; api?: unknown };
+  model: { provider?: unknown; id?: unknown; baseUrl?: unknown; api?: unknown; reasoning?: unknown };
 }): void {
-  if (params.payloadObj.reasoning === undefined) {
+  if (
+    params.payloadObj.reasoning === undefined &&
+    openaiResponsesModelSupportsReasoningEffort(params.model)
+  ) {
     params.payloadObj.reasoning = {
       effort: resolveFastModeReasoningEffort(params.model.id),
     };
