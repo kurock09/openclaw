@@ -348,6 +348,11 @@ export type AgentCompactionConfig = {
    * Default: false (existing behavior preserved).
    */
   truncateAfterCompaction?: boolean;
+  /**
+   * PersAI SaaS: when true, the platform may show manual compaction UI based on message counts.
+   * OpenClaw ignores this field at runtime.
+   */
+  suggestCompactionByMessageCount?: boolean;
 };
 
 export type AgentCompactionMemoryFlushConfig = {

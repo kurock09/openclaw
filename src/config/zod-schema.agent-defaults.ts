@@ -110,6 +110,8 @@ export const AgentDefaultsSchema = z
         model: z.string().optional(),
         timeoutSeconds: z.number().int().positive().optional(),
         truncateAfterCompaction: z.boolean().optional(),
+        /** PersAI SaaS: web compaction banner may use message-count heuristics when true. */
+        suggestCompactionByMessageCount: z.boolean().optional(),
         memoryFlush: z
           .object({
             enabled: z.boolean().optional(),

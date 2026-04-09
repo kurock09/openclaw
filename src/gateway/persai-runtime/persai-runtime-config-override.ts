@@ -36,6 +36,7 @@ export type PersaiRuntimeOptimizationPolicy = {
     identifierPolicy: "strict" | "off" | "custom";
     postIndexSync: "off" | "async" | "await";
     truncateAfterCompaction: boolean;
+    suggestCompactionByMessageCount: boolean;
   };
   openai: {
     fastMode: boolean;
@@ -151,6 +152,7 @@ export function parsePersaiRuntimeOptimizationPolicy(
       identifierPolicy: asEnum(compaction?.identifierPolicy, ["strict", "off", "custom"], "strict"),
       postIndexSync: asEnum(compaction?.postIndexSync, ["off", "async", "await"], "async"),
       truncateAfterCompaction: asBoolean(compaction?.truncateAfterCompaction, true),
+      suggestCompactionByMessageCount: asBoolean(compaction?.suggestCompactionByMessageCount, false),
     },
     openai: {
       fastMode: asBoolean(openai?.fastMode, false),
