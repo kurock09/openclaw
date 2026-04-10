@@ -493,6 +493,7 @@ function runAgentAttempt(params: {
   return runEmbeddedPiAgent({
     sessionId: params.sessionId,
     sessionKey: params.sessionKey,
+    sandboxSessionKey: params.opts.sandboxSessionKey,
     agentId: params.sessionAgentId,
     trigger: "user",
     messageChannel: params.messageChannel,

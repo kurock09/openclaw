@@ -40,6 +40,7 @@ import {
 } from "./persai-runtime-session-cleanup.js";
 import {
   derivePersaiTelegramRuntimeSessionKey,
+  derivePersaiWebSandboxSessionKey,
   derivePersaiWebRuntimeSessionKey,
 } from "./persai-runtime-session.js";
 import type { PersaiRuntimeSpecStore } from "./persai-runtime-spec-store.js";
@@ -1439,6 +1440,7 @@ export async function handleRuntimeChatWebHttpRequest(params: {
     chatId,
     surfaceThreadKey,
   });
+  const sandboxSessionKey = derivePersaiWebSandboxSessionKey({ assistantId });
   res.setHeader("X-Persai-Runtime-Session-Key", sessionKey);
   webTrace.stage("handler.session_key_ready");
 
@@ -1507,6 +1509,7 @@ export async function handleRuntimeChatWebHttpRequest(params: {
       assistantId,
       userMessage,
       sessionKey,
+      sandboxSessionKey,
       extraSystemPrompt,
       providerOverride: effectiveProviderOverride,
       modelOverride: effectiveModelOverride,
@@ -1881,6 +1884,7 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
     chatId,
     surfaceThreadKey,
   });
+  const sandboxSessionKey = derivePersaiWebSandboxSessionKey({ assistantId });
   res.setHeader("X-Persai-Runtime-Session-Key", sessionKey);
   streamTrace.stage("handler.session_key_ready");
 
@@ -1965,6 +1969,7 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
     assistantId,
     userMessage,
     sessionKey,
+    sandboxSessionKey,
     extraSystemPrompt,
     providerOverride: effectiveProviderOverride,
     modelOverride: effectiveModelOverride,

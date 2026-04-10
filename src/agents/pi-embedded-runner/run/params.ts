@@ -23,6 +23,7 @@ export type ClientToolDefinition = {
 export type RunEmbeddedPiAgentParams = {
   sessionId: string;
   sessionKey?: string;
+  sandboxSessionKey?: string;
   agentId?: string;
   messageChannel?: string;
   messageProvider?: string;

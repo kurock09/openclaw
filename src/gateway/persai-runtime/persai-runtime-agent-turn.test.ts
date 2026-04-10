@@ -38,6 +38,7 @@ describe("runPersaiWebRuntimeAgentTurnSync", () => {
         assistantId: "assistant-1",
         userMessage: "hi",
         sessionKey: "agent:persai:a:web:c:t",
+        sandboxSessionKey: "agent:persai:a:web:sandbox",
         extraSystemPrompt: "Be helpful",
         providerOverride: "openai",
         modelOverride: "gpt-5.4",
@@ -56,6 +57,7 @@ describe("runPersaiWebRuntimeAgentTurnSync", () => {
         allowModelOverride: true,
         extraSystemPrompt: "Be helpful",
         sessionKey: "agent:persai:a:web:c:t",
+        sandboxSessionKey: "agent:persai:a:web:sandbox",
       }),
     );
   });

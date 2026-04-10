@@ -511,6 +511,8 @@ export interface OpenAIWebSocketStreamOptions {
   managerOptions?: OpenAIWebSocketManagerOptions;
   /** Abort signal forwarded from the run. */
   signal?: AbortSignal;
+  /** Optional trace callback for fine-grained runtime stages. */
+  onInternalStage?: (stage: string, data?: Record<string, unknown>) => void;
 }
 
 type WsTransport = "sse" | "websocket" | "auto";
@@ -607,6 +609,10 @@ export function createOpenAIWebSocketStreamFn(
     const eventStream = createAssistantMessageEventStream();
 
     const run = async () => {
+      const emitInternalStage = (stage: string, data?: Record<string, unknown>) => {
+        opts.onInternalStage?.(stage, data);
+      };
+      let connectStageEmitted = false;
       const transport = resolveWsTransport(options);
       if (transport === "sse") {
         return fallbackToHttp(model, context, options, eventStream, opts.signal);
@@ -629,9 +635,15 @@ export function createOpenAIWebSocketStreamFn(
 
       // ── 2. Ensure connection is open ─────────────────────────────────────
       if (!session.manager.isConnected() && !session.broken) {
+        const hadConnectedBefore = session.everConnected;
         try {
           await session.manager.connect(apiKey);
           session.everConnected = true;
+          emitInternalStage("openai_ws.connect_done", {
+            reusedSession: hadConnectedBefore,
+            transport,
+          });
+          connectStageEmitted = true;
           log.debug(`[ws-stream] connected for session=${sessionId}`);
         } catch (connErr) {
           // Cancel any background reconnect attempts before marking as broken.
@@ -668,8 +680,16 @@ export function createOpenAIWebSocketStreamFn(
         wsRegistry.delete(sessionId);
         return fallbackToHttp(model, context, options, eventStream, opts.signal);
       }
+      if (!connectStageEmitted && session.manager.isConnected()) {
+        emitInternalStage("openai_ws.connect_done", {
+          reusedSession: true,
+          transport,
+          alreadyConnected: true,
+        });
+      }
 
       const signal = opts.signal ?? (options as WsOptions | undefined)?.signal;
+      const contextTools = context.tools ?? [];
 
       if (resolveWsWarmup(options) && !session.warmUpAttempted) {
         session.warmUpAttempted = true;
@@ -678,9 +698,13 @@ export function createOpenAIWebSocketStreamFn(
           await runWarmUp({
             manager: session.manager,
             modelId: model.id,
-            tools: convertTools(context.tools),
+            tools: convertTools(contextTools),
             instructions: context.systemPrompt ?? undefined,
             signal,
+          });
+          emitInternalStage("openai_ws.warmup_done", {
+            success: true,
+            toolCount: contextTools.length,
           });
           log.debug(`[ws-stream] warm-up completed for session=${sessionId}`);
         } catch (warmErr) {
@@ -688,6 +712,10 @@ export function createOpenAIWebSocketStreamFn(
             throw warmErr instanceof Error ? warmErr : new Error(String(warmErr));
           }
           warmupFailed = true;
+          emitInternalStage("openai_ws.warmup_done", {
+            success: false,
+            error: warmErr instanceof Error ? warmErr.message : String(warmErr),
+          });
           log.warn(
             `[ws-stream] warm-up failed for session=${sessionId}; continuing without warm-up. error=${String(warmErr)}`,
           );
@@ -701,6 +729,12 @@ export function createOpenAIWebSocketStreamFn(
           try {
             await session.manager.connect(apiKey);
             session.everConnected = true;
+            emitInternalStage("openai_ws.connect_done", {
+              reusedSession: false,
+              reconnectedAfterWarmupFailure: true,
+              transport,
+            });
+            connectStageEmitted = true;
             log.debug(`[ws-stream] reconnected after warm-up failure for session=${sessionId}`);
           } catch (reconnectErr) {
             session.broken = true;
@@ -746,7 +780,7 @@ export function createOpenAIWebSocketStreamFn(
       }
 
       // ── 4. Build & send response.create ──────────────────────────────────
-      const tools = convertTools(context.tools);
+      const tools = convertTools(contextTools);
 
       // Forward generation options that the HTTP path (openai-responses provider) also uses.
       // Cast to record since SimpleStreamOptions carries openai-specific fields as unknown.
@@ -801,9 +835,20 @@ export function createOpenAIWebSocketStreamFn(
       const requestPayload = (nextPayload ?? payload) as Parameters<
         OpenAIWebSocketManager["send"]
       >[0];
+      emitInternalStage("openai_ws.payload_prepared", {
+        inputItemCount: inputItems.length,
+        toolCount: tools.length,
+        hasInstructions: Boolean(context.systemPrompt),
+        usesPreviousResponseId: Boolean(prevResponseId),
+      });
 
       try {
         session.manager.send(requestPayload);
+        emitInternalStage("openai_ws.request_sent", {
+          inputItemCount: inputItems.length,
+          toolCount: tools.length,
+          usesPreviousResponseId: Boolean(prevResponseId),
+        });
       } catch (sendErr) {
         if (transport === "websocket") {
           throw sendErr instanceof Error ? sendErr : new Error(String(sendErr));
@@ -835,6 +880,7 @@ export function createOpenAIWebSocketStreamFn(
       const capturedContextLength = context.messages.length;
 
       await new Promise<void>((resolve, reject) => {
+        let sawFirstUpstreamDelta = false;
         // Honour abort signal
         const abortHandler = () => {
           cleanup();
@@ -862,6 +908,15 @@ export function createOpenAIWebSocketStreamFn(
         };
 
         const unsubscribe = session.manager.onMessage((event) => {
+          if (
+            !sawFirstUpstreamDelta &&
+            (event.type.endsWith(".delta") || event.type === "response.content_part.added")
+          ) {
+            sawFirstUpstreamDelta = true;
+            emitInternalStage("openai_ws.first_upstream_delta", {
+              eventType: event.type,
+            });
+          }
           if (event.type === "response.completed") {
             cleanup();
             // Update session state

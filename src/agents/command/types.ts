@@ -46,6 +46,7 @@ export type AgentCommandOpts = {
   to?: string;
   sessionId?: string;
   sessionKey?: string;
+  sandboxSessionKey?: string;
   thinking?: string;
   thinkingOnce?: string;
   reasoning?: string;

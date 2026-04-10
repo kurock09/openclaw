@@ -118,6 +118,7 @@ export type CompactEmbeddedPiSessionParams = {
   sessionId: string;
   runId?: string;
   sessionKey?: string;
+  sandboxSessionKey?: string;
   messageChannel?: string;
   messageProvider?: string;
   agentAccountId?: string;
@@ -508,7 +509,8 @@ export async function compactEmbeddedPiSessionDirect(
   }
 
   await fs.mkdir(resolvedWorkspace, { recursive: true });
-  const sandboxSessionKey = params.sessionKey?.trim() || params.sessionId;
+  const sandboxSessionKey =
+    params.sandboxSessionKey?.trim() || params.sessionKey?.trim() || params.sessionId;
   const sandbox = await resolveSandboxContext({
     config: params.config,
     sessionKey: sandboxSessionKey,

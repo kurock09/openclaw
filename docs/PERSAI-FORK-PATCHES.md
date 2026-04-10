@@ -627,6 +627,33 @@ Before preserving or adding a higher-risk patch, confirm:
 - `grep -c 'emitInternalStage(' src/agents/pi-embedded-runner/run/attempt.ts` should return >= 8
 - `grep -c 'evt.stream === "internal_stage"' src/gateway/persai-runtime/persai-runtime-agent-turn.ts` should return >= 1
 
+### Patch #30 — Stable web sandbox reuse + deeper sandbox/OpenAI trace splits
+
+**Risk:** Higher-risk native OpenClaw patch
+
+**Files:**
+
+- `src/agents/command/types.ts` — adds a PersAI-only `sandboxSessionKey` ingress override so sandbox identity can diverge from chat/session identity
+- `src/agents/agent-command.ts` — forwards `sandboxSessionKey` into the embedded run params
+- `src/agents/pi-embedded-runner/run/params.ts` — persists `sandboxSessionKey` on the runtime param shape
+- `src/agents/pi-embedded-runner/run/attempt.ts` / `src/agents/pi-embedded-runner/compact.ts` — resolve sandbox scope from `sandboxSessionKey` before falling back to the normal session key
+- `src/agents/sandbox/backend.ts`, `src/agents/sandbox/docker-backend.ts`, `src/agents/sandbox/context.ts`, `src/agents/sandbox/docker.ts` — emit fine-grained sandbox internal stages (`sandbox.prune_done`, `sandbox.workspace_ready`, `sandbox.docker_user_resolved`, container lifecycle steps, `sandbox.backend_ready`, `sandbox.registry_updated`, optional `sandbox.browser_ready`)
+- `src/agents/openai-ws-stream.ts` — emits fine-grained WebSocket transport stages (`openai_ws.connect_done`, `openai_ws.warmup_done`, `openai_ws.payload_prepared`, `openai_ws.request_sent`, `openai_ws.first_upstream_delta`)
+- `src/gateway/persai-runtime/persai-runtime-session.ts` — derives a stable assistant-scoped web sandbox key
+- `src/gateway/persai-runtime/persai-runtime-http.ts` / `src/gateway/persai-runtime/persai-runtime-agent-turn.ts` — pass the stable sandbox key through PersAI web turns while preserving per-chat runtime session keys
+
+**Why patch is required:** The proven cold-path regression came from sandbox scope being tied to the per-chat web runtime session key. A PersAI-only change cannot force Docker sandbox reuse or split native sandbox/OpenAI transport timing once execution moves inside OpenClaw. The safest fix is to keep per-chat session/history identity for model state while overriding only the sandbox identity at the native runtime seam.
+
+**Introduced by:** SR10a latency fix rollout phase 1-2
+**Verify:**
+
+- `grep -c 'sandboxSessionKey' src/agents/agent-command.ts` should return >= 1
+- `grep -c 'sandboxSessionKey' src/agents/pi-embedded-runner/run/attempt.ts` should return >= 1
+- `grep -c 'openai_ws.connect_done' src/agents/openai-ws-stream.ts` should return >= 1
+- `grep -c 'sandbox.prune_done' src/agents/sandbox/context.ts` should return >= 1
+- `grep -c 'derivePersaiWebSandboxSessionKey' src/gateway/persai-runtime/persai-runtime-session.ts` should return >= 1
+- `grep -c 'sandboxSessionKey' src/gateway/persai-runtime/persai-runtime-http.ts` should return >= 2
+
 ## Quick full verification
 
 Run `node scripts/verify-persai-patches.mjs` (see script in `scripts/`).

@@ -13,6 +13,13 @@ export function derivePersaiWebRuntimeSessionKey(params: {
   return `agent:persai:${assistantId}:web:${chatId}:${surfaceThreadKey}`;
 }
 
+export function derivePersaiWebSandboxSessionKey(params: {
+  assistantId: string;
+}): string {
+  const { assistantId } = params;
+  return `agent:persai:${assistantId}:web:sandbox`;
+}
+
 export function derivePersaiTelegramRuntimeSessionKey(params: {
   assistantId: string;
   threadId: string;

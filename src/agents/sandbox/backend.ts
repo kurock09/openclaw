@@ -78,6 +78,7 @@ export type CreateSandboxBackendParams = {
   workspaceDir: string;
   agentWorkspaceDir: string;
   cfg: SandboxConfig;
+  onInternalStage?: (stage: string, data?: Record<string, unknown>) => void;
 };
 
 export type SandboxBackendFactory = (

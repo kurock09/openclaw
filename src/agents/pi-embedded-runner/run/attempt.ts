@@ -1654,11 +1654,13 @@ export async function runEmbeddedAttempt(
 
   await fs.mkdir(resolvedWorkspace, { recursive: true });
 
-  const sandboxSessionKey = params.sessionKey?.trim() || params.sessionId;
+  const sandboxSessionKey =
+    params.sandboxSessionKey?.trim() || params.sessionKey?.trim() || params.sessionId;
   const sandbox = await resolveSandboxContext({
     config: params.config,
     sessionKey: sandboxSessionKey,
     workspaceDir: resolvedWorkspace,
+    onInternalStage: emitInternalStage,
   });
   emitInternalStage("sandbox_resolved", {
     sandboxEnabled: sandbox?.enabled === true,
@@ -2264,6 +2266,7 @@ export async function runEmbeddedAttempt(
         if (wsApiKey) {
           activeSession.agent.streamFn = createOpenAIWebSocketStreamFn(wsApiKey, params.sessionId, {
             signal: runAbortController.signal,
+            onInternalStage: emitInternalStage,
           });
         } else {
           log.warn(`[ws-stream] no API key for provider=${params.provider}; using HTTP transport`);

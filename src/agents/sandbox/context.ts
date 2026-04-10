@@ -110,6 +110,7 @@ export async function resolveSandboxContext(params: {
   config?: OpenClawConfig;
   sessionKey?: string;
   workspaceDir?: string;
+  onInternalStage?: (stage: string, data?: Record<string, unknown>) => void;
 }): Promise<SandboxContext | null> {
   const resolved = resolveSandboxSession(params);
   if (!resolved) {
@@ -118,6 +119,10 @@ export async function resolveSandboxContext(params: {
   const { rawSessionKey, cfg } = resolved;
 
   await maybePruneSandboxes(cfg);
+  params.onInternalStage?.("sandbox.prune_done", {
+    scope: cfg.scope,
+    backend: cfg.backend,
+  });
 
   const { agentWorkspaceDir, scopeKey, workspaceDir } = await ensureSandboxWorkspaceLayout({
     cfg,
@@ -125,12 +130,21 @@ export async function resolveSandboxContext(params: {
     config: params.config,
     workspaceDir: params.workspaceDir,
   });
+  params.onInternalStage?.("sandbox.workspace_ready", {
+    scopeKey,
+    workspaceAccess: cfg.workspaceAccess,
+    workspaceDir,
+  });
 
   const docker = await resolveSandboxDockerUser({
     docker: cfg.docker,
     workspaceDir,
   });
   const resolvedCfg = docker === cfg.docker ? cfg : { ...cfg, docker };
+  params.onInternalStage?.("sandbox.docker_user_resolved", {
+    dockerUser: resolvedCfg.docker.user ?? null,
+    reusedConfiguredUser: docker === cfg.docker,
+  });
 
   const backendFactory = requireSandboxBackendFactory(resolvedCfg.backend);
   const backend = await backendFactory({
@@ -139,6 +153,11 @@ export async function resolveSandboxContext(params: {
     workspaceDir,
     agentWorkspaceDir,
     cfg: resolvedCfg,
+    onInternalStage: params.onInternalStage,
+  });
+  params.onInternalStage?.("sandbox.backend_ready", {
+    backendId: backend.id,
+    runtimeId: backend.runtimeId,
   });
   await updateRegistry({
     containerName: backend.runtimeId,
@@ -149,6 +168,10 @@ export async function resolveSandboxContext(params: {
     lastUsedAtMs: Date.now(),
     image: backend.configLabel ?? resolvedCfg.docker.image,
     configLabelKind: backend.configLabelKind ?? "Image",
+  });
+  params.onInternalStage?.("sandbox.registry_updated", {
+    containerName: backend.runtimeId,
+    runtimeLabel: backend.runtimeLabel,
   });
 
   const evaluateEnabled =
@@ -186,6 +209,12 @@ export async function resolveSandboxContext(params: {
           bridgeAuth,
         })
       : null;
+  if (browser) {
+    params.onInternalStage?.("sandbox.browser_ready", {
+      bridgeUrl: browser.bridgeUrl,
+      noVncUrl: browser.noVncUrl ?? null,
+    });
+  }
 
   const sandboxContext: SandboxContext = {
     enabled: true,

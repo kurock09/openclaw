@@ -1,5 +1,8 @@
 import { describe, expect, test } from "vitest";
-import { derivePersaiWebRuntimeSessionKey } from "./persai-runtime-session.js";
+import {
+  derivePersaiWebRuntimeSessionKey,
+  derivePersaiWebSandboxSessionKey,
+} from "./persai-runtime-session.js";
 
 describe("derivePersaiWebRuntimeSessionKey", () => {
   test("builds stable colon-delimited key from ids", () => {
@@ -10,5 +13,13 @@ describe("derivePersaiWebRuntimeSessionKey", () => {
         surfaceThreadKey: "t1",
       }),
     ).toBe("agent:persai:a1:web:c1:t1");
+  });
+
+  test("keeps sandbox identity stable across chats", () => {
+    expect(
+      derivePersaiWebSandboxSessionKey({
+        assistantId: "a1",
+      }),
+    ).toBe("agent:persai:a1:web:sandbox");
   });
 });

@@ -494,6 +494,7 @@ export async function ensureSandboxContainer(params: {
   workspaceDir: string;
   agentWorkspaceDir: string;
   cfg: SandboxConfig;
+  onInternalStage?: (stage: string, data?: Record<string, unknown>) => void;
 }) {
   const scopeKey = resolveSandboxScopeKey(params.cfg.scope, params.sessionKey);
   const slug = params.cfg.scope === "shared" ? "shared" : slugifySessionKey(scopeKey);
@@ -507,6 +508,11 @@ export async function ensureSandboxContainer(params: {
   });
   const now = Date.now();
   const state = await dockerContainerState(containerName);
+  params.onInternalStage?.("sandbox.container_state_resolved", {
+    containerName,
+    exists: state.exists,
+    running: state.running,
+  });
   let hasContainer = state.exists;
   let running = state.running;
   let currentHash: string | null = null;
@@ -519,6 +525,10 @@ export async function ensureSandboxContainer(params: {
     | undefined;
   if (hasContainer) {
     const registry = await readRegistry();
+    params.onInternalStage?.("sandbox.container_registry_loaded", {
+      containerName,
+      registrySize: registry.entries.length,
+    });
     registryEntry = registry.entries.find((entry) => entry.containerName === containerName);
     currentHash = await readContainerConfigHash(containerName);
     if (!currentHash) {
@@ -537,6 +547,10 @@ export async function ensureSandboxContainer(params: {
         );
       } else {
         await execDocker(["rm", "-f", containerName], { allowFailure: true });
+        params.onInternalStage?.("sandbox.container_removed", {
+          containerName,
+          reason: "config_hash_mismatch",
+        });
         hasContainer = false;
         running = false;
       }
@@ -552,8 +566,15 @@ export async function ensureSandboxContainer(params: {
       scopeKey,
       configHash: expectedHash,
     });
+    params.onInternalStage?.("sandbox.container_created", {
+      containerName,
+      scopeKey,
+    });
   } else if (!running) {
     await execDocker(["start", containerName]);
+    params.onInternalStage?.("sandbox.container_started", {
+      containerName,
+    });
   }
   await updateRegistry({
     containerName,
@@ -565,6 +586,10 @@ export async function ensureSandboxContainer(params: {
     image: params.cfg.docker.image,
     configLabelKind: "Image",
     configHash: hashMismatch && running ? (currentHash ?? undefined) : expectedHash,
+  });
+  params.onInternalStage?.("sandbox.container_registry_updated", {
+    containerName,
+    configHashChanged: hashMismatch,
   });
   return containerName;
 }

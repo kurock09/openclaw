@@ -108,6 +108,7 @@ function buildPersaiWebIngressCommandInput(params: {
   modelOverride?: string;
   reasoning?: string;
   sessionKey: string;
+  sandboxSessionKey?: string;
   runId: string;
   workspaceDir?: string;
 }) {
@@ -118,6 +119,7 @@ function buildPersaiWebIngressCommandInput(params: {
     model: params.modelOverride,
     reasoning: params.reasoning,
     sessionKey: params.sessionKey,
+    sandboxSessionKey: params.sandboxSessionKey,
     runId: params.runId,
     deliver: false as const,
     messageChannel: "webchat" as const,
@@ -133,6 +135,7 @@ export async function runPersaiWebRuntimeAgentTurnSync(params: {
   assistantId: string;
   userMessage: string;
   sessionKey: string;
+  sandboxSessionKey?: string;
   extraSystemPrompt?: string;
   providerOverride?: string;
   modelOverride?: string;
@@ -162,6 +165,7 @@ export async function runPersaiWebRuntimeAgentTurnSync(params: {
     modelOverride: params.modelOverride,
     reasoning: "stream",
     sessionKey: params.sessionKey,
+    sandboxSessionKey: params.sandboxSessionKey,
     runId,
     workspaceDir: params.workspaceDir,
   });
@@ -290,6 +294,7 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
   assistantId: string;
   userMessage: string;
   sessionKey: string;
+  sandboxSessionKey?: string;
   extraSystemPrompt?: string;
   providerOverride?: string;
   modelOverride?: string;
@@ -315,6 +320,7 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
     providerOverride: params.providerOverride,
     modelOverride: params.modelOverride,
     sessionKey: params.sessionKey,
+    sandboxSessionKey: params.sandboxSessionKey,
     runId,
     workspaceDir: params.workspaceDir,
   });
