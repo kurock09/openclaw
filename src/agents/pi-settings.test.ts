@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   applyPiCompactionSettingsFromConfig,
+  applyPiAutoCompactionGuard,
   DEFAULT_PI_COMPACTION_RESERVE_TOKENS_FLOOR,
   resolveCompactionReserveTokensFloor,
 } from "./pi-settings.js";
@@ -138,5 +139,32 @@ describe("resolveCompactionReserveTokensFloor", () => {
         agents: { defaults: { compaction: { reserveTokensFloor: 0 } } },
       }),
     ).toBe(0);
+  });
+});
+
+describe("applyPiAutoCompactionGuard", () => {
+  it("disables Pi auto-compaction when config explicitly turns it off", () => {
+    const settingsManager = {
+      getCompactionReserveTokens: () => 20_000,
+      getCompactionKeepRecentTokens: () => 20_000,
+      applyOverrides: vi.fn(),
+      setCompactionEnabled: vi.fn(),
+    };
+
+    const result = applyPiAutoCompactionGuard({
+      settingsManager,
+      cfg: {
+        agents: {
+          defaults: {
+            compaction: {
+              autoCompactionEnabled: false,
+            },
+          },
+        },
+      },
+    });
+
+    expect(result).toEqual({ supported: true, disabled: true });
+    expect(settingsManager.setCompactionEnabled).toHaveBeenCalledWith(false);
   });
 });

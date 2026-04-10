@@ -226,6 +226,22 @@ Where:
 
 These are Pi runtime semantics (OpenClaw consumes the events, but Pi decides when to compact).
 
+You can disable the normal threshold-maintenance path for a given config layer with:
+
+```json5
+{
+  agents: {
+    defaults: {
+      compaction: {
+        autoCompactionEnabled: false,
+      },
+    },
+  },
+}
+```
+
+When disabled, explicit/manual compaction still works, and OpenClaw also skips the paired pre-compaction memory flush for those runs.
+
 ---
 
 ## Compaction settings (`reserveTokens`, `keepRecentTokens`)

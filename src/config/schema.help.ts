@@ -1026,6 +1026,8 @@ export const FIELD_HELP: Record<string, string> = {
   "agents.defaults.cliBackends": "Optional CLI backends for text-only fallback (claude-cli, etc.).",
   "agents.defaults.compaction":
     "Compaction tuning for when context nears token limits, including history share, reserve headroom, and pre-compaction memory flush behavior. Use this when long-running sessions need stable continuity under tight context windows.",
+  "agents.defaults.compaction.autoCompactionEnabled":
+    "Enables normal threshold-based auto-compaction for regular turns. Set false when a surface should stay manual-only but still allow explicit /compact-style compaction flows.",
   "agents.defaults.compaction.mode":
     'Compaction strategy mode: "default" uses baseline behavior, while "safeguard" applies stricter guardrails to preserve recent context. Keep "default" unless you observe aggressive history loss near limit boundaries.',
   "agents.defaults.compaction.reserveTokens":

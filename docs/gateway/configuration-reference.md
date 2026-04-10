@@ -1012,6 +1012,7 @@ Periodic heartbeat runs.
   agents: {
     defaults: {
       compaction: {
+        autoCompactionEnabled: true,
         mode: "safeguard", // default | safeguard
         timeoutSeconds: 900,
         reserveTokensFloor: 24000,
@@ -1031,6 +1032,7 @@ Periodic heartbeat runs.
 }
 ```
 
+- `autoCompactionEnabled`: when `false`, disables normal turn-time threshold auto-compaction and the paired pre-compaction memory flush for that config layer, while leaving explicit/manual compaction paths available.
 - `mode`: `default` or `safeguard` (chunked summarization for long histories). See [Compaction](/concepts/compaction).
 - `timeoutSeconds`: maximum seconds allowed for a single compaction operation before OpenClaw aborts it. Default: `900`.
 - `identifierPolicy`: `strict` (default), `off`, or `custom`. `strict` prepends built-in opaque identifier retention guidance during compaction summarization.

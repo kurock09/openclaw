@@ -306,6 +306,8 @@ export type AgentCompactionQualityGuardConfig = {
 };
 
 export type AgentCompactionConfig = {
+  /** Enable automatic threshold/maintenance compaction for normal turns. Default: true. */
+  autoCompactionEnabled?: boolean;
   /** Compaction summarization mode. */
   mode?: AgentCompactionMode;
   /** Pi reserve tokens target before floor enforcement. */

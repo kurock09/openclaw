@@ -219,6 +219,16 @@ describe("memory flush settings", () => {
     ).toBeNull();
   });
 
+  it("disables memory flush when auto compaction is off", () => {
+    expect(
+      resolveMemoryFlushSettings({
+        agents: {
+          defaults: { compaction: { autoCompactionEnabled: false } },
+        },
+      }),
+    ).toBeNull();
+  });
+
   it("appends NO_REPLY hint when missing", () => {
     const settings = resolveMemoryFlushSettings({
       agents: {

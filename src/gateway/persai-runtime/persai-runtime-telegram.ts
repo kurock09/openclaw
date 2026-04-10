@@ -117,6 +117,7 @@ function extractTelegramChannel(bootstrap: unknown): {
   botToken: string | null;
   webhookUrl: string | null;
   webhookSecret: string | null;
+  autoCompactionEnabled: boolean;
   groupReplyMode: string;
   parseMode: string;
   inbound: boolean;
@@ -146,6 +147,7 @@ function extractTelegramChannel(bootstrap: unknown): {
     botToken: typeof tg.botToken === "string" ? tg.botToken : null,
     webhookUrl: typeof tg.webhookUrl === "string" ? tg.webhookUrl : null,
     webhookSecret: typeof tg.webhookSecret === "string" ? tg.webhookSecret : null,
+    autoCompactionEnabled: tg.autoCompactionEnabled !== false,
     groupReplyMode: typeof tg.groupReplyMode === "string" ? tg.groupReplyMode : "mention_reply",
     parseMode: typeof tg.parseMode === "string" ? tg.parseMode : "plain_text",
     inbound: tg.inbound !== false,

@@ -92,6 +92,32 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function applyPersaiAutoCompactionOverride(
+  cfg: ReturnType<typeof loadConfig>,
+  enabled: boolean,
+): ReturnType<typeof loadConfig> {
+  return {
+    ...cfg,
+    agents: {
+      ...cfg.agents,
+      defaults: {
+        ...cfg.agents?.defaults,
+        compaction: {
+          ...cfg.agents?.defaults?.compaction,
+          autoCompactionEnabled: enabled,
+        },
+      },
+    },
+  };
+}
+
+function extractTelegramAutoCompactionEnabled(bootstrap: unknown): boolean {
+  if (!isRecord(bootstrap) || !isRecord(bootstrap.channels) || !isRecord(bootstrap.channels.telegram)) {
+    return true;
+  }
+  return bootstrap.channels.telegram.autoCompactionEnabled !== false;
+}
+
 function sendJson(res: ServerResponse, status: number, body: unknown) {
   res.statusCode = status;
   res.setHeader("Content-Type", "application/json; charset=utf-8");
@@ -1473,9 +1499,10 @@ export async function handleRuntimeChatWebHttpRequest(params: {
       `persai-runtime: web turn credentials=${[...resolvedToolCredentials.keys()].join(",") || "none"} overrides=${[...toolProviderOverrides.entries()].map(([k, v]) => `${k}=${v}`).join(",") || "none"}`,
     );
 
-    const configOverride = await resolvePersaiLayeredRuntimeConfig({
+    const layeredConfig = await resolvePersaiLayeredRuntimeConfig({
       bootstrap: applied.bootstrap,
     });
+    const configOverride = applyPersaiAutoCompactionOverride(layeredConfig, false);
     const agentOut = await runPersaiWebRuntimeAgentTurnSync({
       assistantId,
       userMessage,
@@ -1694,9 +1721,13 @@ export async function handleRuntimeChatChannelHttpRequest(params: {
     `persai-runtime: tg turn credentials=${[...resolvedToolCredentials.keys()].join(",") || "none"} overrides=${[...tgToolProviderOverrides.entries()].map(([k, v]) => `${k}=${v}`).join(",") || "none"}`,
   );
 
-  const configOverride = await resolvePersaiLayeredRuntimeConfig({
+  const layeredConfig = await resolvePersaiLayeredRuntimeConfig({
     bootstrap: applied.bootstrap,
   });
+  const configOverride = applyPersaiAutoCompactionOverride(
+    layeredConfig,
+    extractTelegramAutoCompactionEnabled(applied.bootstrap),
+  );
   const agentOut = await runPersaiTelegramAgentTurn({
     assistantId,
     userMessage,
@@ -1924,9 +1955,10 @@ export async function handleRuntimeChatWebStreamHttpRequest(params: {
     `persai-runtime: stream turn credentials=${[...streamResolvedToolCredentials.keys()].join(",") || "none"} overrides=${[...streamToolProviderOverrides.entries()].map(([k, v]) => `${k}=${v}`).join(",") || "none"}`,
   );
 
-  const configOverride = await resolvePersaiLayeredRuntimeConfig({
+  const layeredConfig = await resolvePersaiLayeredRuntimeConfig({
     bootstrap: applied.bootstrap,
   });
+  const configOverride = applyPersaiAutoCompactionOverride(layeredConfig, false);
   await runPersaiWebRuntimeAgentTurnStream({
     req,
     res,
