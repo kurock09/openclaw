@@ -402,8 +402,11 @@ check(
   "image-generate-tool.ts redirects saves to workspaceDir/media",
   () => fileContainsCount("src/agents/tools/image-generate-tool.ts", "mediaBaseDir") >= 2,
 );
-check("persai-runtime-media.ts imports resolvePersaiWorkspaceRoot", () =>
-  fileContains("src/gateway/persai-runtime/persai-runtime-media.ts", "resolvePersaiWorkspaceRoot"),
+check("persai-runtime-media.ts imports assistant workspace resolver", () =>
+  fileContains(
+    "src/gateway/persai-runtime/persai-runtime-media.ts",
+    "resolvePersaiAssistantWorkspaceDir",
+  ),
 );
 
 console.log("\n[20] Stream race condition fix — lifecycle handler removed from stream function");

@@ -609,6 +609,24 @@ Before preserving or adding a higher-risk patch, confirm:
 - `grep -c 'enforceWorkspaceQuota' src/agents/sandbox/fs-bridge.ts` should return >= 1
 - `grep -c 'enforceWorkspaceQuota' src/agents/bash-tools.exec.ts` should return >= 2
 
+### Patch #29 — Internal runtime trace stages for pre-first-delta latency isolation
+
+**Risk:** Higher-risk native OpenClaw patch
+
+**Files:**
+
+- `src/agents/pi-embedded-runner/run/attempt.ts` — emits PersAI-consumable `internal_stage` agent events around sandbox resolution, skills/bootstrap prompt assembly, tool runtime construction, session-manager/context-engine setup, and `prompt_enter`
+- `src/gateway/persai-runtime/persai-runtime-agent-turn.ts` — maps `internal_stage` events into PersAI `runtimeTrace` stage names under `agent_turn.*`
+
+**Why patch is required:** The observed multi-second delay sits inside native OpenClaw agent execution before the actual model stream starts. PersAI can correlate and display runtime stages, but it cannot see or instrument synchronous work that happens entirely inside `runEmbeddedAttempt()` once the request has crossed the runtime boundary. A PersAI-only patch would still leave the dominant pre-first-delta gap opaque.
+
+**Introduced by:** SR10a runtime latency investigation instrumentation
+**Verify:**
+
+- `grep -c 'stream: "internal_stage"' src/agents/pi-embedded-runner/run/attempt.ts` should return >= 1
+- `grep -c 'emitInternalStage(' src/agents/pi-embedded-runner/run/attempt.ts` should return >= 8
+- `grep -c 'evt.stream === "internal_stage"' src/gateway/persai-runtime/persai-runtime-agent-turn.ts` should return >= 1
+
 ## Quick full verification
 
 Run `node scripts/verify-persai-patches.mjs` (see script in `scripts/`).

@@ -19,6 +19,7 @@ import {
   ensureGlobalUndiciEnvProxyDispatcher,
   ensureGlobalUndiciStreamTimeouts,
 } from "../../../infra/net/undici-global-dispatcher.js";
+import { emitAgentEvent } from "../../../infra/agent-events.js";
 import { MAX_IMAGE_BYTES } from "../../../media/constants.js";
 import { resolveSignalReactionLevel } from "../../../plugin-sdk/signal.js";
 import { getGlobalHookRunner } from "../../../plugins/hook-runner-global.js";
@@ -1630,6 +1631,18 @@ export async function runEmbeddedAttempt(
   const resolvedWorkspace = resolveUserPath(params.workspaceDir);
   const prevCwd = process.cwd();
   const runAbortController = new AbortController();
+  const attemptStartedAt = Date.now();
+  const emitInternalStage = (stage: string, data?: Record<string, unknown>) => {
+    emitAgentEvent({
+      runId: params.runId,
+      stream: "internal_stage",
+      data: {
+        stage,
+        elapsedMs: Date.now() - attemptStartedAt,
+        ...data,
+      },
+    });
+  };
   // Proxy bootstrap must happen before timeout tuning so the timeouts wrap the
   // active EnvHttpProxyAgent instead of being replaced by a bare proxy dispatcher.
   ensureGlobalUndiciEnvProxyDispatcher();
@@ -1646,6 +1659,11 @@ export async function runEmbeddedAttempt(
     config: params.config,
     sessionKey: sandboxSessionKey,
     workspaceDir: resolvedWorkspace,
+  });
+  emitInternalStage("sandbox_resolved", {
+    sandboxEnabled: sandbox?.enabled === true,
+    workspaceAccess: sandbox?.workspaceAccess ?? "host",
+    backendId: sandbox?.backendId ?? "none",
   });
   const effectiveWorkspace = sandbox?.enabled
     ? sandbox.workspaceAccess === "rw"
@@ -1678,6 +1696,11 @@ export async function runEmbeddedAttempt(
       config: params.config,
       workspaceDir: effectiveWorkspace,
     });
+    emitInternalStage("skills_prompt_resolved", {
+      skillEntryCount: skillEntries.length,
+      usedSnapshot: Boolean(params.skillsSnapshot?.prompt?.trim()),
+      skillsPromptChars: skillsPrompt.length,
+    });
 
     const sessionLabel = params.sessionKey ?? params.sessionId;
     const { bootstrapFiles: hookAdjustedBootstrapFiles, contextFiles } =
@@ -1690,6 +1713,10 @@ export async function runEmbeddedAttempt(
         contextMode: params.bootstrapContextMode,
         runKind: params.bootstrapContextRunKind,
       });
+    emitInternalStage("bootstrap_context_resolved", {
+      bootstrapFileCount: hookAdjustedBootstrapFiles.length,
+      contextFileCount: contextFiles.length,
+    });
     const bootstrapMaxChars = resolveBootstrapMaxChars(params.config);
     const bootstrapTotalMaxChars = resolveBootstrapTotalMaxChars(params.config);
     const bootstrapAnalysis = analyzeBootstrapBudget({
@@ -1789,6 +1816,10 @@ export async function runEmbeddedAttempt(
             abortSessionForYield?.();
           },
         });
+    emitInternalStage("tools_built", {
+      toolCount: toolsRaw.length,
+      toolsDisabled: params.disableTools === true,
+    });
     const toolsEnabled = supportsModelTools(params.model);
     const tools = sanitizeToolsForGoogle({
       tools: toolsEnabled ? toolsRaw : [],
@@ -1805,6 +1836,10 @@ export async function runEmbeddedAttempt(
           ],
         })
       : undefined;
+    emitInternalStage("bundle_mcp_ready", {
+      toolCount: bundleMcpRuntime?.tools.length ?? 0,
+      toolsEnabled,
+    });
     const bundleLspRuntime = toolsEnabled
       ? await createBundleLspToolRuntime({
           workspaceDir: effectiveWorkspace,
@@ -1816,6 +1851,11 @@ export async function runEmbeddedAttempt(
           ],
         })
       : undefined;
+    emitInternalStage("bundle_lsp_ready", {
+      toolCount: bundleLspRuntime?.tools.length ?? 0,
+      sessionCount: bundleLspRuntime?.sessions.length ?? 0,
+      toolsEnabled,
+    });
     const effectiveTools = [
       ...tools,
       ...(bundleMcpRuntime?.tools ?? []),
@@ -1966,6 +2006,10 @@ export async function runEmbeddedAttempt(
       contextFiles,
       memoryCitationsMode: params.config?.memory?.citations,
     });
+    emitInternalStage("system_prompt_built", {
+      systemPromptChars: appendPrompt.length,
+      effectiveToolCount: effectiveTools.length,
+    });
     const systemPromptReport = buildSystemPromptReport({
       source: "run",
       generatedAt: Date.now(),
@@ -2035,6 +2079,10 @@ export async function runEmbeddedAttempt(
         allowedToolNames,
       });
       trackSessionManagerAccess(params.sessionFile);
+      emitInternalStage("session_manager_opened", {
+        hadSessionFile,
+        allowedToolCount: allowedToolNames.size,
+      });
 
       if (hadSessionFile && (params.contextEngine?.bootstrap || params.contextEngine?.maintain)) {
         try {
@@ -2062,6 +2110,13 @@ export async function runEmbeddedAttempt(
           log.warn(`context engine bootstrap failed: ${String(bootstrapErr)}`);
         }
       }
+      const contextEngineEnabled =
+        params.contextEngine != null &&
+        (params.contextEngine.bootstrap != null || params.contextEngine.maintain != null);
+      emitInternalStage("context_engine_ready", {
+        hadSessionFile,
+        contextEngineEnabled,
+      });
 
       await prepareSessionManagerForRun({
         sessionManager,
@@ -2800,6 +2855,12 @@ export async function runEmbeddedAttempt(
                 `provider=${params.provider}/${params.modelId} sessionFile=${params.sessionFile}`,
             );
           }
+          emitInternalStage("prompt_enter", {
+            messageCount: activeSession.messages.length,
+            systemPromptChars: systemPromptText?.length ?? 0,
+            promptChars: effectivePrompt.length,
+            promptImageCount: imageResult.images.length,
+          });
 
           if (hookRunner?.hasHooks("llm_input")) {
             hookRunner

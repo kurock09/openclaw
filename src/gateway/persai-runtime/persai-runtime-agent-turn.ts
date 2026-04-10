@@ -385,6 +385,14 @@ export function runPersaiWebRuntimeAgentTurnStream(params: {
       }
       return;
     }
+    if (evt.stream === "internal_stage") {
+      const stage = typeof evt.data?.stage === "string" ? evt.data.stage.trim() : "";
+      if (stage) {
+        const { stage: _stage, ...meta } = evt.data ?? {};
+        params.trace?.stage(`agent_turn.${stage}`, meta);
+      }
+      return;
+    }
   });
 
   params.req.on("close", () => {
