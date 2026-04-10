@@ -7,6 +7,7 @@ describe("buildEmbeddedCompactionRuntimeContext", () => {
     expect(
       buildEmbeddedCompactionRuntimeContext({
         sessionKey: "agent:main:thread:1",
+        sandboxSessionKey: "agent:persai:assistant:web:sandbox",
         messageChannel: "slack",
         messageProvider: "slack",
         agentAccountId: "acct-1",
@@ -28,6 +29,7 @@ describe("buildEmbeddedCompactionRuntimeContext", () => {
       }),
     ).toMatchObject({
       sessionKey: "agent:main:thread:1",
+      sandboxSessionKey: "agent:persai:assistant:web:sandbox",
       messageChannel: "slack",
       messageProvider: "slack",
       agentAccountId: "acct-1",
@@ -47,6 +49,7 @@ describe("buildEmbeddedCompactionRuntimeContext", () => {
     expect(
       buildEmbeddedCompactionRuntimeContext({
         sessionKey: null,
+        sandboxSessionKey: null,
         messageChannel: null,
         messageProvider: null,
         agentAccountId: null,
@@ -62,6 +65,7 @@ describe("buildEmbeddedCompactionRuntimeContext", () => {
       }),
     ).toMatchObject({
       sessionKey: undefined,
+      sandboxSessionKey: undefined,
       messageChannel: undefined,
       messageProvider: undefined,
       agentAccountId: undefined,

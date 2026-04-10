@@ -971,6 +971,7 @@ export async function runEmbeddedPiAgent(
           const attempt = await runEmbeddedAttempt({
             sessionId: params.sessionId,
             sessionKey: params.sessionKey,
+            sandboxSessionKey: params.sandboxSessionKey,
             trigger: params.trigger,
             memoryFlushWritePath: params.memoryFlushWritePath,
             messageChannel: params.messageChannel,
@@ -1176,6 +1177,7 @@ export async function runEmbeddedPiAgent(
                 const overflowCompactionRuntimeContext = {
                   ...buildEmbeddedCompactionRuntimeContext({
                     sessionKey: params.sessionKey,
+                    sandboxSessionKey: params.sandboxSessionKey,
                     messageChannel: params.messageChannel,
                     messageProvider: params.messageProvider,
                     agentAccountId: params.agentAccountId,

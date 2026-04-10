@@ -1539,6 +1539,7 @@ export function buildAfterTurnRuntimeContext(params: {
 }): Partial<CompactEmbeddedPiSessionParams> {
   return buildEmbeddedCompactionRuntimeContext({
     sessionKey: params.attempt.sessionKey,
+    sandboxSessionKey: params.attempt.sandboxSessionKey,
     messageChannel: params.attempt.messageChannel,
     messageProvider: params.attempt.messageProvider,
     agentAccountId: params.attempt.agentAccountId,

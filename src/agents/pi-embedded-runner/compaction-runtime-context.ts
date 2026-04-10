@@ -5,6 +5,7 @@ import type { SkillSnapshot } from "../skills.js";
 
 export type EmbeddedCompactionRuntimeContext = {
   sessionKey?: string;
+  sandboxSessionKey?: string;
   messageChannel?: string;
   messageProvider?: string;
   agentAccountId?: string;
@@ -29,6 +30,7 @@ export type EmbeddedCompactionRuntimeContext = {
 
 export function buildEmbeddedCompactionRuntimeContext(params: {
   sessionKey?: string | null;
+  sandboxSessionKey?: string | null;
   messageChannel?: string | null;
   messageProvider?: string | null;
   agentAccountId?: string | null;
@@ -52,6 +54,7 @@ export function buildEmbeddedCompactionRuntimeContext(params: {
 }): EmbeddedCompactionRuntimeContext {
   return {
     sessionKey: params.sessionKey ?? undefined,
+    sandboxSessionKey: params.sandboxSessionKey ?? undefined,
     messageChannel: params.messageChannel ?? undefined,
     messageProvider: params.messageProvider ?? undefined,
     agentAccountId: params.agentAccountId ?? undefined,
